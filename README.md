@@ -1,57 +1,80 @@
-# Clario AI Meeting Assistant
+# Clario – AI Meeting Assistant
 
-An AI-powered web application that transcribes audio meetings, generates condensed summaries, extracts action items (assigned tasks, deadlines, and urgency/priority), and visualizes the results using advanced business analytics (Knowledge Graphs, Assignee distribution, Task Priority, and Completion Status charts).
+Clario is an AI-powered web application that transforms meeting audio into useful, structured information. It transcribes meetings, generates concise summaries, extracts action items with assignees, deadlines and priorities, and presents meeting insights through an analytics dashboard.
+
+## Features
+
+- Audio transcription using Whisper
+- Meeting summarization using BART
+- Action-item and task extraction using spaCy
+- Task assignment, deadlines and priority detection
+- Meeting history and search
+- Business analytics and visualizations
+- Knowledge graphs and task completion tracking
+- PDF export
 
 ## Prerequisites
 
-- Python 3.9+
-- [FFmpeg](https://ffmpeg.org/) (Required for Whisper audio decoding)
+- Python 3.9 or higher
+- FFmpeg
+- Git
 
-## Setup & Installation
+## Setup and Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/muhammadhurairnasir/clario_ai_meeting_assistant.git
-   cd Clario_Project_flask
-   ```
+### 1. Clone the repository
 
-2. **Create a virtual environment (optional but recommended)**
-   ```bash
-   python -m venv venv
-   # On Windows:
-   venv\Scripts\activate
-   # On macOS/Linux:
-   source venv/bin/activate
-   ```
+```bash
+git clone https://github.com/Yamna-Shabbir/Clario.git
+cd clario_ai_meeting_assistant
+```
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 2. Create a virtual environment
 
-4. **Download the spaCy language model**
-   ```bash
-   python -m spacy download en_core_web_sm
-   ```
+```bash
+python -m venv venv
+```
 
-## Running the Application
+On Windows:
 
-1. **Start the Flask Server**
-   ```bash
-   python app.py
-   ```
+```bash
+venv\Scripts\activate
+```
 
-2. **Access the App**
-   Open your browser and navigate to:
-   `http://127.0.0.1:5000`
+### 3. Install dependencies
 
-## Testing with Dummy Data
+```bash
+pip install -r requirements.txt
+```
 
-If you want to instantly load a fully-populated dummy meeting with generated graphs and analytics (ideal for demonstrations), run the database seeder script:
+### 4. Download the spaCy language model
+
+```bash
+python -m spacy download en_core_web_sm
+```
+
+### 5. Run the application
+
+```bash
+python app.py
+```
+
+Open your browser and visit:
+
+`http://127.0.0.1:5000`
+
+## Testing with Demo Data
+
+To populate the database with demonstration meeting data, run:
+
 ```bash
 python seed.py
 ```
-*Note: This will truncate your existing database and recreate a pristine testing environment with the demo credentials `demo@clario.ai` / `Demo1234!`.*
 
----
-*Note: The first time you process a meeting, the BART summarization and Whisper models will be downloaded automatically (~2-3 GB). Subsequent runs will use the cached models and execute faster.*
+**Warning:** This script may replace existing database records. Use it only in a test environment.
+
+## Notes
+
+- FFmpeg is required for audio processing.
+- Whisper and BART models may be downloaded automatically when first used.
+- Initial model downloads can take time and require an internet connection.
+- Keep API keys, credentials and environment variables out of the Git repository.
