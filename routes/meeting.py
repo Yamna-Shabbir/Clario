@@ -17,6 +17,7 @@ GET /result/<meeting_id>
 """
 
 import os
+import pathlib
 from flask import (
     Blueprint, flash, redirect, render_template,
     request, session, url_for,
@@ -37,9 +38,74 @@ from models.database import (
 from services.pipeline import run_clario_pipeline
 from routes.utils import login_required, current_user
 
+_APP_ROOT = pathlib.Path(__file__).resolve().parent.parent
+STATIC_GRAPHS_DIR = str(_APP_ROOT / "static" / "graphs")
+
 meeting_bp = Blueprint("meeting", __name__)
 
 ALLOWED_AUDIO = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".webm"}
+_GRAPH_COLUMNS = (
+    "graph_path",
+    "bar_chart_path",
+    "donut_chart_path",
+    "status_chart_path",
+)
+
+
+def _contained_file(root: str, *parts: str):
+    """Return a real file path only when every component stays inside root."""
+    if not root or not parts:
+        return None
+    if any(not isinstance(part, str) or part in ("", ".", "..") for part in parts):
+        return None
+    root_real = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.join(root_real, *parts))
+    try:
+        if os.path.commonpath([root_real, candidate]) != root_real:
+            return None
+    except ValueError:
+        return None
+    if not os.path.isfile(candidate):
+        return None
+    return candidate
+
+
+def _verified_audio_file(stored_name):
+    """Resolve an uploaded audio name only when it is a single file in UPLOAD_DIR."""
+    if not isinstance(stored_name, str):
+        return None
+    name = stored_name.replace("\\", "/").strip()
+    if not name or "/" in name or ":" in name:
+        return None
+    return _contained_file(UPLOAD_DIR, name)
+
+
+def _verified_graph_file(stored_path):
+    """Resolve a chart path only when it is graphs/<file> inside STATIC_GRAPHS_DIR."""
+    if not isinstance(stored_path, str):
+        return None
+    rel = stored_path.replace("\\", "/").strip().lstrip("/")
+    parts = rel.split("/")
+    if len(parts) != 2 or parts[0] != "graphs":
+        return None
+    return _contained_file(STATIC_GRAPHS_DIR, parts[1])
+
+
+def _remove_owned_files(meeting: dict) -> None:
+    """Delete audio and chart files recorded on this owned meeting."""
+    verified = []
+    audio = _verified_audio_file(meeting.get("audio_filename"))
+    if audio:
+        verified.append(audio)
+    for column in _GRAPH_COLUMNS:
+        graph = _verified_graph_file(meeting.get(column))
+        if graph:
+            verified.append(graph)
+    for path in dict.fromkeys(verified):
+        try:
+            os.remove(path)
+        except OSError as exc:
+            print(f"  Could not remove meeting file: {exc}")
 
 
 # ── Upload ─────────────────────────────────────────────────────────────────────
@@ -179,3 +245,43 @@ def complete_task(task_id: int):
 
     flash("Task marked as completed! ✅", "success")
     return redirect(url_for("meeting.result", meeting_id=row["meeting_id"]))
+
+
+# ── Delete meeting ─────────────────────────────────────────────────────────────
+@meeting_bp.route("/meeting/<int:meeting_id>/delete", methods=["POST"])
+@login_required
+def delete_meeting(meeting_id: int):
+    """Delete one meeting owned by the current user.
+
+    Transcripts, summaries, and tasks are removed by the foreign-key
+    ON DELETE CASCADE rules. Audio and chart files are removed only when
+    the stored path resolves inside the upload or static graph directory.
+    This project has no CSRF extension; the POST is protected by the
+    same session gate used for task completion.
+    """
+    user_id = session["user_id"]
+    init_db(DB_PATH)
+
+    meeting = get_meeting_detail(meeting_id, user_id, DB_PATH)
+    if not meeting:
+        flash("Meeting not found or access denied.", "error")
+        return redirect(url_for("dashboard.index"))
+
+    conn = get_connection(DB_PATH)
+    try:
+        cur = conn.execute(
+            "DELETE FROM meetings WHERE id = ? AND user_id = ?",
+            (meeting_id, user_id),
+        )
+        conn.commit()
+        deleted = cur.rowcount
+    finally:
+        conn.close()
+
+    if deleted != 1:
+        flash("Meeting not found or access denied.", "error")
+        return redirect(url_for("dashboard.index"))
+
+    _remove_owned_files(meeting)
+    flash("Meeting deleted.", "success")
+    return redirect(url_for("dashboard.index"))
