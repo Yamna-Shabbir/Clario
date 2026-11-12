@@ -178,10 +178,10 @@ def run_clario_pipeline(
     if progress_callback:
         progress_callback("detecting_tasks")
     print(" Classifying utterances and detecting tasks …")
-    nlp = _get_nlp()
     decisions: List[Dict[str, Any]] = []
     review_items: List[Dict[str, Any]] = []
     try:
+        nlp = _get_nlp()
         checked = verify_meeting_tasks(
             transcript,
             nlp=nlp,

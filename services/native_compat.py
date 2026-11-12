@@ -51,19 +51,38 @@ class _CompatLoader(importlib.abc.Loader):
             from srsly.msgpack.fallback import Packer
             module.Packer = Packer
         elif self.fullname == "srsly.msgpack._unpacker":
-            from srsly.msgpack.fallback import Unpacker, unpackb
-            module.Unpacker = Unpacker
-            module.unpackb = unpackb
+            _fill_unpacker(module)
         elif self.fullname == "thinc.layers.premap_ids":
             module.premap_ids = _premap_ids()
 
 
 class _CompatFinder(importlib.abc.MetaPathFinder):
+    def __init__(self, names: set[str]) -> None:
+        self.names = names
+
     def find_spec(self, fullname, path, target=None):  # noqa: ANN001
-        if fullname not in _SRSLY_TARGETS:
+        if fullname not in self.names:
             return None
         loader = _CompatLoader(fullname)
         return importlib.machinery.ModuleSpec(fullname, loader)
+
+
+def _fill_unpacker(module) -> None:
+    """Use srsly's pure-Python unpacker, allowing the int keys spaCy models store."""
+    from srsly.msgpack.fallback import Unpacker as FallbackUnpacker
+    from srsly.msgpack.fallback import unpackb as fallback_unpackb
+
+    class Unpacker(FallbackUnpacker):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("strict_map_key", False)
+            super().__init__(*args, **kwargs)
+
+    def unpackb(packed, **kwargs):
+        kwargs.setdefault("strict_map_key", False)
+        return fallback_unpackb(packed, **kwargs)
+
+    module.Unpacker = Unpacker
+    module.unpackb = unpackb
 
 
 def _fill_ujson(module) -> None:
@@ -190,11 +209,15 @@ def _install_torchaudio_stub() -> None:
 
 
 def install() -> None:
-    """Install the compatibility hooks once per process."""
+    """Install compatibility hooks once per process.
+
+    The msgpack stand-in allows integer map keys. spaCy model files use those
+    keys, and the pure-Python unpacker rejects them unless strict_map_key is off.
+    """
     global _INSTALLED
     if _INSTALLED:
         return
-    sys.meta_path.insert(0, _CompatFinder())
+    sys.meta_path.insert(0, _CompatFinder(set(_SRSLY_TARGETS)))
     if not _numba_is_usable():
         _install_numba_fallback()
     _install_torchaudio_stub()

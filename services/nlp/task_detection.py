@@ -435,8 +435,9 @@ def load_nlp(model: str = "en_core_web_sm"):
             print(f"Loading spaCy model '{model}' ...")
             _nlp = spacy.load(model)
             print("spaCy model loaded.")
-        except ImportError as exc:
+        except Exception as exc:
             _nlp_unavailable = True
+            _nlp = None
             print(f"spaCy is unavailable ({exc}). Using the regex task detector.")
             return None
     return _nlp

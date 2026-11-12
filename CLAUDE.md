@@ -292,7 +292,7 @@ services/jobs.py  _run_pipeline_job()
         │      A reply such as "I can do that" keeps the request sentence as evidence
         │      Repeated commitments collapse; a later deadline replaces the earlier one
         │      Unnamed commitments go to task_reviews instead of a guessed assignee
-        │      If spaCy's native libraries are blocked, keyword detection still runs
+        │      If spaCy cannot load (blocked native libs, or msgpack rejecting int keys), keyword detection still runs and the meeting is not marked failed
         │      → spacy.load("en_core_web_sm") [lazy, cached globally, thread-safe]
         │      → regex keyword matching with verb POS validation
         │      → NER for PERSON (assignee) and DATE/TIME (due date)
