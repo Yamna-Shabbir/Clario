@@ -1,0 +1,151 @@
+{
+  "meta": {
+    "description": "Annotated Urdu-script, Roman Urdu, and code-switched meetings. Dev is the split used to correct the lexicon. Held-out is scored after those corrections and is not a claim about every real meeting.",
+    "splits": ["dev", "held_out"]
+  },
+  "meetings": [
+    {
+      "id": "roman-deadline-change",
+      "language": "roman",
+      "split": "dev",
+      "transcript": "[00:03:10] Speaker 1 – Hina.\nAssalam o alaikum.\n\n[00:03:22] Speaker 2 – Bilal.\nMain login bug kal tak theek kar dunga.\n\n[00:03:48] Speaker 2 – Bilal.\nNahi, Wednesday nahi.\n\n[00:03:55] Speaker 2 – Bilal.\nMain login bug Thursday tak theek kar dunga.\n\n[00:04:05] Speaker 3 – Sana.\nMain test report Friday tak bhej dungi.\n\n[00:04:20] Speaker 1 – Hina.\nKya aap notes aaj shaam tak share kar sakte ho, Sana?\n\n[00:04:28] Speaker 3 – Sana.\nHaan, main kar dungi.\n\n[00:04:40] Speaker 2 – Bilal.\nKal meeting mein hum ne budget discuss kiya tha.",
+      "tasks": [
+        {"assignee": "Bilal", "includes": ["login", "thursday"], "time": "00:03:55", "evidence": "Thursday tak theek kar dunga", "note": "later deadline replaces tomorrow"},
+        {"assignee": "Sana", "includes": ["report", "friday"], "time": "00:04:05", "evidence": "bhej dungi", "note": "Roman future send"},
+        {"assignee": "Sana", "includes": ["notes", "evening"], "time": "00:04:28", "evidence": "kar dungi", "note": "short reply to Hina's request"}
+      ],
+      "not_tasks": ["budget", "wednesday"],
+      "decisions": []
+    },
+    {
+      "id": "roman-morning-fix",
+      "language": "roman",
+      "split": "dev",
+      "transcript": "[00:08:01] Speaker 1 – Rehan.\nMain deployment notes aaj subah tak likh dunga.\n\n[00:08:14] Speaker 2 – Hira.\nRehan, please production bug kal tak theek kar dena.\n\n[00:08:22] Speaker 1 – Rehan.\nHaan main kar dunga.\n\n[00:08:30] Speaker 2 – Hira.\nUm theek hai.",
+      "tasks": [
+        {"assignee": "Rehan", "includes": ["deployment", "notes"], "time": "00:08:01", "evidence": "likh dunga", "note": "will write in the morning"},
+        {"assignee": "Rehan", "includes": ["bug", "tomorrow"], "time": "00:08:22", "evidence": "kar dunga", "note": "accepts Hira's fix request"}
+      ],
+      "not_tasks": ["theek hai"],
+      "decisions": []
+    },
+    {
+      "id": "urdu-script-assignments",
+      "language": "urdu",
+      "split": "dev",
+      "transcript": "[00:10:18] Speaker 2 – Kamran.\nمیں جمعہ تک API بھیج دوں گا۔\n\n[00:10:33] Speaker 1 – Faria.\nکامران، براہ کرم پیر تک نوٹس بھیج دیں۔\n\n[00:10:50] Speaker 2 – Kamran.\nہم نے فیصلہ کیا ریلیز جمعہ کو ہوگی۔\n\n[00:11:02] Speaker 3 – Nadeem.\nمیں نے کل بجٹ دیکھ لیا تھا۔",
+      "tasks": [
+        {"assignee": "Kamran", "includes": ["api", "friday"], "time": "00:10:18", "evidence": "بھیج دوں گا", "note": "Urdu script future send"},
+        {"assignee": "Kamran", "includes": ["notes", "monday"], "time": "00:10:33", "evidence": "نوٹس", "note": "please-send addressed to Kamran"}
+      ],
+      "not_tasks": ["بجٹ"],
+      "decisions": ["release"]
+    },
+    {
+      "id": "roman-ambiguous",
+      "language": "roman",
+      "split": "dev",
+      "transcript": "Speaker 1 – Laila.\nShayad koi logs dekh le baad mein.\n\nSpeaker 2 – Imran.\nMain slides zaroor bhej dunga, lekin date abhi clear nahi.",
+      "tasks": [
+        {"assignee": "Imran", "includes": ["slides"], "evidence": "bhej dunga", "note": "commitment with no agreed day"}
+      ],
+      "not_tasks": ["logs"],
+      "decisions": []
+    },
+    {
+      "id": "mixed-api-evening",
+      "language": "mixed",
+      "split": "dev",
+      "transcript": "[00:15:10] Omar:\nDashboard ka kaam almost done hai, lekin notification page mein bug hai.\n\n[00:15:16] Omar:\nMain notification page Monday tak complete kar dunga.\n\n[00:15:30] Ayesha:\nOmar, API update aaj shaam tak bhej dena.\n\n[00:15:44] Omar:\nTheek hai, main bhej dunga.\n\n[00:16:00] Ayesha:\nUh, okay, chalo theek hai.",
+      "tasks": [
+        {"assignee": "Omar", "includes": ["notification", "monday"], "time": "00:15:16", "evidence": "complete kar dunga", "note": "code-switched completion"},
+        {"assignee": "Omar", "includes": ["api", "evening"], "time": "00:15:44", "evidence": "bhej dunga", "note": "accepts Ayesha's evening request"}
+      ],
+      "not_tasks": ["almost done"],
+      "decisions": []
+    },
+    {
+      "id": "roman-client-email",
+      "language": "roman",
+      "split": "held_out",
+      "transcript": "[00:20:11] Speaker 1 – Zara.\nFarhan, aap client email peer tak likh do.\n\n[00:20:24] Speaker 2 – Farhan.\nMain pehle Friday bola tha.\n\n[00:20:32] Speaker 2 – Farhan.\nAb main client email Monday tak likh dunga.\n\n[00:20:40] Speaker 1 – Zara.\nKya aap design file kal tak bhej sakte ho?\n\n[00:20:46] Speaker 2 – Farhan.\nHaan main kar dunga.\n\n[00:21:00] Speaker 3 – Hira.\nKal hum ne sirf ideas discuss kiye thay.",
+      "tasks": [
+        {"assignee": "Farhan", "includes": ["email", "monday"], "time": "00:20:32", "evidence": "likh dunga", "note": "restated write commitment"},
+        {"assignee": "Farhan", "includes": ["design", "tomorrow"], "time": "00:20:46", "evidence": "kar dunga", "note": "reply to Zara"}
+      ],
+      "not_tasks": ["ideas"],
+      "decisions": []
+    },
+    {
+      "id": "urdu-budget-slides",
+      "language": "urdu",
+      "split": "held_out",
+      "transcript": "[00:30:05] Speaker 1 – Saad.\nمیں بدھ تک بجٹ رپورٹ بھیج دوں گا۔\n\n[00:30:16] Speaker 2 – Maryam.\nSaad، اتوار تک سلائیڈز چیک کر دیں۔\n\n[00:30:28] Speaker 1 – Saad.\nشاید کوئی بعد میں ڈمو دیکھے۔",
+      "tasks": [
+        {"assignee": "Saad", "includes": ["budget", "wednesday"], "time": "00:30:05", "evidence": "بھیج دوں گا", "note": "Urdu budget report"},
+        {"assignee": "Saad", "includes": ["slides", "sunday"], "time": "00:30:16", "evidence": "سلائیڈز", "note": "please check slides"}
+      ],
+      "not_tasks": ["ڈمو"],
+      "decisions": []
+    },
+    {
+      "id": "mixed-hedged-checklist",
+      "language": "mixed",
+      "split": "held_out",
+      "transcript": "[00:40:01] Nadia:\nMujhe lagta hai ke onboarding doc update honi chahiye.\n\n[00:40:12] Nadia:\nHaris, deployment checklist aaj raat tak complete kar dena.\n\n[00:40:20] Haris:\nMain dekh loon pehle, phir main kar dunga.",
+      "tasks": [
+        {"assignee": "Haris", "includes": ["checklist", "tonight"], "time": "00:40:20", "evidence": "kar dunga", "note": "accepts the checklist after a hedge"}
+      ],
+      "not_tasks": ["onboarding"],
+      "decisions": []
+    },
+  {
+    "id": "roman-noise-status",
+    "language": "roman",
+    "split": "dev",
+    "transcript": "[00:50:10] Speaker 1 – Danish.\n[noise] Okay team, kal hum ne release postpone ki thi.\n\n[00:50:22] Speaker 2 – Amna.\nMain client deck peer tak share kar dungi.\n\n[00:50:35] Speaker 1 – Danish.\nAmna, please metrics slide bhi bhej dena.\n\n[00:50:44] Speaker 2 – Amna.\nHaan main bhej dungi.\n\n[00:50:55] Speaker 3 – Usman.\nShayad hum design review baad mein karein.",
+    "tasks": [
+      {"assignee": "Amna", "includes": ["deck", "monday"], "time": "00:50:22", "evidence": "kar dungi", "note": "Roman commitment with weekday"},
+      {"assignee": "Amna", "includes": ["metrics", "slide"], "time": "00:50:44", "evidence": "bhej dungi", "note": "accepts Danish's add-on request"}
+    ],
+    "not_tasks": ["postpone", "design review"],
+    "decisions": []
+  },
+  {
+    "id": "urdu-indirect-deadline",
+    "language": "urdu",
+    "split": "dev",
+    "transcript": "[01:00:01] Speaker 1 – Hina.\nمجھے لگتا ہے ٹیم تھوڑی پریشان ہے۔\n\n[01:00:15] Speaker 2 – Bilal.\nمیں جمعرات تک لاگ ان مسئلہ ٹھیک کر دوں گا۔\n\n[01:00:28] Speaker 1 – Hina.\nبلال، براہ کرم کلائنٹ کو اپ ڈیٹ بھیج دیں۔\n\n[01:00:36] Speaker 2 – Bilal.\nٹھیک ہے، بھیج دوں گا۔",
+    "tasks": [
+      {"assignee": "Bilal", "includes": ["login", "thursday"], "time": "01:00:15", "evidence": "ٹھیک کر", "note": "Urdu first-person fix"},
+      {"assignee": "Bilal", "includes": ["client", "update"], "time": "01:00:36", "evidence": "بھیج دوں گا", "note": "short Urdu acceptance"}
+    ],
+    "not_tasks": ["پریشان"],
+    "decisions": []
+  },
+  {
+    "id": "mixed-code-switch-review",
+    "language": "mixed",
+    "split": "held_out",
+    "transcript": "[01:10:05] Sara:\nAPI latency abhi bhi high hai.\n\n[01:10:12] Sara:\nAli, can you profile the database before Friday?\n\n[01:10:20] Ali:\nYes, I will do that.\n\n[01:10:28] Sara:\nWe should probably revisit the caching idea sometime.\n\n[01:10:35] Ali:\nMain caching doc mangal tak likh dunga.",
+    "tasks": [
+      {"assignee": "Ali", "includes": ["database", "friday"], "time": "01:10:20", "evidence": "do that", "note": "English vague reply"},
+      {"assignee": "Ali", "includes": ["caching", "tuesday"], "time": "01:10:35", "evidence": "likh dunga", "note": "Roman write commitment"}
+    ],
+    "not_tasks": ["revisit the caching idea"],
+    "decisions": []
+  },
+  {
+    "id": "roman-held-out-voice",
+    "language": "roman",
+    "split": "held_out",
+    "transcript": "[01:20:11] Zain:\nMain ne promise kiya tha ke invoice Friday ko bhej dunga.\n\n[01:20:24] Zain:\nInvoice ab Monday tak bhej dunga.\n\n[01:20:33] Mehwish:\nZain, client ko call bhi kar lena.\n\n[01:20:40] Zain:\nTheek hai, main kar lunga.",
+    "tasks": [
+      {"assignee": "Zain", "includes": ["invoice", "monday"], "time": "01:20:24", "evidence": "bhej dunga", "note": "restated send deadline"},
+      {"assignee": "Zain", "includes": ["call"], "time": "01:20:40", "evidence": "kar lunga", "note": "accepts call request"}
+    ],
+    "not_tasks": ["Friday ko"],
+    "decisions": []
+  }
+  ]
+}

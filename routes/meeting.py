@@ -25,7 +25,7 @@ from flask import (
     request, session, url_for,
 )
 
-from config import DB_PATH, UPLOAD_DIR, GRAPH_DIR
+from config import DB_PATH, UPLOAD_DIR, GRAPH_DIR, STATIC_GRAPH_DIR
 from models.database import (
     init_db,
     insert_meeting,
@@ -41,7 +41,7 @@ from services.pipeline import run_clario_pipeline
 from routes.utils import login_required, current_user
 
 _APP_ROOT = pathlib.Path(__file__).resolve().parent.parent
-STATIC_GRAPHS_DIR = str(_APP_ROOT / "static" / "graphs")
+STATIC_GRAPHS_DIR = STATIC_GRAPH_DIR
 
 meeting_bp = Blueprint("meeting", __name__)
 
@@ -219,15 +219,41 @@ def result(meeting_id: int):
         abort(404)
 
     tasks = get_tasks_by_meeting(meeting_id, DB_PATH)
-    from models.database import get_meeting_participants
+    from models.database import (
+        get_decisions_by_meeting,
+        get_meeting_emails,
+        get_meeting_participants,
+        get_pending_confirmations,
+        get_task_reviews,
+    )
     participants = get_meeting_participants(meeting_id, DB_PATH)
+    decisions = get_decisions_by_meeting(meeting_id, DB_PATH)
+    followups = get_meeting_emails(meeting_id, DB_PATH)
+    confirmations = get_pending_confirmations(meeting_id, DB_PATH)
+    reviews = get_task_reviews(meeting_id, DB_PATH)
+
+    from models.database import TASK_STATUSES
+
+    _status_labels = {
+        "pending": "Pending",
+        "started": "Started",
+        "doing": "Doing",
+        "completed": "Completed",
+    }
 
     return render_template(
         "meeting/result.html",
-        user         = current_user(),
-        meeting      = meeting,
-        tasks        = tasks,
-        participants = participants,
+        user          = current_user(),
+        meeting       = meeting,
+        tasks         = tasks,
+        decisions     = decisions,
+        participants  = participants,
+        followups     = followups,
+        confirmations = confirmations,
+        reviews       = reviews,
+        statuses      = TASK_STATUSES,
+        status_labels = _status_labels,
+        my_email      = (session.get("email") or "").strip().lower(),
     )
 
 
@@ -235,46 +261,30 @@ def result(meeting_id: int):
 @meeting_bp.route("/task/<int:task_id>/complete", methods=["POST"])
 @login_required
 def complete_task(task_id: int):
-    """Mark a task as completed (ownership enforced)."""
-    user_id = session["user_id"]
+    """Legacy shortcut: mark completed only when the assignee's email matches."""
+    from models.database import set_assignee_task_status, get_tasks_by_meeting
 
-    # Verify the task belongs to a meeting owned by the current user
     init_db(DB_PATH)
-    conn = get_connection(DB_PATH)
-    row = conn.execute("""
-        SELECT tk.id, m.id AS meeting_id
-        FROM   tasks    tk
-        JOIN   meetings m ON m.id = tk.meeting_id
-        WHERE  tk.id = ? AND m.user_id = ?
-    """, (task_id, user_id)).fetchone()
-    conn.close()
+    meeting_id = set_assignee_task_status(
+        task_id, session.get("email") or "", "completed", DB_PATH,
+    )
+    if not meeting_id:
+        flash("Only the person assigned to that task can change its status.", "error")
+        return redirect(request.referrer or url_for("tasks.index"))
 
-    if not row:
-        flash("Task not found or access denied.", "error")
-        return redirect(url_for("dashboard.index"))
-
-    mark_task_complete(task_id, DB_PATH)
-
-    # ── Regenerate status pie chart to reflect updated pending/completed counts ──
     try:
         import pathlib
         from utils.visualization import generate_status_pie_chart
-        from models.database import get_tasks_by_meeting
 
-        meeting_id = row["meeting_id"]
         updated_tasks = get_tasks_by_meeting(meeting_id, DB_PATH)
-
-        app_root = pathlib.Path(__file__).resolve().parent.parent
-        status_path_abs = app_root / "static" / "graphs" / f"status_m{meeting_id}.png"
+        status_path_abs = pathlib.Path(STATIC_GRAPHS_DIR) / f"status_m{meeting_id}.png"
         status_path_abs.parent.mkdir(parents=True, exist_ok=True)
-
         generate_status_pie_chart(updated_tasks, output_path=str(status_path_abs))
-        print(f"  Status pie chart regenerated for meeting {meeting_id}")
     except Exception as exc:
         print(f"  Status chart regeneration failed: {exc}")
 
-    flash("Task marked as completed! ✅", "success")
-    return redirect(url_for("meeting.result", meeting_id=row["meeting_id"]))
+    flash("Task marked completed.", "success")
+    return redirect(url_for("meeting.result", meeting_id=meeting_id))
 
 
 # ── Delete meeting ─────────────────────────────────────────────────────────────

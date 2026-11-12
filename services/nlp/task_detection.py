@@ -1,5 +1,5 @@
 """
-services/task_detection.py
+services/nlp/task_detection.py
 ---------------------------
 spaCy + Regex action-item / task detection engine.
 Extracted from Clario Project notebook (cells 110-112, 114, 121).
@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional
 # Module-level NLP cache
 # ---------------------------------------------------------------------------
 _nlp = None
+_nlp_unavailable = False
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ STRONG_CUES: List[str] = [
     r"\bfollow[\s-]up\b",
     r"\btake\s+care\s+of\b",
     r"\bensure\b",
+    r"\bpromised\s+to\b",
     r"\bit\s+is\s+important\s+that\b",   # "it is important that John submits"
     r"\bit['']?s\s+important\s+that\b",  # "it's important that"
     r"\bit\s+would\s+be\s+(?:great|nice|helpful|good|ideal|best|wonderful|appreciated)\s+if\b",
@@ -180,6 +182,17 @@ _POLITE_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ABSOLUTE_DATE_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june|july|"
+    r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b"
+    r"|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|"
+    r"apr(?:il)?|may|june|july|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|"
+    r"nov(?:ember)?|dec(?:ember)?)(?:\s+\d{4})?\b"
+    r"|\b\d{4}-\d{2}-\d{2}\b",
+    re.IGNORECASE,
+)
+
 _RELATIVE_DATE_RE = re.compile(
     r"\b(today|tomorrow|yesterday|next\s+\w+|last\s+\w+|this\s+\w+|"
     r"monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
@@ -212,8 +225,47 @@ def _has_strong_action_verb(text_lower: str) -> bool:
     return _matches_any(STRONG_ACTION_VERBS, text_lower)
 
 
+# A listed action word used as a noun ("test cases", "the release") is not a task.
+_NOUN_CONTEXT = {
+    r"\btest\b": re.compile(r"\btest\s+cases?\b", re.IGNORECASE),
+    r"\bupdate\b": re.compile(r"\b(?:an|the|api|status)\s+update\b", re.IGNORECASE),
+    r"\bbuild\b": re.compile(r"\b(?:the|a|this)\s+build\b", re.IGNORECASE),
+    r"\brelease\b": re.compile(r"\b(?:the|a|this)\s+release\b", re.IGNORECASE),
+    r"\bdocument\b": re.compile(r"\b(?:the|a|this)\s+document\b", re.IGNORECASE),
+    r"\bdraft\b": re.compile(r"\b(?:the|a|this)\s+draft\b", re.IGNORECASE),
+}
+
+
+def _used_as_noun(pattern: str, sentence: str) -> bool:
+    """True when *pattern* only appears inside a noun phrase in *sentence*."""
+    guard = _NOUN_CONTEXT.get(pattern)
+    return bool(guard and guard.search(sentence))
+
+
 def _has_weak_verb(text_lower: str) -> bool:
     return _matches_any(WEAK_VERBS, text_lower)
+
+
+_PERSON_SKIP = {
+    "the", "this", "that", "please", "let", "team", "we", "monday", "tuesday",
+    "wednesday", "thursday", "friday", "saturday", "sunday", "today",
+    "tomorrow", "tonight", "next", "will", "make", "sure",
+    "yes", "so", "okay", "ok", "sorry", "hello", "thanks", "thank", "great",
+    "can", "could", "will", "would", "should", "please", "also", "how",
+    "invoice", "deployment", "notification", "dashboard", "checklist",
+    "metrics", "release", "budget", "caching", "design", "client", "report",
+    "also", "however", "first", "without", "well", "sure", "right", "hi",
+    "hey", "good", "very", "still", "about", "maybe", "actually", "instead",
+    "one", "what", "how",
+}
+
+
+def _guess_person(sentence: str) -> str:
+    """Pick the first capitalised name when spaCy NER is unavailable."""
+    for match in re.finditer(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b", sentence):
+        if match.group(0).lower() not in _PERSON_SKIP:
+            return match.group(0)
+    return "Team"
 
 
 def _action_verb_is_verbal(pattern: str, sent_doc) -> bool:
@@ -372,12 +424,21 @@ def load_nlp(model: str = "en_core_web_sm"):
     -------
     spacy.language.Language
     """
-    global _nlp
+    global _nlp, _nlp_unavailable
+    if _nlp_unavailable:
+        return None
     if _nlp is None:
-        import spacy
-        print(f"Loading spaCy model '{model}' ...")
-        _nlp = spacy.load(model)
-        print("spaCy model loaded.")
+        from services.native_compat import install
+        install()
+        try:
+            import spacy
+            print(f"Loading spaCy model '{model}' ...")
+            _nlp = spacy.load(model)
+            print("spaCy model loaded.")
+        except ImportError as exc:
+            _nlp_unavailable = True
+            print(f"spaCy is unavailable ({exc}). Using the regex task detector.")
+            return None
     return _nlp
 
 
@@ -424,8 +485,15 @@ def detect_tasks(
         loaded_nlp = load_nlp()
 
     tasks: List[Dict[str, Any]] = []
-    doc = loaded_nlp(text)
-    sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+    if loaded_nlp is None:
+        sentences = [
+            part.strip()
+            for part in re.split(r"(?<=[.!?])\s+", text)
+            if part.strip()
+        ]
+    else:
+        doc = loaded_nlp(text)
+        sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
 
     for sentence in sentences:
         sl = sentence.lower()
@@ -469,13 +537,24 @@ def detect_tasks(
         elif _has_strong_action_verb(sl):
             # Verify the matched verb is actually used as a VERB (not a noun)
             # e.g. "the build pipeline" → build is NOUN → skip
-            # Parse the sentence for POS checking
-            sent_doc_for_pos = loaded_nlp(sentence)
-            for p in STRONG_ACTION_VERBS:
-                if re.search(p, sl) and _action_verb_is_verbal(p, sent_doc_for_pos):
-                    matched_keyword = p.replace(r"\b", "").replace("?", "").strip()
-                    is_task = True
-                    break
+            # Parse the sentence for POS checking. Without spaCy, keep the verb.
+            if loaded_nlp is None:
+                for p in STRONG_ACTION_VERBS:
+                    if re.search(p, sl) and not _used_as_noun(p, sentence):
+                        matched_keyword = p.replace(r"\b", "").replace("?", "").strip()
+                        is_task = True
+                        break
+            else:
+                sent_doc_for_pos = loaded_nlp(sentence)
+                for p in STRONG_ACTION_VERBS:
+                    if (
+                        re.search(p, sl)
+                        and not _used_as_noun(p, sentence)
+                        and _action_verb_is_verbal(p, sent_doc_for_pos)
+                    ):
+                        matched_keyword = p.replace(r"\b", "").replace("?", "").strip()
+                        is_task = True
+                        break
 
         elif _has_weak_verb(sl) and _has_strong_cue(sl):
             # Weak verb is only valid when accompanied by a strong cue
@@ -483,7 +562,7 @@ def detect_tasks(
             is_task = True
 
         # --- Dep-parse fallback ---
-        if not is_task:
+        if not is_task and loaded_nlp is not None:
             sent_doc = loaded_nlp(sentence)
             if _dep_parse_is_task(sent_doc):
                 is_task = True
@@ -492,22 +571,23 @@ def detect_tasks(
         if not is_task:
             continue
 
-        # --- NER pass on the sentence ---
-        sent_doc = loaded_nlp(sentence)
-
-        # Assignee: first PERSON entity; fall back to "Team"
+        # Assignee: first PERSON entity; fall back to a capitalised name, then "Team"
         assigned_to = "Team"
         _pronoun_set = {"i", "we", "they", "he", "she", "it", "you",
                         "i'll", "we'll", "they'll"}
-        for ent in sent_doc.ents:
-            if ent.label_ == "PERSON":
-                if ent.text.lower() not in _pronoun_set:
-                    assigned_to = ent.text
-                    break
+        sent_doc = loaded_nlp(sentence) if loaded_nlp is not None else None
+        if sent_doc is not None:
+            for ent in sent_doc.ents:
+                if ent.label_ == "PERSON":
+                    if ent.text.lower() not in _pronoun_set:
+                        assigned_to = ent.text
+                        break
+        else:
+            assigned_to = _guess_person(sentence)
 
         assigned_email = None
         if participants is not None:
-            from services.participant_matching import match
+            from services.nlp.participant_matching import match
             matched_p = match(assigned_to, participants)
             if matched_p:
                 assigned_to = matched_p.get("name", assigned_to)
@@ -516,16 +596,17 @@ def detect_tasks(
         # Due date: first DATE or TIME entity
         due_date = "Not specified"
         due_date_iso: Optional[str] = None
-        for ent in sent_doc.ents:
-            if ent.label_ in ("DATE", "TIME"):
-                due_date = ent.text
-                # Try resolving relative date to ISO
-                due_date_iso = _resolve_date(ent.text, meeting_date)
-                break
+        if sent_doc is not None:
+            for ent in sent_doc.ents:
+                if ent.label_ in ("DATE", "TIME"):
+                    due_date = ent.text
+                    # Try resolving relative date to ISO
+                    due_date_iso = _resolve_date(ent.text, meeting_date)
+                    break
 
         # If no NER date but a relative phrase exists, try to resolve it
         if due_date == "Not specified":
-            m = _RELATIVE_DATE_RE.search(sentence)
+            m = _ABSOLUTE_DATE_RE.search(sentence) or _RELATIVE_DATE_RE.search(sentence)
             if m:
                 due_date = m.group(0)
                 due_date_iso = _resolve_date(due_date, meeting_date)

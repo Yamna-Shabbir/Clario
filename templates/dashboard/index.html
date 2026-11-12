@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_mic, icon_clipboard, icon_user, icon_arrow_left %}
 
 {% block title %}Dashboard{% endblock %}
 
@@ -6,52 +7,42 @@
 <div class="page-body">
 <div class="container">
 
-  <!-- ── Page header ──────────────────────────────────────── -->
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:36px; flex-wrap:wrap; gap:16px;">
+  <div class="page-header">
     <div>
-      <h1 style="font-size:2rem; font-weight:800; margin-bottom:4px;">
-        Good day, {{ user.username }} 👋
-      </h1>
-      <p class="text-muted">Here's what's happening with your meetings.</p>
+      <h1 class="page-title">Good day, {{ user.username }}</h1>
+      <p class="page-lead">Here is what is happening with your meetings.</p>
     </div>
-    <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary">
-      + Upload meeting
-    </a>
+    <div class="row-actions">
+      <a href="{{ url_for('live.start') }}" class="btn btn-primary">Start meeting</a>
+      <a href="{{ url_for('meeting.upload') }}" class="btn btn-outline">Upload</a>
+    </div>
   </div>
 
-  <!-- ── Stat cards ───────────────────────────────────────── -->
-  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap:18px; margin-bottom:44px;">
-
-    <div class="card stat-card">
+  <div class="bento-stats">
+    <div class="card stat-card card-interactive">
       <div class="stat-number">{{ total_meetings }}</div>
-      <div class="stat-label">📁 Meetings processed</div>
+      <div class="stat-label">Meetings processed</div>
     </div>
-
-    <div class="card stat-card">
+    <div class="card stat-card card-interactive">
       <div class="stat-number">{{ total_tasks }}</div>
-      <div class="stat-label">📋 Total tasks</div>
+      <div class="stat-label">Total tasks</div>
     </div>
-
-    <div class="card stat-card">
+    <div class="card stat-card card-interactive">
       <div class="stat-number">{{ pending_count }}</div>
-      <div class="stat-label">⏳ Pending tasks</div>
+      <div class="stat-label">Pending tasks</div>
     </div>
-
-    <div class="card stat-card">
+    <div class="card stat-card card-interactive">
       <div class="stat-number">{{ people_stats|length }}</div>
-      <div class="stat-label">👥 Assignees tracked</div>
+      <div class="stat-label">Assignees tracked</div>
     </div>
-
   </div>
 
-  <div style="display:grid; grid-template-columns: 2fr 1fr; gap:24px; flex-wrap:wrap;">
-
-    <!-- ── Recent meetings ──────────────────────────────────── -->
+  <div class="bento-main">
     <div>
-      <h2 class="section-heading">📁 Recent meetings</h2>
+      <h2 class="section-heading">Recent meetings</h2>
 
       {% if meetings %}
-        <div class="card" style="padding:0; overflow:hidden;">
+        <div class="card card-flush">
           <div class="table-wrap">
             <table>
               <thead>
@@ -67,35 +58,30 @@
               <tbody>
                 {% for m in meetings|reverse %}
                 <tr>
-                  <td><span class="badge badge-purple">{{ m.id }}</span></td>
+                  <td><span class="badge badge-lilac">{{ m.id }}</span></td>
                   <td>{{ m.meeting_date }}</td>
                   <td>
                     {% if m.status == 'queued' %}
-                      <span class="badge" style="background:rgba(99,102,241,0.2); color:#A5B4FC; border:1px solid rgba(99,102,241,0.4);">Queued</span>
+                      <span class="badge badge-queued">Queued</span>
                     {% elif m.status == 'processing' %}
-                      <span class="badge" style="background:rgba(245,158,11,0.2); color:#FCD34D; border:1px solid rgba(245,158,11,0.4);">Processing</span>
+                      <span class="badge badge-processing">Processing</span>
                     {% elif m.status == 'failed' %}
-                      <span class="badge" style="background:rgba(239,68,68,0.2); color:#FCA5A5; border:1px solid rgba(239,68,68,0.4);">Failed</span>
+                      <span class="badge badge-failed">Failed</span>
                     {% else %}
-                      <span class="badge badge-green">Completed</span>
+                      <span class="badge badge-mint">Completed</span>
                     {% endif %}
                   </td>
-                  <td style="max-width:320px; color:var(--muted); font-size:0.88rem;">
+                  <td class="td-preview">
                     {{ (m.summary or '')[:120] }}{% if (m.summary or '')|length > 120 %}…{% endif %}
                   </td>
-                  <td style="color:var(--muted); font-size:0.85rem; white-space:nowrap;">
+                  <td class="td-nowrap text-muted">
                     {{ m.created_at[:10] if m.created_at else '—' }}
                   </td>
-                  <td style="white-space:nowrap;">
-                    <a href="{{ url_for('meeting.result', meeting_id=m.id) }}"
-                       class="btn btn-outline btn-sm">
-                      View →
-                    </a>
-                    <form method="POST"
-                          action="{{ url_for('meeting.delete_meeting', meeting_id=m.id) }}"
-                          style="display:inline; margin-left:8px;">
+                  <td class="td-actions">
+                    <a href="{{ url_for('meeting.result', meeting_id=m.id) }}" class="btn btn-outline btn-sm">View</a>
+                    <form method="POST" action="{{ url_for('meeting.delete_meeting', meeting_id=m.id) }}" class="inline-form">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                      <button type="submit" class="btn btn-outline btn-sm"
+                      <button type="submit" class="btn btn-ghost btn-sm"
                               onclick="return confirm('Delete this meeting and its transcript, summary, and tasks? This cannot be undone.')">
                         Delete
                       </button>
@@ -107,112 +93,97 @@
             </table>
           </div>
         </div>
-
       {% else %}
-        <div class="card" style="padding:48px; text-align:center;">
-          <div style="font-size:3rem; margin-bottom:16px;">🎙️</div>
-          <p style="font-weight:600; margin-bottom:8px;">No meetings yet</p>
-          <p class="text-muted" style="margin-bottom:24px;">Upload your first meeting recording to get started.</p>
-          <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary btn-sm">Upload now</a>
+        <div class="card empty-state">
+          <div class="empty-state__icon">{{ icon_mic(28, 'icon') }}</div>
+          <p class="empty-state__title">No meetings yet</p>
+          <p class="empty-state__lead">Start a live meeting or upload a recording to see results here.</p>
+          <a href="{{ url_for('live.start') }}" class="btn btn-primary btn-sm">Start meeting</a>
         </div>
       {% endif %}
     </div>
 
-    <!-- ── Assignee leaderboard ──────────────────────────────── -->
     <div>
-      <h2 class="section-heading">👥 Top assignees</h2>
-      <div class="card" style="padding:22px;">
+      <h2 class="section-heading">Top assignees</h2>
+      <div class="card card-pad-sm">
         {% if people_stats %}
           {% for name, count in people_stats[:8] %}
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-            <span class="badge badge-green attendee-tag" data-name="{{ name }}" style="cursor:pointer; font-size: 0.9rem; padding: 6px 14px;" title="View all tasks for {{ name }}">
-              👤 {{ name }}
+          <div class="row-between stack-sm">
+            <span class="badge badge-mint attendee-tag badge-clickable" data-name="{{ name }}" title="View all tasks for {{ name }}">
+              {{ icon_user(14, 'icon') }} {{ name }}
             </span>
-            <span class="badge badge-blue">{{ count }} task{{ 's' if count != 1 }}</span>
+            <span class="badge badge-lilac">{{ count }} task{{ 's' if count != 1 }}</span>
           </div>
           {% endfor %}
         {% else %}
-          <p class="text-muted" style="text-align:center; padding:24px 0;">No data yet.</p>
+          <p class="text-muted text-center stack-md">No data yet.</p>
         {% endif %}
       </div>
     </div>
-
   </div>
 
-  <!-- ── Attendee Task Modal ────────────────────────────────────── -->
-  <div id="attendee-modal" class="image-modal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:rgba(10,12,16,0.95); backdrop-filter:blur(10px);">
-    <div class="attendee-modal-content card" style="background:var(--bg-deep); padding: 30px; margin: 10vh auto; max-width: 600px; position:relative;">
-      <span id="attendee-modal-close" style="position:absolute; top:15px; right:20px; color:var(--muted); font-size:1.1rem; cursor:pointer; padding:8px 16px; background:rgba(255,255,255,0.05); border-radius:var(--radius-sm);">&times; Close</span>
-      <h3 id="attendee-modal-title" style="margin-bottom:20px; font-size:1.5rem; display:flex; align-items:center; gap:10px;"></h3>
-      <div id="attendee-modal-body" style="max-height: 60vh; overflow-y: auto; padding-right: 10px;"></div>
+  <div id="attendee-modal" class="image-modal">
+    <div class="attendee-modal-content card">
+      <button type="button" id="attendee-modal-close" class="image-modal-close" aria-label="Close">Close</button>
+      <h3 id="attendee-modal-title" class="page-title stack-sm"></h3>
+      <div id="attendee-modal-body"></div>
     </div>
   </div>
 
 </div>
 </div>
 
-  <!-- ── Interactive Attendee Script ────────────────────────────── -->
-  <script>
-    const tasksData = {{ all_tasks|tojson }};
+<script>
+  const tasksData = {{ all_tasks|tojson }};
 
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str || '';
-      return div.innerHTML;
-    }
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
 
-    document.addEventListener("DOMContentLoaded", () => {
-      const modal = document.getElementById("attendee-modal");
-      const modalTitle = document.getElementById("attendee-modal-title");
-      const modalBody = document.getElementById("attendee-modal-body");
-      const closeBtn = document.getElementById("attendee-modal-close");
+  document.addEventListener("DOMContentLoaded", () => {
+    const modal = document.getElementById("attendee-modal");
+    const modalTitle = document.getElementById("attendee-modal-title");
+    const modalBody = document.getElementById("attendee-modal-body");
+    const closeBtn = document.getElementById("attendee-modal-close");
 
-      // Click to open
-      document.querySelectorAll(".attendee-tag").forEach(tag => {
-        tag.addEventListener("click", () => {
-          const person = tag.getAttribute("data-name");
-          const personTasks = tasksData.filter(t => t.assigned_to === person);
-          
-          modalTitle.innerHTML = `👤 Overall tasks for <span class="text-purple">${escapeHtml(person)}</span>`;
-          modalBody.innerHTML = "";
-          
-          if (personTasks.length === 0) {
-            modalBody.innerHTML = `<p class="text-muted">No tasks found.</p>`;
-          } else {
-            let listHtml = `<ul style="list-style:none; padding:0; margin:0;">`;
-            personTasks.forEach(pt => {
-               const priorityColor = pt.priority === 'High' ? '#C88585' : (pt.priority === 'Medium' ? '#D9B384' : '#7CA88B');
-               const statusIcon = pt.status === 'completed' ? '✅' : '🔄';
-               listHtml += `
-                 <li style="padding:18px; border:1px solid var(--border); margin-bottom:12px; background:rgba(255,255,255,0.02); border-radius:12px; transition:all 0.2s ease;">
-                   <div style="font-weight:600; margin-bottom:10px; font-size:1.05rem; line-height:1.5;">${escapeHtml(pt.description)}</div>
-                   <div style="font-size:0.85rem; color:var(--muted); display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-                     <span style="display:flex; align-items:center; gap:6px;"><span style="color:#D9B384">📅</span> ${escapeHtml(pt.due_date)}</span>
-                     <span style="display:flex; align-items:center; gap:6px; color:${priorityColor};">● ${escapeHtml(pt.priority)} Priority</span>
-                     <span style="display:flex; align-items:center; gap:6px;">${statusIcon} ${pt.status === 'completed' ? 'Done' : 'Pending'}</span>
-                   </div>
-                 </li>
-               `;
-            });
-            listHtml += `</ul>`;
-            modalBody.innerHTML = listHtml;
-          }
-          
-          modal.style.display = "block";
-        });
-      });
+    document.querySelectorAll(".attendee-tag").forEach(tag => {
+      tag.addEventListener("click", () => {
+        const person = tag.getAttribute("data-name");
+        const personTasks = tasksData.filter(t => t.assigned_to === person);
 
-      // Click to close
-      closeBtn.addEventListener("click", () => {
-        modal.style.display = "none";
-      });
+        modalTitle.innerHTML = `Tasks for <span class="text-accent">${escapeHtml(person)}</span>`;
+        modalBody.innerHTML = "";
 
-      // Close on outside click
-      window.addEventListener("click", (e) => {
-        if (e.target == modal) {
-          modal.style.display = "none";
+        if (personTasks.length === 0) {
+          modalBody.innerHTML = `<p class="text-muted">No tasks found.</p>`;
+        } else {
+          let listHtml = `<ul class="modal-task-list">`;
+          personTasks.forEach(pt => {
+            const statusLabel = pt.status === 'completed' ? 'Done' : (pt.status || 'Pending');
+            listHtml += `
+              <li class="modal-task-item">
+                <div class="modal-task-item__title">${escapeHtml(pt.description)}</div>
+                <div class="modal-task-item__meta">
+                  <span>Due: ${escapeHtml(pt.due_date)}</span>
+                  <span>${escapeHtml(pt.priority)} priority</span>
+                  <span>${statusLabel}</span>
+                </div>
+              </li>`;
+          });
+          listHtml += `</ul>`;
+          modalBody.innerHTML = listHtml;
         }
+
+        modal.style.display = "block";
       });
     });
-  </script>
+
+    closeBtn.addEventListener("click", () => { modal.style.display = "none"; });
+    window.addEventListener("click", (e) => {
+      if (e.target === modal) modal.style.display = "none";
+    });
+  });
+</script>
 {% endblock %}

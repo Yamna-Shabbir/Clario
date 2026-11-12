@@ -1,76 +1,57 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_arrow_left, icon_user, icon_calendar, icon_check %}
 
 {% block title %}Google Meet — Attendees{% endblock %}
 
 {% block content %}
 <div class="page-body">
-  <div class="container" style="max-width:980px;">
+  <div class="container container-wide">
 
-    <!-- ── Header & Breadcrumbs ──────────────────────────────── -->
-    <div style="margin-bottom:28px;">
-      <a href="{{ url_for('integrations.google_meetings') }}" class="text-muted" style="font-size:0.9rem; display:inline-flex; align-items:center; gap:6px;">
-        ← Back to Recent Meetings
-      </a>
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px; margin-top:10px;">
-        <div>
-          <h1 style="font-size:2.2rem; font-weight:800; margin-bottom:6px;">
-            👥 Meeting Participants
-          </h1>
-          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <span class="text-muted" style="font-size:0.88rem;">
-              Record: <code style="font-size:0.82rem; color:var(--muted); background:rgba(255,255,255,0.03); padding:2px 8px; border-radius:4px;">{{ record }}</code>
-            </span>
-            {% if meeting_code %}
-              <a href="https://meet.google.com/{{ meeting_code }}" target="_blank" rel="noopener noreferrer"
-                 style="font-family:monospace; font-size:0.85rem; font-weight:600; color:#A5B4FC; text-decoration:none; background:rgba(165,180,252,0.1); padding:2px 8px; border-radius:4px; border:1px solid rgba(165,180,252,0.25);"
-                 title="Open meeting room in Google Meet">
-                meet.google.com/{{ meeting_code }} ↗
-              </a>
-            {% endif %}
-          </div>
+    <a href="{{ url_for('integrations.google_meetings') }}" class="back-link">{{ icon_arrow_left() }} Back to recent meetings</a>
+
+    <div class="row-between stack-sm">
+      <div>
+        <h1 class="page-title">{{ icon_user(22, 'icon') }} Meeting participants</h1>
+        <div class="row-actions">
+          <span class="text-muted">
+            Record: <code>{{ record }}</code>
+          </span>
+          {% if meeting_code %}
+            <a href="https://meet.google.com/{{ meeting_code }}" target="_blank" rel="noopener noreferrer"
+               title="Open meeting room in Google Meet">
+              <code>meet.google.com/{{ meeting_code }}</code>
+            </a>
+          {% endif %}
         </div>
-
-        {% if participants %}
-          <div style="display:flex; align-items:center; gap:10px;">
-            <span class="badge badge-purple" style="font-size:0.85rem; padding:6px 14px;">
-              {{ participants | length }} Attendee{{ 's' if (participants | length) != 1 else '' }}
-            </span>
-          </div>
-        {% endif %}
       </div>
+
+      {% if participants %}
+        <span class="badge badge-lilac">
+          {{ participants | length }} Attendee{{ 's' if (participants | length) != 1 else '' }}
+        </span>
+      {% endif %}
     </div>
 
-    <!-- ── Empty State ───────────────────────────────────────── -->
     {% if not participants %}
-      <div class="card" style="padding:56px 24px; text-align:center;">
-        <div style="font-size:3.2rem; margin-bottom:16px; line-height:1;">👤</div>
-        <h2 style="font-size:1.4rem; font-weight:700; margin-bottom:10px;">No attendees recorded</h2>
-        <p class="text-muted" style="max-width:480px; margin:0 auto 24px; font-size:0.92rem; line-height:1.6;">
+      <div class="card empty-state stack-lg">
+        <div class="empty-state__icon">{{ icon_user(28, 'icon') }}</div>
+        <h2 class="empty-state__title">No attendees recorded</h2>
+        <p class="empty-state__lead">
           Google Meet has not published participant session data for this conference instance.
           Data is usually available a few minutes after all attendees leave the room.
         </p>
-        <a href="{{ url_for('integrations.google_meetings') }}" class="btn btn-outline btn-sm">
-          ← Back to Meetings
-        </a>
+        <a href="{{ url_for('integrations.google_meetings') }}" class="btn btn-outline btn-sm">Back to meetings</a>
       </div>
 
     {% else %}
-      <!-- ── Participants Table Card ─────────────────────────── -->
-      <div class="card" style="padding:0; overflow:hidden;">
-        
-        <!-- Top Toolbar: Total & Import Form -->
-        <div style="padding:18px 24px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; background:rgba(255,255,255,0.015);">
+      <div class="card card-flush stack-lg">
+        <div class="row-between card-pad-sm">
           <div>
-            <span style="font-weight:700; font-size:1.05rem;">
-              Attendee Roster
-            </span>
-            <span class="text-muted" style="font-size:0.82rem; margin-left:8px;">
-              (Import into Clario to match task assignees)
-            </span>
+            <span class="feature-title">Attendee roster</span>
+            <span class="text-muted"> (Import into Clario to match task assignees)</span>
           </div>
 
-          <!-- Import Form -->
-          <form method="POST" action="{{ url_for('integrations.google_import') }}" style="display:flex; align-items:center; gap:8px; margin:0; flex-wrap:wrap;">
+          <form method="POST" action="{{ url_for('integrations.google_import') }}" class="form-row">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <input type="hidden" name="external_meeting_id" value="{{ record }}"/>
             <input type="hidden" name="meeting_code" value="{{ meeting_code or '' }}"/>
@@ -78,87 +59,66 @@
 
             {% if user_meetings %}
               <select name="meeting_id" class="select-dark"
-                      style="padding:7px 10px; font-size:0.82rem; border-radius:6px; min-width:180px; max-width:240px; height:auto;"
                       title="Select existing Clario meeting or choose New meeting">
-                <option value="">➕ New meeting</option>
+                <option value="">New meeting</option>
                 {% for um in user_meetings %}
                   <option value="{{ um.id }}">
-                    📁 {{ (um.get('title') or um.get('audio_filename') or 'Meeting #' ~ um.id) }} ({{ um.get('meeting_date', '') }})
+                    {{ (um.get('title') or um.get('audio_filename') or 'Meeting #' ~ um.id) }} ({{ um.get('meeting_date', '') }})
                   </option>
                 {% endfor %}
               </select>
             {% endif %}
 
-            <button type="submit" class="btn btn-sm btn-primary" style="white-space:nowrap; padding:8px 16px;">
-              📥 Import to Meeting
-            </button>
+            <button type="submit" class="btn btn-primary btn-sm">{{ icon_check(14, 'icon') }} Import to meeting</button>
           </form>
         </div>
 
-        <!-- Table Wrap -->
         <div class="table-wrap">
-          <table style="width:100%; margin:0; border-collapse:collapse;">
+          <table>
             <thead>
-              <tr style="border-bottom:1px solid rgba(255,255,255,0.08); text-align:left; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
-                <th style="padding:14px 24px;">Participant</th>
-                <th style="padding:14px 20px;">Type</th>
-                <th style="padding:14px 20px;">Joined</th>
-                <th style="padding:14px 20px;">Left</th>
-                <th style="padding:14px 24px;">Google Account ID</th>
+              <tr>
+                <th>Participant</th>
+                <th>Type</th>
+                <th>Joined</th>
+                <th>Left</th>
+                <th>Google account ID</th>
               </tr>
             </thead>
             <tbody>
               {% for p in participants %}
-                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-                  <td style="padding:14px 24px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                      <div style="width:32px; height:32px; border-radius:50%; background:rgba(194,163,112,0.15); color:var(--purple-light); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.85rem;">
-                        {{ (p.name or '?')[0] | upper }}
-                      </div>
-                      <div>
-                        <div style="font-weight:600; font-size:0.95rem;">
-                          {{ p.name or 'Unknown Participant' }}
-                        </div>
-                        {% if p.email %}
-                          <span style="font-size:0.78rem; color:var(--muted);">
-                            ✉️ {{ p.email }}
-                          </span>
-                        {% endif %}
-                      </div>
-                    </div>
-                  </td>
-
-                  <td style="padding:14px 20px;">
-                    {% if p.is_anonymous %}
-                      <span class="badge" style="background:rgba(234,179,8,0.15); color:#facc15; font-size:0.75rem; padding:3px 10px; border-radius:9999px;">
-                        {% if p.participant_type == 'phone' %}📞 Phone{% else %}👤 Anonymous{% endif %}
-                      </span>
-                    {% else %}
-                      <span class="badge" style="background:rgba(34,197,94,0.15); color:#86efac; font-size:0.75rem; padding:3px 10px; border-radius:9999px;">
-                        ✅ Signed In
-                      </span>
+                <tr>
+                  <td>
+                    <strong>{{ p.name or 'Unknown Participant' }}</strong>
+                    {% if p.email %}
+                      <div class="text-muted">{{ p.email }}</div>
                     {% endif %}
                   </td>
-
-                  <td style="padding:14px 20px; font-size:0.88rem; color:var(--muted);">
+                  <td>
+                    {% if p.is_anonymous %}
+                      <span class="badge badge-coral">
+                        {% if p.participant_type == 'phone' %}Phone{% else %}Anonymous{% endif %}
+                      </span>
+                    {% else %}
+                      <span class="badge badge-mint">{{ icon_check(12, 'icon') }} Signed in</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-muted td-nowrap">
                     {% if p.joined_at %}
-                      📅 {{ p.joined_at[:16] | replace("T", " ") }} UTC
+                      {{ icon_calendar(14, 'icon') }} {{ p.joined_at[:16] | replace("T", " ") }} UTC
                     {% else %}
                       —
                     {% endif %}
                   </td>
-
-                  <td style="padding:14px 20px; font-size:0.88rem; color:var(--muted);">
+                  <td class="text-muted td-nowrap">
                     {% if p.left_at %}
-                      📅 {{ p.left_at[:16] | replace("T", " ") }} UTC
+                      {{ icon_calendar(14, 'icon') }} {{ p.left_at[:16] | replace("T", " ") }} UTC
                     {% else %}
-                      <span style="color:#86efac; font-weight:600;">🟢 Active</span>
+                      <span class="vibe-positive">Active</span>
                     {% endif %}
                   </td>
-
-                  <td style="padding:14px 24px; font-size:0.82rem;">
+                  <td>
                     {% if p.external_user_id %}
-                      <code style="background:rgba(255,255,255,0.04); padding:3px 8px; border-radius:4px; color:#A5B4FC;">{{ p.external_user_id }}</code>
+                      <code>{{ p.external_user_id }}</code>
                     {% else %}
                       <span class="text-muted">—</span>
                     {% endif %}
@@ -168,7 +128,6 @@
             </tbody>
           </table>
         </div>
-
       </div>
     {% endif %}
 

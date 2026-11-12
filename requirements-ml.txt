@@ -13,6 +13,8 @@ openai-whisper
 
 # ── Summarisation ─────────────────────────────────────────────────────────────
 transformers>=4.30.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
 
 # ── PyTorch (CPU build; use appropriate index-url for GPU) ────────────────────
 torch>=2.0.0
@@ -20,4 +22,6 @@ torchaudio>=2.0.0
 
 # ── Audio decoding (Whisper needs ffmpeg-python for some formats) ─────────────
 ffmpeg-python
+# Bundled ffmpeg binary used when the system package is missing (local Windows).
+imageio-ffmpeg
 

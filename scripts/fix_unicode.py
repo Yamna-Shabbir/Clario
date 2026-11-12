@@ -29,9 +29,9 @@ ROOT = SCRIPT_DIR.parent
 FILES = [
     ROOT / "models" / "database.py",
     ROOT / "services" / "pipeline.py",
-    ROOT / "services" / "transcription.py",
-    ROOT / "services" / "summarization.py",
-    ROOT / "services" / "task_detection.py",
+    ROOT / "services" / "preprocessing" / "transcription.py",
+    ROOT / "services" / "nlp" / "summarization.py",
+    ROOT / "services" / "nlp" / "task_detection.py",
     ROOT / "services" / "evaluation.py",
     ROOT / "utils" / "visualization.py",
     ROOT / "utils" / "helpers.py",

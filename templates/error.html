@@ -1,19 +1,15 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_arrow_left %}
+
 {% block title %}{{ code }} – {{ title }}{% endblock %}
 
 {% block content %}
-<div style="min-height:100vh; display:flex; align-items:center; justify-content:center;
-            background:var(--grad-hero); text-align:center; padding:40px 20px;">
+<div class="error-shell">
   <div>
-    <div style="font-size:6rem; font-weight:900; line-height:1;
-                background:var(--grad-brand);
-                -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-                background-clip:text;">
-      {{ code }}
-    </div>
-    <h1 style="font-size:1.8rem; font-weight:700; margin:16px 0 10px;">{{ title }}</h1>
-    <p class="text-muted" style="margin-bottom:36px; max-width:420px;">{{ message }}</p>
-    <a href="{{ url_for('auth.landing') }}" class="btn btn-primary">← Go home</a>
+    <div class="error-code">{{ code }}</div>
+    <h1 class="error-title">{{ title }}</h1>
+    <p class="text-muted stack-lg">{{ message }}</p>
+    <a href="{{ url_for('auth.landing') }}" class="btn btn-primary">{{ icon_arrow_left(16, 'icon') }} Go home</a>
   </div>
 </div>
 {% endblock %}

@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% from "macros/icons.html" import icon_mic %}
+
+{# Defaults must live outside blocks so content + scripts_extra share them. #}
+{% set is_host = is_host if is_host is defined else false %}
+{% set admission_status = admission_status if admission_status is defined else ('admitted' if is_host else 'pending') %}
+{% set in_meeting = in_meeting if in_meeting is defined else (admission_status == 'admitted') %}
+{% set waiting_members = waiting_members if waiting_members is defined else [] %}
+
+{% block title %}{{ room.title }}{% endblock %}
+{% block body_class %}live-meet-page{% endblock %}
+
+{% block content %}
+<div class="live-meet" data-token="{{ room.join_token }}">
+  <header class="meet-header">
+    <div class="meet-header__title">
+      <h1 class="meet-title">{{ room.title }}</h1>
+      <p class="meet-subtitle text-muted">Signed in as {{ user.email }}</p>
+    </div>
+    <div class="meet-header__actions">
+      <div class="meet-link-copy">
+        <input id="join-link" class="form-control meet-link-input" readonly value="{{ join_url }}" aria-label="Join link">
+        <button type="button" class="btn btn-outline btn-sm" id="copy-link">Copy link</button>
+      </div>
+      <a href="{{ url_for('dashboard.index') }}" class="btn btn-ghost btn-sm">Leave</a>
+    </div>
+  </header>
+
+  <section id="meet-waiting-screen" class="meet-waiting card card-pad{% if in_meeting %} hidden{% endif %}">
+    {% if admission_status == 'denied' %}
+      <h2 class="meet-waiting__title">The host declined your request</h2>
+      <p class="text-muted">You cannot join this meeting right now. You can close this page or ask the host to send the link again.</p>
+    {% else %}
+      <h2 class="meet-waiting__title" id="waiting-title">{% if admission_status == 'pending' %}Request sent{% else %}Sending your request…{% endif %}</h2>
+      <p class="text-muted meet-waiting__lead">The host must approve you before you can join. This page updates automatically once you are admitted.</p>
+      <p class="meet-waiting__pulse" id="waiting-pulse" aria-live="polite">{% if admission_status == 'pending' %}Waiting for the host to let you in…{% else %}Contacting the meeting…{% endif %}</p>
+    {% endif %}
+    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline btn-sm">Leave</a>
+  </section>
+
+  <div id="meet-main" class="{% if not in_meeting %}hidden{% endif %}">
+  <div class="meet-body">
+    <section class="meet-stage" aria-label="Video">
+      <div class="meet-stage__grid" id="meet-stage-grid" data-count="1">
+      <div class="meet-tile meet-tile--self" id="self-tile">
+        <video id="local-video" class="meet-video meet-video--local" autoplay playsinline muted></video>
+        <div class="meet-tile__placeholder" id="video-placeholder">
+          <span class="meet-avatar" id="self-avatar">{{ (my_name or user.username or '?')[:1]|upper }}</span>
+          <p class="text-muted">Camera off</p>
+        </div>
+        <span class="meet-tile__label" id="self-label">{{ my_name or user.username }}</span>
+      </div>
+      <div id="remote-tiles" class="meet-remote-tiles"></div>
+      </div>
+      <button type="button" class="btn btn-primary btn-sm meet-hear" id="meet-hear" hidden>Click to hear everyone</button>
+      <p class="meet-stage-hint text-muted" id="record-state">
+        {% if already_recorded %}Your track is saved. You can record again if you spoke more.{% else %}Everyone admitted to the meeting appears here. Your mic and camera turn on so others can hear and see you. Record saves microphone audio for the transcript.{% endif %}
+      </p>
+    </section>
+
+    <aside class="meet-sidebar" aria-label="People and chat">
+      <div class="meet-tabs" role="tablist">
+        <button type="button" class="meet-tab meet-tab--active" data-panel="people" role="tab" aria-selected="true">People</button>
+        <button type="button" class="meet-tab" data-panel="chat" role="tab" aria-selected="false">Chat</button>
+      </div>
+
+      <div class="meet-panel meet-panel--active" id="panel-people" role="tabpanel">
+        {% if is_host %}
+        <div class="meet-waiting-host" id="host-waiting-wrap">
+          <h3 class="meet-waiting-host__title">Waiting room</h3>
+          <ul class="meet-waiting-list" id="waiting-list">
+            {% for w in waiting_members %}
+            <li data-user-id="{{ w.user_id }}">
+              <span>
+                <span class="meet-roster__name">{{ w.display_name }}</span>
+                <span class="text-muted meet-roster__email">{{ w.email }}</span>
+              </span>
+              <span class="meet-waiting-actions">
+                <button type="button" class="btn btn-primary btn-sm" data-admit="{{ w.user_id }}">Admit</button>
+                <button type="button" class="btn btn-outline btn-sm" data-deny="{{ w.user_id }}">Deny</button>
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="text-muted meet-waiting-host__empty" id="waiting-empty"{% if waiting_members %} hidden{% endif %}>No one is waiting.</p>
+        </div>
+        {% endif %}
+        <form method="POST" action="{{ url_for('live.set_name', token=room.join_token) }}" class="meet-name-form stack-sm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <label class="form-label" for="display-name">Your speaking name</label>
+          <div class="form-row">
+            <input id="display-name" name="display_name" class="form-control" required maxlength="80" value="{{ my_name }}">
+            <button type="submit" class="btn btn-outline btn-sm">Save</button>
+          </div>
+        </form>
+        <ul class="meet-roster" id="meet-roster">
+          {% for member in members %}
+          <li data-user-id="{{ member.user_id }}">
+            <span class="meet-roster__name">{{ member.display_name }}</span>
+            <span class="text-muted meet-roster__email">{{ member.email }}</span>
+            {% if member.user_id in recorded_ids %}
+              <span class="badge badge-mint roster-rec">Recorded</span>
+            {% else %}
+              <span class="badge badge-coral roster-rec">No recording</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% if is_host %}
+        <form method="POST" action="{{ url_for('live.invite', token=room.join_token) }}" class="stack-sm meet-invite">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <label class="form-label" for="invites">Invite by email</label>
+          <div class="form-row">
+            <input id="invites" name="invites" class="form-control" placeholder="colleague@example.com">
+            <button type="submit" class="btn btn-primary btn-sm">Send</button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+
+      <div class="meet-panel" id="panel-chat" role="tabpanel" hidden>
+        <div class="meet-chat-log" id="chat-log" aria-live="polite"></div>
+        <p id="chat-error" class="meet-chat-error text-muted" role="status" hidden></p>
+        <form id="chat-form" class="meet-chat-form">
+          <input type="hidden" name="csrf_token" id="chat-csrf" value="{{ csrf_token() }}"/>
+          <input type="text" id="chat-input" class="form-control" maxlength="2000" placeholder="Message everyone" autocomplete="off">
+          <button type="submit" class="btn btn-primary btn-sm">Send</button>
+        </form>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="meet-toolbar" aria-label="Meeting controls">
+    <button type="button" class="meet-tool" id="btn-mic" aria-pressed="false" title="Microphone">
+      <span class="meet-tool__icon">{{ icon_mic(22, 'icon') }}</span>
+      <span class="meet-tool__label">Mic</span>
+    </button>
+    <button type="button" class="meet-tool" id="btn-camera" aria-pressed="false" title="Camera">
+      <span class="meet-tool__icon">Cam</span>
+      <span class="meet-tool__label">Camera</span>
+    </button>
+    <button type="button" class="meet-tool meet-tool--primary" id="record-start" title="Start recording">
+      <span class="meet-tool__icon">Rec</span>
+      <span class="meet-tool__label">Record</span>
+    </button>
+    <button type="button" class="meet-tool" id="record-stop" disabled title="Stop and save">
+      <span class="meet-tool__icon">Stop</span>
+      <span class="meet-tool__label">Save</span>
+    </button>
+    {% if is_host %}
+    <form method="POST" action="{{ url_for('live.end', token=room.join_token) }}" class="meet-end-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <button type="submit" class="meet-tool meet-tool--danger" onclick="return confirm('End the meeting and process recordings?')">
+        <span class="meet-tool__icon">End</span>
+        <span class="meet-tool__label">End</span>
+      </button>
+    </form>
+    {% endif %}
+  </footer>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+  window.CLARIO_LIVE = {
+    token: {{ room.join_token|tojson }},
+    myUserId: {{ session.user_id }},
+    alreadyRecorded: {{ already_recorded|tojson }},
+    admissionStatus: {{ admission_status|tojson }},
+    isHost: {{ is_host|tojson }},
+    inMeeting: {{ in_meeting|tojson }},
+    urls: {
+      recording: {{ ("/live/" ~ room.join_token ~ "/recording")|tojson }},
+      messages: {{ ("/live/" ~ room.join_token ~ "/messages")|tojson }},
+      chat: {{ ("/live/" ~ room.join_token ~ "/chat")|tojson }},
+      roster: {{ ("/live/" ~ room.join_token ~ "/roster")|tojson }},
+      signal: {{ ("/live/" ~ room.join_token ~ "/signal")|tojson }},
+      admission: {{ ("/live/" ~ room.join_token ~ "/admission")|tojson }},
+      request: {{ ("/live/" ~ room.join_token ~ "/request")|tojson }},
+      admit: {{ ("/live/" ~ room.join_token ~ "/admit")|tojson }},
+      deny: {{ ("/live/" ~ room.join_token ~ "/deny")|tojson }}
+    },
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" }
+    ]
+  };
+</script>
+<script src="{{ url_for('static', filename='js/live-room.js', v='6') }}"></script>
+{% endblock %}

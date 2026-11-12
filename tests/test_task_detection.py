@@ -37,7 +37,7 @@ import datetime
 import re
 import pytest
 
-from services.task_detection import (
+from services.nlp.task_detection import (
     detect_tasks,
     load_nlp,
     get_task_summary,

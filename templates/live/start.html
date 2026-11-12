@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "macros/icons.html" import icon_arrow_left %}
+
+{% block title %}Start a meeting{% endblock %}
+
+{% block content %}
+<div class="page-body">
+<div class="container container-narrow">
+
+  <a href="{{ url_for('dashboard.index') }}" class="back-link">{{ icon_arrow_left() }} Back to dashboard</a>
+
+  <h1 class="page-title">Start a meeting</h1>
+  <p class="page-lead stack-lg">
+    Clario creates a join link. People sign in with their email, open the link, and record under that account.
+    If two people share a name, the assigner confirms the email before mail is sent.
+  </p>
+
+  <form method="POST" action="{{ url_for('live.start') }}" class="card card-pad">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    <div class="form-group">
+      <label class="form-label" for="title">Meeting title</label>
+      <input type="text" id="title" name="title" class="form-control" placeholder="Demo planning">
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="invites">Invite by email</label>
+      <textarea id="invites" name="invites" class="form-control" placeholder="one@example.com, two@example.com"></textarea>
+      <p class="text-muted stack-sm">Separate addresses with commas or new lines. You can copy the link after the room opens.</p>
+    </div>
+  <button type="submit" class="btn btn-primary">Create meeting link</button>
+  </form>
+</div>
+</div>
+{% endblock %}

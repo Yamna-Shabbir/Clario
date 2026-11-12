@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_arrow_left, icon_search, icon_calendar %}
 
 {% block title %}Search Results{% endblock %}
 
@@ -6,53 +7,44 @@
 <div class="page-body">
 <div class="container">
 
-  <div style="margin-bottom:32px;">
-    <a href="{{ url_for('dashboard.index') }}" class="text-muted" style="font-size:0.9rem;">
-      ← Back to dashboard
-    </a>
-  </div>
+  <a href="{{ url_for('dashboard.index') }}" class="back-link">{{ icon_arrow_left() }} Back to dashboard</a>
 
-  <h1 style="font-size:2rem; font-weight:800; margin-bottom:6px;">Search Results</h1>
-  <p class="text-muted" style="margin-bottom:36px;">
-    Found {{ results|length }} result{{ 's' if results|length != 1 }} for "<strong>{{ query }}</strong>"
+  <h1 class="page-title">Search results</h1>
+  <p class="page-lead stack-lg">
+    Found {{ results|length }} result{{ 's' if results|length != 1 }} for <strong>{{ query }}</strong>
   </p>
 
   {% if results %}
-    <div style="display:grid; gap:20px;">
+    <div class="stack-md">
       {% for m in results %}
-      <div class="card" style="padding:24px;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+      <article class="card result-card card-interactive">
+        <div class="result-card__top">
           <div>
-            <h3 style="margin-top:0; margin-bottom:8px;">
-              <a href="{{ url_for('meeting.result', meeting_id=m.id) }}" style="color:var(--text); text-decoration:none;">
-                {{ m.title or "Untitled Meeting" }}
-              </a>
+            <h3 class="result-card__title">
+              <a href="{{ url_for('meeting.result', meeting_id=m.id) }}">{{ m.title or "Untitled Meeting" }}</a>
             </h3>
-            <div style="display:flex; gap:12px; font-size:0.85rem;">
-              <span class="text-muted">📅 {{ m.meeting_date }}</span>
+            <div class="result-card__meta">
+              <span class="text-muted">{{ icon_calendar(14, 'icon') }} {{ m.meeting_date }}</span>
               {% if m.sentiment == 'Positive' %}
-                <span style="color:#7CA88B;">🟢 Positive Vibe</span>
+                <span class="vibe-positive">Positive vibe</span>
               {% elif m.sentiment == 'Tense' %}
-                <span style="color:#C88585;">🔴 Tense Vibe</span>
+                <span class="vibe-tense">Tense vibe</span>
               {% else %}
-                <span style="color:#D9B384;">🟡 Neutral Vibe</span>
+                <span class="vibe-neutral">Neutral vibe</span>
               {% endif %}
             </div>
           </div>
           <a href="{{ url_for('meeting.result', meeting_id=m.id) }}" class="btn btn-outline btn-sm">View details</a>
         </div>
-        
-        <p style="color:var(--muted); font-size:0.95rem; line-height:1.6; margin-bottom:0;">
-          {{ (m.summary or "No summary available")[:250] }}...
-        </p>
-      </div>
+        <p class="result-card__summary">{{ (m.summary or "No summary available")[:250] }}…</p>
+      </article>
       {% endfor %}
     </div>
   {% else %}
-    <div class="card" style="padding:48px; text-align:center;">
-      <div style="font-size:3rem; margin-bottom:16px;">🔍</div>
-      <p style="font-weight:600; margin-bottom:8px;">No results found</p>
-      <p class="text-muted">Try searching for different keywords.</p>
+    <div class="card empty-state">
+      <div class="empty-state__icon">{{ icon_search(26, 'icon') }}</div>
+      <p class="empty-state__title">No results found</p>
+      <p class="empty-state__lead">Try different keywords from the search bar.</p>
     </div>
   {% endif %}
 

@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "description": "Annotated meetings for action-item precision, recall, and F1. Gold tasks are commitments a person could hand to someone. Questions, chatter, and restated deadlines are not extra tasks.",
+    "languages": ["english", "mixed", "urdu"]
+  },
+  "meetings": [
+    {
+      "id": "english-standup",
+      "language": "english",
+      "transcript": "[00:01:10] Speaker 1 – Priya (Engineering).\nUm, okay. How is the login bug looking?\n\n[00:01:22] Speaker 2 – Omar (Backend).\n[noise] I can fix the login bug before Friday.\n\n[00:01:40] Speaker 1 – Priya.\nI'll send the API spec by Wednesday.\n\n[00:02:05] Speaker 1 – Priya.\nSorry, I'll send the API spec by Thursday instead.\n\n[00:02:20] Speaker 2 – Omar.\nThanks. Sounds good.\n\n[00:02:30] Speaker 1 – Priya.\nPlease share the test report on Monday, Omar.\n\n[00:02:48] Speaker 3 – Lena.\nWe decided to keep the release on Friday.\n\n[00:03:00] Speaker 2 – Omar.\nWe talked about the budget yesterday. No change there.",
+      "tasks": [
+        {
+          "assignee": "Omar",
+          "includes": ["login", "friday"],
+          "note": "acceptance with the work named in the same sentence"
+        },
+        {
+          "assignee": "Priya",
+          "includes": ["api", "spec", "thursday"],
+          "note": "later deadline replaces Wednesday"
+        },
+        {
+          "assignee": "Omar",
+          "includes": ["test", "report", "monday"],
+          "note": "named request"
+        }
+      ],
+      "not_tasks": [
+        "How is the login bug looking?",
+        "I'll send the API spec by Wednesday.",
+        "We talked about the budget yesterday."
+      ],
+      "decisions": ["keep the release on Friday"]
+    },
+    {
+      "id": "mixed-followup",
+      "language": "mixed",
+      "transcript": "[00:04:10] Sara:\nThe dashboard is almost done, but uh the notification page still has a bug.\n\n[00:04:28] Sara:\nI'll finish the notification page by Friday.\n\n[00:04:40] Ali:\nI will send the API update by this evening.\n\n[00:05:00] Sara:\nCan you also check the login page?\n\n[00:05:08] Ali:\nI can do that tomorrow.\n\n[00:05:20] Ahmad:\nLet's use the Friday build.\nWe decided to show the client on Wednesday.",
+      "tasks": [
+        {
+          "assignee": "Sara",
+          "includes": ["notification", "friday"],
+          "note": "first-person commitment under Sara"
+        },
+        {
+          "assignee": "Ali",
+          "includes": ["api", "evening"],
+          "note": "explicit send"
+        },
+        {
+          "assignee": "Ali",
+          "includes": ["login", "tomorrow"],
+          "note": "reply to Sara's request; both sentences are the evidence"
+        }
+      ],
+      "not_tasks": [
+        "The dashboard is almost done",
+        "Let's use the Friday build"
+      ],
+      "decisions": ["show the client on Wednesday", "Friday build"]
+    },
+    {
+      "id": "urdu-assignment",
+      "language": "urdu",
+      "transcript": "Speaker 1 – علی (Backend).\nعلی، آپ جمعرات تک ڈیٹا بیس کی کارکردگی بہتر کر دیں۔",
+      "tasks": [
+        {
+          "assignee": "Ali",
+          "includes": ["thursday", "database"],
+          "note": "Urdu assignment. Scored after the phrase-table English rendering, without a neural translation download."
+        }
+      ],
+      "not_tasks": [],
+      "decisions": []
+    },
+    {
+      "id": "held-out-promise",
+      "language": "english",
+      "transcript": "Speaker 1 – Ravi.\nI promised to circulate the notes after lunch.\n\nSpeaker 2 – Noor.\nSomeone ought to glance at the logs eventually.",
+      "tasks": [
+        {
+          "assignee": "Ravi",
+          "includes": ["notes"],
+          "note": "promised-to commitment; the vague 'someone ought to' line is not a task"
+        }
+      ],
+      "not_tasks": ["glance at the logs"],
+      "decisions": []
+    }
+  ]
+}

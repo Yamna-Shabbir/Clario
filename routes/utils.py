@@ -5,7 +5,7 @@ Shared helpers used across all route blueprints.
 """
 
 from functools import wraps
-from flask import redirect, session, url_for
+from flask import redirect, request, session, url_for
 
 
 def login_required(f):
@@ -22,6 +22,8 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if "user_id" not in session:
+            if request.method == "GET":
+                return redirect(url_for("auth.login", next=request.path))
             return redirect(url_for("auth.login"))
         return f(*args, **kwargs)
     return decorated

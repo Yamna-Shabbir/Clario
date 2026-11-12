@@ -35,8 +35,8 @@ from models.database import (
     insert_user,
     replace_meeting_participants,
 )
-from services.participant_matching import match, rematch_meeting_tasks
-from services.task_detection import detect_tasks
+from services.nlp.participant_matching import match, rematch_meeting_tasks
+from services.nlp.task_detection import detect_tasks
 
 
 TEST_FERNET_KEY = Fernet.generate_key()

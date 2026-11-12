@@ -15,6 +15,7 @@ Werkzeug>=2.3.0
 Flask-WTF>=1.2.0
 flask-cors
 python-dotenv
+gunicorn>=22.0.0
 
 # ── NLP (lightweight) ─────────────────────────────────────────────────────────
 spacy>=3.5.0

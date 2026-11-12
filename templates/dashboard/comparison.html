@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_arrow_left %}
 
 {% block title %}Meeting Comparison Dashboard{% endblock %}
 
@@ -10,29 +11,20 @@
 <div class="page-body">
 <div class="container">
 
-  <div style="margin-bottom:32px;">
-    <a href="{{ url_for('dashboard.index') }}" class="text-muted" style="font-size:0.9rem;">
-      ← Back to dashboard
-    </a>
-  </div>
+  <a href="{{ url_for('dashboard.index') }}" class="back-link">{{ icon_arrow_left() }} Back to dashboard</a>
 
-  <h1 style="font-size:2rem; font-weight:800; margin-bottom:6px;">Meeting Comparison Dashboard 📊</h1>
-  <p class="text-muted" style="margin-bottom:36px;">
-    Track trends and compare productivity across your last 10 meetings.
-  </p>
+  <h1 class="page-title">Trends</h1>
+  <p class="page-lead stack-lg">Compare task volume and meeting vibe across your last ten meetings.</p>
 
   {% if stats.labels %}
-  <div style="display:grid; grid-template-columns: 1fr; gap:24px; margin-bottom:32px;">
-    <!-- ── Task Volume Chart ──────────────────────────────────── -->
-    <div class="card" style="padding:28px;">
-      <h2 class="section-heading">📈 Task Volume Trends</h2>
-      <canvas id="tasksChart" width="400" height="150"></canvas>
+  <div class="stack-lg">
+    <div class="card card-pad">
+      <h2 class="section-heading">Task volume</h2>
+      <canvas id="tasksChart" width="400" height="150" aria-label="Task volume chart"></canvas>
     </div>
-
-    <!-- ── Sentiment Chart ────────────────────────────────────── -->
-    <div class="card" style="padding:28px;">
-      <h2 class="section-heading">🧠 Meeting Vibe History</h2>
-      <canvas id="sentimentChart" width="400" height="150"></canvas>
+    <div class="card card-pad">
+      <h2 class="section-heading">Meeting vibe</h2>
+      <canvas id="sentimentChart" width="400" height="150" aria-label="Sentiment chart"></canvas>
     </div>
   </div>
 
@@ -40,21 +32,22 @@
     const labels = {{ stats.labels|tojson }};
     const tasksData = {{ stats.tasks_data|tojson }};
     const sentiments = {{ stats.sentiments|tojson }};
-    
-    // Map sentiments to numeric values for charting
     const sentimentMap = { "Positive": 1, "Neutral": 0, "Tense": -1 };
     const sentimentData = sentiments.map(s => sentimentMap[s] || 0);
+    const grid = 'rgba(38, 58, 53, 0.08)';
+    const mint = '#829B8A';
+    const coral = '#8B6348';
+    const lilac = '#DCE8DF';
 
-    // ── Task Volume Chart ──
     new Chart(document.getElementById('tasksChart'), {
       type: 'line',
       data: {
-        labels: labels,
+        labels,
         datasets: [{
           label: 'Total Tasks Assigned',
           data: tasksData,
-          borderColor: '#C2A370',
-          backgroundColor: 'rgba(194, 163, 112, 0.2)',
+          borderColor: mint,
+          backgroundColor: 'rgba(220, 232, 223, 0.65)',
           borderWidth: 3,
           tension: 0.4,
           fill: true
@@ -64,22 +57,21 @@
         responsive: true,
         plugins: { legend: { display: false } },
         scales: {
-          y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } },
-          x: { grid: { display: false } }
+          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: '#5F726B' } },
+          x: { grid: { display: false }, ticks: { color: '#5F726B' } }
         }
       }
     });
 
-    // ── Sentiment Chart ──
     new Chart(document.getElementById('sentimentChart'), {
       type: 'bar',
       data: {
-        labels: labels,
+        labels,
         datasets: [{
           label: 'Meeting Vibe',
           data: sentimentData,
-          backgroundColor: sentimentData.map(v => v > 0 ? '#7CA88B' : (v < 0 ? '#C88585' : '#D9B384')),
-          borderRadius: 4
+          backgroundColor: sentimentData.map(v => v > 0 ? mint : (v < 0 ? coral : lilac)),
+          borderRadius: 8
         }]
       },
       options: {
@@ -88,36 +80,37 @@
           legend: { display: false },
           tooltip: {
             callbacks: {
-              label: function(context) {
-                const val = context.raw;
-                return val > 0 ? "Positive" : (val < 0 ? "Tense" : "Neutral");
+              label(ctx) {
+                const val = ctx.raw;
+                return val > 0 ? 'Positive' : (val < 0 ? 'Tense' : 'Neutral');
               }
             }
           }
         },
         scales: {
-          y: { 
-            min: -1.5, max: 1.5, 
+          y: {
+            min: -1.5, max: 1.5,
             ticks: {
-              callback: function(value) {
-                if(value === 1) return 'Positive';
-                if(value === 0) return 'Neutral';
-                if(value === -1) return 'Tense';
+              color: '#5F726B',
+              callback(value) {
+                if (value === 1) return 'Positive';
+                if (value === 0) return 'Neutral';
+                if (value === -1) return 'Tense';
                 return '';
               }
             },
-            grid: { color: 'rgba(255,255,255,0.05)' }
+            grid: { color: grid }
           },
-          x: { grid: { display: false } }
+          x: { grid: { display: false }, ticks: { color: '#5F726B' } }
         }
       }
     });
   </script>
   {% else %}
-    <div class="card" style="padding:48px; text-align:center;">
-      <div style="font-size:3rem; margin-bottom:16px;">📊</div>
-      <p style="font-weight:600; margin-bottom:8px;">No data to compare</p>
-      <p class="text-muted">Upload some meetings to start seeing trends.</p>
+    <div class="card empty-state">
+      <p class="empty-state__title">No data to compare</p>
+      <p class="empty-state__lead">Upload or run a few meetings to start seeing trends.</p>
+      <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary btn-sm">Upload a meeting</a>
     </div>
   {% endif %}
 

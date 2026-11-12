@@ -7,68 +7,86 @@
   <meta name="description" content="{% block meta_desc %}Clario – AI-powered meeting assistant that transcribes, summarises, and extracts action items automatically.{% endblock %}" />
   <title>{% block title %}Clario{% endblock %} | AI Meeting Assistant</title>
 
-  <!-- Favicon -->
-  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
 
-  <!-- Stylesheet -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='3') }}" />
 
   {% block head_extra %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
+  {% from "macros/icons.html" import icon_mic, icon_search, icon_menu, icon_close %}
 
-  <!-- ── Navbar ────────────────────────────────────────────── -->
-  <nav class="navbar">
-    <div class="container">
+  <div class="app-backdrop" aria-hidden="true">
+    <div class="app-backdrop__blob app-backdrop__blob--mint"></div>
+    <div class="app-backdrop__blob app-backdrop__blob--lilac"></div>
+  </div>
+
+  <header class="navbar-shell">
+    <nav class="navbar container" aria-label="Main">
       <a href="{{ url_for('auth.landing') }}" class="navbar-brand">
-        <span class="logo-icon">🎙️</span> Clario
+        <span class="logo-icon" aria-hidden="true">{{ icon_mic(22, 'icon') }}</span>
+        Clario
       </a>
-      <ul class="navbar-nav">
+
+      <div class="nav-spacer"></div>
+
+      {% if session.get('user_id') %}
+      <form action="{{ url_for('search.search') }}" method="GET" class="nav-search" role="search">
+        <span aria-hidden="true">{{ icon_search(16, 'icon icon-muted') }}</span>
+        <label class="sr-only" for="nav-search-q">Search meetings</label>
+        <input type="search" id="nav-search-q" name="q" placeholder="Search meetings..." autocomplete="off" />
+      </form>
+      {% endif %}
+
+      <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open menu">
+        {{ icon_menu(22, 'icon') }}
+      </button>
+
+      <ul class="navbar-nav" id="primary-nav">
         {% if session.get('user_id') %}
-          <li>
-            <form action="{{ url_for('search.search') }}" method="GET" style="display:flex; align-items:center; background:rgba(255,255,255,0.05); border-radius:20px; padding:2px 10px; margin-right:10px;">
-              <span style="opacity:0.5; font-size:0.9rem;">🔍</span>
-              <input type="text" name="q" placeholder="Search meetings..." style="background:transparent; border:none; color:var(--text); padding:4px 8px; width:150px; font-size:0.9rem; outline:none;">
-            </form>
+          <li class="nav-group-secondary">
+            <a href="{{ url_for('dashboard.index') }}" class="{% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a>
+            <a href="{{ url_for('tasks.index') }}" class="{% if request.endpoint and request.endpoint.startswith('tasks.') %}active{% endif %}">Tasks</a>
+            <a href="{{ url_for('dashboard.comparison') }}" class="{% if request.endpoint == 'dashboard.comparison' %}active{% endif %}">Trends</a>
+            <a href="{{ url_for('meeting.upload') }}" class="{% if request.endpoint and request.endpoint.startswith('meeting.') %}active{% endif %}">Upload</a>
+            <a href="{{ url_for('integrations.index') }}" class="{% if request.endpoint and request.endpoint.startswith('integrations.') %}active{% endif %}">Integrations</a>
           </li>
-          <li><a href="{{ url_for('dashboard.index') }}" class="{% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a></li>
-          <li><a href="{{ url_for('dashboard.comparison') }}" class="{% if request.endpoint == 'dashboard.comparison' %}active{% endif %}">Trends</a></li>
-          <li><a href="{{ url_for('meeting.upload') }}" class="{% if request.endpoint and request.endpoint.startswith('meeting.') %}active{% endif %}">Upload</a></li>
-          <li><a href="{{ url_for('integrations.index') }}" class="{% if request.endpoint and request.endpoint.startswith('integrations.') %}active{% endif %}">Integrations</a></li>
-          <li>
-            <a href="{{ url_for('auth.logout') }}" class="btn btn-outline btn-sm">
-              Log out
+          <li class="nav-cta">
+            <a href="{{ url_for('live.start') }}" class="btn btn-primary btn-sm {% if request.endpoint and request.endpoint.startswith('live.') %}active{% endif %}">
+              Start meeting
             </a>
+          </li>
+          <li>
+            <a href="{{ url_for('auth.logout') }}" class="btn btn-ghost btn-sm">Log out</a>
           </li>
         {% else %}
           <li><a href="{{ url_for('auth.login') }}">Log in</a></li>
-          <li>
-            <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-sm">
-              Get started
-            </a>
+          <li class="nav-cta">
+            <a href="{{ url_for('auth.register') }}" class="btn btn-primary btn-sm">Get started</a>
           </li>
         {% endif %}
       </ul>
-    </div>
-  </nav>
+    </nav>
+  </header>
 
-  <!-- ── Flash messages ────────────────────────────────────── -->
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       <div class="flash-container container">
         {% for category, message in messages %}
-          <div class="alert alert-{{ category }}">{{ message }}</div>
+          <div class="alert alert-{{ category }}" role="status">{{ message }}</div>
         {% endfor %}
       </div>
     {% endif %}
   {% endwith %}
 
-  <!-- ── Page content ──────────────────────────────────────── -->
-  {% block content %}{% endblock %}
+  <main>
+    {% block content %}{% endblock %}
+  </main>
 
-  <!-- ── Scripts ───────────────────────────────────────────── -->
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   {% block scripts_extra %}{% endblock %}
-
 </body>
 </html>

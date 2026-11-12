@@ -49,6 +49,83 @@ def _first_name(s: str) -> str:
     return tokens[0] if tokens else ""
 
 
+def _classify_assignee(
+    assignee_name: str,
+    participants: Optional[List[Dict[str, Any]]],
+) -> tuple:
+    """Classify a name as unique, ambiguous, or unmatched.
+
+    Returns ``("unique", participant)``, ``("ambiguous", [participants])``,
+    or ``("none", [])``. The unique path is the same decision ``match``
+    has always made.
+    """
+    if not assignee_name or not participants:
+        return "none", []
+
+    cleaned_assignee = _clean_text(assignee_name)
+    if not cleaned_assignee or cleaned_assignee in IGNORED_ASSIGNEES:
+        return "none", []
+
+    valid_participants = [p for p in participants if p and p.get("name") and p.get("name").strip()]
+    if not valid_participants:
+        return "none", []
+
+    exact_matches = [
+        p for p in valid_participants
+        if _clean_text(p["name"]) == cleaned_assignee
+    ]
+    if len(exact_matches) == 1:
+        return "unique", exact_matches[0]
+    if len(exact_matches) > 1:
+        return "ambiguous", exact_matches
+
+    assignee_tokens = cleaned_assignee.split()
+    assignee_first = assignee_tokens[0]
+    first_name_matches = []
+    for p in valid_participants:
+        p_tokens = _clean_text(p["name"]).split()
+        p_first = p_tokens[0] if p_tokens else ""
+        if len(assignee_tokens) == 1:
+            if p_first == assignee_first:
+                first_name_matches.append(p)
+        elif len(assignee_tokens) > 1 and len(p_tokens) > 1:
+            if p_first == assignee_first and p_tokens[1][0] == assignee_tokens[1][0]:
+                first_name_matches.append(p)
+
+    if len(first_name_matches) == 1:
+        return "unique", first_name_matches[0]
+    if len(first_name_matches) > 1:
+        return "ambiguous", first_name_matches
+
+    candidates = []
+    for p in valid_participants:
+        p_clean = _clean_text(p["name"])
+        p_first = _first_name(p["name"])
+        ratio_full = difflib.SequenceMatcher(None, cleaned_assignee, p_clean).ratio()
+        ratio_first = (
+            difflib.SequenceMatcher(None, cleaned_assignee, p_first).ratio()
+            if len(assignee_tokens) == 1
+            else 0.0
+        )
+        best_ratio = max(ratio_full, ratio_first)
+        if best_ratio >= 0.8:
+            candidates.append((best_ratio, p))
+
+    if not candidates:
+        return "none", []
+
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    top_ratio, top_participant = candidates[0]
+    if len(candidates) == 1:
+        return "unique", top_participant
+
+    second_ratio, _ = candidates[1]
+    if top_ratio > second_ratio and (top_ratio - second_ratio) >= 0.04:
+        return "unique", top_participant
+    tied = [p for ratio, p in candidates if abs(ratio - top_ratio) < 0.04]
+    return "ambiguous", tied or [p for _, p in candidates]
+
+
 def match(
     assignee_name: str,
     participants: Optional[List[Dict[str, Any]]],
@@ -65,91 +142,57 @@ def match(
     -------
     Optional[Dict[str, Any]] : The matched participant dict or None.
     """
-    if not assignee_name or not participants:
-        return None
-
-    cleaned_assignee = _clean_text(assignee_name)
-    if not cleaned_assignee or cleaned_assignee in IGNORED_ASSIGNEES:
-        return None
-
-    # Filter out participants without a valid name
-    valid_participants = [p for p in participants if p and p.get("name") and p.get("name").strip()]
-    if not valid_participants:
-        return None
-
-    # 1. Normalised exact match
-    exact_matches = [
-        p for p in valid_participants
-        if _clean_text(p["name"]) == cleaned_assignee
-    ]
-    if len(exact_matches) == 1:
-        return exact_matches[0]
-    elif len(exact_matches) > 1:
-        # Ambiguous: multiple participants have the exact same normalized name
-        return None
-
-    # 2. Unique first-name match
-    assignee_tokens = cleaned_assignee.split()
-    assignee_first = assignee_tokens[0]
-
-    # Only attempt first-name matching if assignee name is a single token or first names match
-    first_name_matches = []
-    for p in valid_participants:
-        p_name = p["name"]
-        p_tokens = _clean_text(p_name).split()
-        p_first = p_tokens[0] if p_tokens else ""
-
-        if len(assignee_tokens) == 1:
-            if p_first == assignee_first:
-                first_name_matches.append(p)
-        elif len(assignee_tokens) > 1 and len(p_tokens) > 1:
-            # First name matches and last initial matches (e.g., "Sarah C." matches "Sarah Connor")
-            if p_first == assignee_first and p_tokens[1][0] == assignee_tokens[1][0]:
-                first_name_matches.append(p)
-
-    if len(first_name_matches) == 1:
-        return first_name_matches[0]
-    elif len(first_name_matches) > 1:
-        # Ambiguous: multiple participants share the same first name
-        return None
-
-    # 3. difflib SequenceMatcher ratio >= 0.8 with a unique best candidate
-    candidates = []
-    for p in valid_participants:
-        p_clean = _clean_text(p["name"])
-        p_first = _first_name(p["name"])
-
-        # Ratio against full name
-        ratio_full = difflib.SequenceMatcher(None, cleaned_assignee, p_clean).ratio()
-
-        # If assignee is a single word, also compare against the participant's first name
-        ratio_first = (
-            difflib.SequenceMatcher(None, cleaned_assignee, p_first).ratio()
-            if len(assignee_tokens) == 1
-            else 0.0
-        )
-
-        best_ratio = max(ratio_full, ratio_first)
-        if best_ratio >= 0.8:
-            candidates.append((best_ratio, p))
-
-    if not candidates:
-        return None
-
-    # Sort descending by match ratio
-    candidates.sort(key=lambda c: c[0], reverse=True)
-
-    top_ratio, top_participant = candidates[0]
-    if len(candidates) == 1:
-        return top_participant
-
-    second_ratio, _ = candidates[1]
-    # Require a unique best score
-    if top_ratio > second_ratio and (top_ratio - second_ratio) >= 0.04:
-        return top_participant
-
-    # Ambiguous fuzzy match
+    kind, value = _classify_assignee(assignee_name, participants)
+    if kind == "unique":
+        return value
     return None
+
+
+def ambiguous_matches(
+    assignee_name: str,
+    participants: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Return every participant who ties for this name.
+
+    An empty list means the name is unmatched or already unique.
+    Two or more means a person has to choose which email was meant.
+    """
+    kind, value = _classify_assignee(assignee_name, participants)
+    if kind == "ambiguous":
+        return list(value)
+    return []
+
+
+def pending_name_collisions(
+    tasks: List[Dict[str, Any]],
+    participants: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Tasks whose assignee name matches more than one participant email."""
+    collisions = []
+    for task in tasks:
+        if (task.get("assigned_email") or "").strip():
+            continue
+        options = ambiguous_matches(task.get("assigned_to") or "", participants)
+        candidates = [
+            {"name": p.get("name") or "", "email": (p.get("email") or "").strip().lower()}
+            for p in options
+            if (p.get("email") or "").strip()
+        ]
+        deduped = []
+        seen = set()
+        for candidate in candidates:
+            if candidate["email"] in seen:
+                continue
+            seen.add(candidate["email"])
+            deduped.append(candidate)
+        if len(deduped) >= 2:
+            collisions.append({
+                "task_id": task.get("id"),
+                "assignee_name": task.get("assigned_to") or "",
+                "description": task.get("description") or "",
+                "candidates": deduped,
+            })
+    return collisions
 
 
 def rematch_meeting_tasks(

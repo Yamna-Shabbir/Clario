@@ -1,0 +1,58 @@
+# Render Blueprint — FREE tier only (no paid plan, no persistent disk).
+# Persistent disks and Standard/Pro plans incur charges; do not add them here.
+#
+# Limits of this free deploy:
+# - 512 MB RAM: Torch / Whisper / DistilBART will not load. Audio ASR and neural
+#   summarization are unavailable; paste-transcript + extractive summary + task
+#   detection (spaCy) are the supported path.
+# - Ephemeral disk: SQLite and uploads reset on spin-down / redeploy.
+# - Spins down after ~15 minutes idle; cold start ~1 minute.
+
+services:
+  - type: web
+    name: clario
+    runtime: python
+    plan: free
+    region: oregon
+    branch: dev
+    pythonVersion: "3.12.8"
+    buildCommand: bash build.sh
+    startCommand: >-
+      gunicorn "app:create_app()"
+      --bind 0.0.0.0:$PORT
+      --workers 1
+      --threads 2
+      --timeout 120
+      --access-logfile -
+      --error-logfile -
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: CLARIO_DEBUG
+        value: "False"
+      - key: CLARIO_SECRET_KEY
+        generateValue: true
+      - key: CLARIO_FREE_TIER
+        value: "True"
+      - key: CLARIO_DATA_DIR
+        value: data
+      - key: CLARIO_DB_PATH
+        value: data/database/clario.db
+      - key: CLARIO_UPLOAD_DIR
+        value: uploads
+      - key: CLARIO_HF_MODELS_DIR
+        value: data/hf-models
+      - key: CLARIO_GRAPH_DIR
+        value: data/graphs
+      - key: CLARIO_STATIC_GRAPH_DIR
+        value: static/graphs
+      - key: CLARIO_EMAIL_DIR
+        value: data/outbox
+      - key: CLARIO_PIPELINE_WORKERS
+        value: "1"
+      - key: CLARIO_MAX_UPLOAD_MB
+        value: "25"
+      - key: CLARIO_ENABLE_TEXT_TRANSLATION
+        value: "False"
+      - key: HF_HUB_DISABLE_XET
+        value: "1"

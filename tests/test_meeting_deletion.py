@@ -77,11 +77,15 @@ class MeetingDeletionTests(unittest.TestCase):
         self.app.secret_key = "deletion-test-secret"
         self.app.config["WTF_CSRF_ENABLED"] = False
         CSRFProtect(self.app)
+        from routes.live import live_bp
+        from routes.tasks import tasks_bp
         self.app.register_blueprint(auth_bp)
         self.app.register_blueprint(dashboard_bp)
         self.app.register_blueprint(integrations_bp)
         self.app.register_blueprint(meeting_bp)
         self.app.register_blueprint(search_bp)
+        self.app.register_blueprint(live_bp)
+        self.app.register_blueprint(tasks_bp)
         self.client = self.app.test_client()
 
     def tearDown(self):

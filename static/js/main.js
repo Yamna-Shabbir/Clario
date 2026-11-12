@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateZoneLabel(name) {
       const hint = zone.querySelector('.upload-hint');
-      if (hint) hint.textContent = `✅ Selected: ${name}`;
+      if (hint) hint.textContent = `Selected: ${name}`;
     }
   }
 
@@ -89,28 +89,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (uploadForm && submitBtn) {
     uploadForm.addEventListener('submit', () => {
-      submitBtn.style.display = 'none'; // Hide button completely
-      
-      // Hide the file/text inputs so the user just sees the loader
+      submitBtn.hidden = true;
       const cards = uploadForm.querySelectorAll('.card');
-      cards.forEach(c => c.style.display = 'none');
+      cards.forEach(c => { c.hidden = true; });
       
-      if (spinnerEl) spinnerEl.style.display = 'block';
-      if (pctEl) pctEl.textContent = '🚀';
+      if (spinnerEl) spinnerEl.hidden = false;
+      if (pctEl) pctEl.textContent = '…';
       if (statusEl) statusEl.textContent = 'Uploading meeting to server...';
     });
   }
 
   // ── Stage-driven Progress Poller for meeting results ───────────────────────
   const STAGE_CONFIG = {
-    'queued':            { pct: 15, text: '⏳ Queued for processing...' },
-    'transcribing':      { pct: 35, text: '🎙️ Transcribing audio recording (Whisper AI)...' },
-    'detecting_tasks':   { pct: 55, text: '🔍 Extracting action items and assignees (spaCy)...' },
-    'summarizing':       { pct: 75, text: '📋 Generating meeting summary (BART AI)...' },
-    'saving':            { pct: 85, text: '💾 Persisting results to database...' },
-    'generating_charts': { pct: 95, text: '📊 Generating knowledge graphs and analytics...' },
-    'completed':         { pct: 100, text: '✅ Completed! Loading results...' },
-    'failed':            { pct: 100, text: '❌ Failed' }
+    'queued':            { pct: 15, text: 'Queued for processing...' },
+    'transcribing':      { pct: 35, text: 'Transcribing audio (Whisper)...' },
+    'detecting_tasks':   { pct: 55, text: 'Labelling decisions and action items...' },
+    'summarizing':       { pct: 75, text: 'Generating meeting summary (BART)...' },
+    'saving':            { pct: 85, text: 'Saving results...' },
+    'generating_charts': { pct: 95, text: 'Generating charts and knowledge graph...' },
+    'completed':         { pct: 100, text: 'Completed. Loading results...' },
+    'failed':            { pct: 100, text: 'Failed' }
   };
 
   const statusContainer = document.getElementById('processing-container');
@@ -135,7 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.status === 'completed') {
               clearInterval(pollTimer);
               if (progressBar) progressBar.style.width = '100%';
-              if (stageText) stageText.textContent = '✅ Completed! Loading results...';
+              if (stageText) stageText.textContent = 'Completed. Loading results...';
               window.location.reload();
             } else if (data.status === 'failed') {
               clearInterval(pollTimer);
@@ -163,9 +161,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 5000);
   });
 
-  // ── Active nav link ─────────────────────────────────────────────────────────
+  const navToggle = document.getElementById('nav-toggle');
+  const primaryNav = document.getElementById('primary-nav');
+  if (navToggle && primaryNav) {
+    navToggle.addEventListener('click', () => {
+      const open = primaryNav.classList.toggle('is-open');
+      navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      navToggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    });
+  }
+
   const current = window.location.pathname;
-  document.querySelectorAll('.navbar-nav a').forEach(a => {
+  document.querySelectorAll('.navbar-nav a[href]').forEach(a => {
     if (a.getAttribute('href') === current) a.classList.add('active');
   });
 

@@ -1,5 +1,5 @@
 """
-services/summarization.py
+services/nlp/summarization.py
 --------------------------
 BART-based meeting summarization service with token-aware map-reduce.
 
@@ -289,7 +289,7 @@ def extractive_summarize(
     n = len(sentences)
 
     # Keyword sets for scoring (import from module-level lists)
-    from services.task_detection import STRONG_CUES, STRONG_ACTION_VERBS
+    from services.nlp.task_detection import STRONG_CUES, STRONG_ACTION_VERBS
     all_keyword_patterns = STRONG_CUES + STRONG_ACTION_VERBS
 
     scores = []

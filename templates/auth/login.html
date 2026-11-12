@@ -1,17 +1,17 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_mic %}
 
 {% block title %}Log in{% endblock %}
 
 {% block content %}
 <div class="auth-wrapper">
   <div class="auth-card">
-
-    <div class="auth-logo">🎙️ Clario</div>
+    <div class="auth-logo">{{ icon_mic(26, 'icon') }} Clario</div>
     <p class="auth-subtitle">Welcome back</p>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for category, message in messages %}
-        <div class="alert alert-{{ category }}" style="margin-bottom:18px;">{{ message }}</div>
+        <div class="alert alert-{{ category }} stack-sm">{{ message }}</div>
       {% endfor %}
     {% endwith %}
 
@@ -33,16 +33,12 @@
                autocomplete="current-password" required />
       </div>
 
-      <button type="submit" class="btn btn-primary btn-block" style="margin-top:8px;">
-        Log in
-      </button>
-
+      <button type="submit" class="btn btn-primary btn-block form-actions">Log in</button>
     </form>
 
     <p class="auth-footer">
       Don't have an account? <a href="{{ url_for('auth.register') }}">Sign up free</a>
     </p>
-
   </div>
 </div>
 {% endblock %}

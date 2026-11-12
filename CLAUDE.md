@@ -67,7 +67,15 @@ Override any default via environment variable (or `.env` file):
 | `CLARIO_DB_PATH` | `data/database/clario.db` | SQLite path |
 | `CLARIO_UPLOAD_DIR` | `uploads/` | Saved audio files |
 | `CLARIO_GRAPH_DIR` | `data/graphs/` | Legacy graph dir (not used by UI) |
-| `CLARIO_WHISPER_MODEL` | `tiny.en` | Whisper model variant |
+| `CLARIO_WHISPER_MODEL` | `Loudness-ai/urdu-sukhan-asr-v1` | Urdu + English + code-switching ASR (gated Hugging Face repo) |
+| `CLARIO_HF_MODELS_DIR` | `data/hf-models/` | Where speech-model weights are stored. Kept off the small system cache |
+| `CLARIO_STATIC_GRAPH_DIR` | `static/graphs/` | Meeting chart PNGs; on Render use the persistent disk path |
+| `CLARIO_WHISPER_FALLBACK` | `small` | Public Whisper size used when the primary HF model cannot load |
+| `CLARIO_WHISPER_TASK` | `translate` | Whisper fallback task. Sukhan always transcribes, then Urdu script is translated |
+| `CLARIO_WHISPER_LANGUAGE` | `auto` | Force `en`/`ur` or `auto` for code-switching |
+| `CLARIO_WHISPER_INITIAL_PROMPT` | *(bilingual hint)* | Optional context for mixed meetings |
+| `CLARIO_ENABLE_TEXT_TRANSLATION` | `True` | Marian Urdu→English when pasted text has Arabic script |
+| `CLARIO_TRANSLATION_MODEL` | `Helsinki-NLP/opus-mt-ur-en` | Fallback text translator |
 | `CLARIO_BART_MODEL` | `sshleifer/distilbart-cnn-12-6` | HuggingFace summarizer (~40% faster on CPU; override with facebook/bart-large-cnn) |
 | `CLARIO_SPACY_MODEL` | `en_core_web_sm` | spaCy language model |
 | `CLARIO_SUMMARY_CHUNK_TOKENS` | `700` | Max BART tokens per map-reduce chunk |
@@ -107,11 +115,16 @@ Clario/
 ├── app.py                  # Flask application factory (create_app)
 ├── config.py               # All settings; loads .env via python-dotenv
 ├── requirements.txt        # pip dependencies (includes -r core + -r ml)
-├── requirements-core.txt   # Flask, spaCy, matplotlib, test deps — used by CI
+├── requirements-core.txt   # Flask, spaCy, matplotlib, gunicorn, test deps — used by CI
 ├── requirements-ml.txt     # torch, transformers, openai-whisper (heavy, skipped in CI)
 ├── requirements-dev.txt    # dev/test dependencies (pytest, pytest-cov, jiwer)
 ├── pyproject.toml          # pytest + coverage configuration
 ├── .env.example            # Template — copy to .env and fill in values
+├── render.yaml             # Render Blueprint (Standard plan + persistent disk)
+├── build.sh                # Render build: pip + spaCy model
+├── Procfile                # Gunicorn start command
+├── runtime.txt             # Python 3.12.8 for Render
+├── docs/deploy-render.md   # Production deploy guide and hosting limits
 ├── seed.py                 # ⚠️ Destructive demo-data seeder (guarded)
 ├── generate_samples.py     # Generates sample MP3s via gTTS
 │
@@ -122,8 +135,12 @@ Clario/
 │   ├── check_routes.py     # HTTP smoke-tester (needs live server)
 │   ├── fix_unicode.py      # One-shot script: strips cp1252-breaking emoji
 │   ├── benchmark_whisper.py # Whisper model benchmark (load time, RTF, WER)
+│   ├── generate_multilingual_samples.py # gTTS Urdu/English/mixed fixtures for eval
+│   ├── eval_multilingual_transcription.py # WER matrix → docs/multilingual-transcription-eval.md
 │   ├── compare_summarizer.py # Before/after BART summary quality comparison
 │   ├── eval_summary.py     # Evaluate summarizer quality, runtime, and topic coverage
+│   ├── eval_tasks.py       # Sentence-level task precision/recall → docs/task-detection-eval.md
+│   ├── eval_meeting_tasks.py # Meeting-level task precision/recall → docs/meeting-task-eval.md
 │   ├── run_eval_matrix.py  # Matrix runner across models, beams, and transcripts
 │   └── create_long_meeting_fixture.py # Optional generator for long test fixtures
 │
@@ -164,6 +181,8 @@ Clario/
 │   ├── auth.py             # Blueprint: landing, register, login, logout
 │   ├── dashboard.py        # Blueprint: /dashboard, /comparison
 │   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
+│   ├── live.py             # Blueprint: /live/start, /live/<token>, recording, invite, end
+│   ├── tasks.py            # Blueprint: /tasks status board and shared-name confirmation
 │   ├── search.py           # Blueprint: /search
 │   ├── utils.py            # @login_required decorator + current_user()
 │   └── integrations.py     # Blueprint: /integrations, /google/connect|callback|disconnect|meetings|participants|import
@@ -171,12 +190,23 @@ Clario/
 ├── services/
 │   ├── __init__.py         # Intentionally empty (no eager ML imports)
 │   ├── jobs.py             # ThreadPoolExecutor background pipeline job runner & hooks
-│   ├── pipeline.py         # run_clario_pipeline() — orchestrates all steps
-│   ├── transcription.py    # Whisper load/transcribe
-│   ├── summarization.py    # BART load/summarize
-│   ├── task_detection.py   # spaCy NER + regex + dep-parse + dateparser task extractor
-│   ├── participant_matching.py # Attendee matching hierarchy & task rematching
-│   ├── evaluation.py       # ROUGE + F1 offline evaluation utilities
+│   ├── pipeline.py         # run_clario_pipeline() — five report phases
+│   ├── evaluation.py       # Phase 5: ROUGE + F1 offline evaluation
+│   ├── notifications.py    # Post-meeting assignee email + summary PDF, join-link invites
+│   ├── live.py             # Live room: per-account microphone tracks → named transcript
+│   ├── preprocessing/      # Phase 1: input and preprocessing
+│   │   ├── transcription.py    # Whisper load/transcribe
+│   │   ├── cleaning.py         # Fillers, noise markers, timestamps
+│   │   ├── roman_urdu.py       # Roman Urdu meeting lexicon → English
+│   │   └── urdu_norm.py        # Urdu phrase table before Marian fallback
+│   ├── nlp/                # Phase 2: NLP and entity extraction
+│   │   ├── utterances.py       # Decision / Task Assignment / General Discussion
+│   │   ├── task_detection.py   # spaCy NER + regex + dep-parse + dateparser
+│   │   ├── task_verification.py # Speaker context, evidence, duplicates, review list
+│   │   ├── summarization.py    # BART load/summarize
+│   │   └── participant_matching.py # Attendee matching hierarchy
+│   ├── knowledge_graph/    # Phase 3: Decision knowledge graph (NetworkX)
+│   │   └── builder.py          # Person, Task, Decision, Deadline, Meeting
 │   └── integrations/           # Platform integrations (Google Meet OAuth & REST API)
 │       ├── __init__.py         # Re-exports all integration symbols
 │       ├── base.py             # Exception classes (IntegrationError, NotConnected,
@@ -206,9 +236,14 @@ Clario/
     │   ├── index.html      # Main dashboard with meeting list + stats
     │   ├── comparison.html # Meeting trends / comparison charts
     │   └── search.html     # Full-text search results
-    └── meeting/
-        ├── upload.html     # Upload form (audio file or pasted transcript)
-        └── result.html     # Meeting detail: transcript, summary, tasks, graphs
+    ├── meeting/
+    │   ├── upload.html     # Upload form (audio file or pasted transcript)
+    │   └── result.html     # Meeting detail: transcript, summary, tasks, graphs
+    ├── live/
+    │   ├── start.html      # Create a join link and email invites
+    │   └── room.html       # Join, copy link, record microphone, end meeting
+    ├── tasks/
+    │   └── index.html      # Shared task board and name-collision confirmation
     └── integrations/
         ├── index.html      # Integration status page (Connect/Disconnect Google Meet)
         ├── meetings.html   # Recent Google Meet conferences list
@@ -235,21 +270,32 @@ services/jobs.py  _run_pipeline_job()
   1. update_meeting_status(meeting_id, status='processing', progress_stage=...)
   2. run_clario_pipeline(audio_path, text_input, meeting_id, ..., progress_callback=...)
         │
-        ├─ 1. TRANSCRIPTION (stage: "transcribing")
-        │      transcribe_audio(audio_path, model=_get_whisper())
-        │      → whisper.load_model("tiny.en") [lazy, cached globally, thread-safe]
-        │      → model.transcribe(audio_path) → {"text": "..."}
-        │      → FFmpeg auto-resolved via imageio-ffmpeg if not found on system PATH
+        ├─ 1. PREPROCESSING (stage: "transcribing")
+        │      transcribe_audio(audio_path, model=_get_whisper(), task=translate)
+        │      → Primary ASR: Urdu Sukhan v1 (Urdu, English, code-switching)
+        │      → Weights are stored in data/hf-models (CLARIO_HF_MODELS_DIR) |
+        │      → If the primary HF model cannot load, CLARIO_WHISPER_FALLBACK |
+        │        is loaded through Transformers (openai/whisper-*) and the |
+        │        server log names it. openai-whisper is not used for that |
+        │        fallback because numba is blocked here |
+        │      → With no fallback configured, the primary load error is raised |
+        │      → Sukhan writes Urdu in Urdu script; ensure_english_transcript()
+        │        rewrites meeting terms (names, weekdays, action verbs) into
+        │        English, then uses Marian ur-en only for lines it cannot render
+        │      → FFmpeg auto-resolved via imageio-ffmpeg if not on PATH
+        │      clean_transcript(): drop fillers (uh, um), noise markers, timestamps
         │
-        ├─ 2. TASK DETECTION (stage: "detecting_tasks")
-        │      detect_tasks(transcript, nlp_model=_get_nlp())
+        ├─ 2. NLP (stage: "detecting_tasks", then "summarizing")
+        │      verify_meeting_tasks() runs detect_tasks() on the full English transcript
+        │      Speaker labels attach "I will" / "I promised" to that person
+        │      A reply such as "I can do that" keeps the request sentence as evidence
+        │      Repeated commitments collapse; a later deadline replaces the earlier one
+        │      Unnamed commitments go to task_reviews instead of a guessed assignee
+        │      If spaCy's native libraries are blocked, keyword detection still runs
         │      → spacy.load("en_core_web_sm") [lazy, cached globally, thread-safe]
-        │      → sentence segmentation via spaCy
-        │      → regex keyword matching (TASK_KEYWORDS list) with verb POS validation
+        │      → regex keyword matching with verb POS validation
         │      → NER for PERSON (assignee) and DATE/TIME (due date)
         │      → priority via PRIORITY_KEYWORDS + day-proximity heuristic
-        │
-        ├─ 3. SUMMARISATION (stage: "summarizing")
         │      summarize_text(transcript, summariser=_get_summariser())
         │      → AutoTokenizer + AutoModelForSeq2SeqLM.from_pretrained(bart)
         │        [lazy, cached globally, thread-safe]
@@ -260,20 +306,26 @@ services/jobs.py  _run_pipeline_job()
         │      → Extractive summarization fallback when model is unavailable or OOM
         │      → smart_merge(): append tasks not in summary (post map-reduce)
         │
-        ├─ 4. DB PERSIST (stage: "saving")
+        ├─ 3. SAVE (stage: "saving")  — security/storage layer is SQLite + session auth
         │      insert_transcript(meeting_id, transcript)
         │      insert_summary(meeting_id, summary)
         │      insert_tasks(meeting_id, tasks)
+        │      insert_decisions(meeting_id, decisions)
         │      update_meeting_sentiment(meeting_id, vibe)
         │
-        └─ 5. GRAPH & CHART GENERATION (stage: "generating_charts")
-               build_knowledge_graph(tasks) → static/graphs/graph_m{id}.png
+        └─ 4. KNOWLEDGE GRAPH + CHARTS (stage: "generating_charts")
+               build_decision_graph() → Person, Task, Decision, Deadline, Meeting
+               relations: ASSIGNED_TO, DECIDED_BY, DEPENDS_ON, RELATED_TO, DEADLINE, BELONGS_TO
+               build_knowledge_graph(..., decision_graph=...) → static/graphs/graph_m{id}.png
                generate_assignee_bar_chart() → static/graphs/bar_m{id}.png
                generate_priority_donut_chart() → static/graphs/donut_m{id}.png
                generate_status_pie_chart() → static/graphs/status_m{id}.png
                set_meeting_graphs(meeting_id, paths...)
   3. update_meeting_status(meeting_id, status='completed', progress_stage='completed')
-  4. Run post-completion hooks (email notifications, etc.)
+  4. Run post-completion hooks. send_meeting_followups emails each
+     assignee their tasks and attaches a PDF of the summary, decisions,
+     and the full task list. The meeting owner receives the PDF too.
+     SMTP uses CLARIO_SMTP_*; without a host, copies go to data/outbox in debug.
   5. On error: update_meeting_status(meeting_id, status='failed', error_message=...)
   │
   ▼
@@ -290,6 +342,7 @@ Browser  GET /result/<meeting_id>
   └─ If status == 'completed':
        get_meeting_detail(meeting_id, user_id)   ← ownership enforced (AND m.user_id=?)
        get_tasks_by_meeting(meeting_id)
+       get_decisions_by_meeting(meeting_id)
        render_template("meeting/result.html", ...)
 ```
 
@@ -340,16 +393,55 @@ summaries                             (1-to-1 with meetings)
   meeting_id INTEGER NOT NULL UNIQUE → meetings.id ON DELETE CASCADE
   content    TEXT
 
+meeting_emails                        (many-to-1 with meetings)
+  id         INTEGER PK AUTOINCREMENT
+  meeting_id INTEGER NOT NULL → meetings.id ON DELETE CASCADE
+  recipient  TEXT NOT NULL
+  subject    TEXT
+  status     TEXT NOT NULL          (sent, saved, failed, skipped, waiting)
+  detail     TEXT
+  created_at TEXT DEFAULT datetime('now')
+
+decisions                             (many-to-1 with meetings)
+  id          INTEGER PK AUTOINCREMENT
+  meeting_id  INTEGER NOT NULL → meetings.id ON DELETE CASCADE
+  content     TEXT NOT NULL
+  confidence  REAL DEFAULT 0.8
+  source_text TEXT
+
 tasks                                 (many-to-1 with meetings)
   id             INTEGER PK AUTOINCREMENT
   meeting_id     INTEGER NOT NULL → meetings.id ON DELETE CASCADE
   description    TEXT
   assigned_to    TEXT DEFAULT 'Team'
   due_date       TEXT DEFAULT 'Not specified'
-  status         TEXT DEFAULT 'pending'
-  keyword        TEXT
-  priority       TEXT DEFAULT 'Low'
-  assigned_email TEXT (nullable)
+  status            TEXT DEFAULT 'pending'  (pending, started, doing, completed)
+  keyword           TEXT
+  priority          TEXT DEFAULT 'Low'
+  assigned_email    TEXT (nullable)
+  assigned_by_email TEXT (nullable; account that spoke the assignment)
+  source_text       TEXT (spoken sentence; evidence, not a paraphrase)
+  evidence_time     TEXT (timestamp from the transcript, when one was present)
+  source_context    TEXT (earlier line a short reply was answering)
+
+task_reviews                          (many-to-1 with meetings)
+  Commitments that are not saved as tasks because the assignee, deadline,
+  or meaning is unclear, plus duplicates and deadlines that were restated.
+  kind, description, assigned_to, due_date, source_text, source_context,
+  evidence_time, reason. Meeting delete cascades.
+
+live_rooms / live_members / live_recordings / live_messages / live_signals
+  A host creates a join token. Logged-in participants are stored with the
+  account name and email. Each person's newest microphone file is one row
+  in live_recordings. Chat lines are stored in live_messages. Ending the room
+  creates a normal meetings row.
+
+meeting_speaker_turns
+  One row per transcribed speaker track (name, email, spoken text).
+
+task_confirmations
+  Pending when an assignee name matches two or more participant emails.
+  Mail waits until the assigner or the meeting host chooses one.
 
 oauth_connections                     (many-to-1 with users)
   id                INTEGER PK AUTOINCREMENT
@@ -484,13 +576,13 @@ meeting_participants                  (many-to-1 with meetings)
     and reduces hierarchically (up to 3 levels). deduplicate_sentences() removes repeated or near-duplicate sentences (difflib ratio > 0.9) after the map step and on final output. SUMMARY_MAX_INPUT_CHARS is
     deprecated -- it remains in the function signature for backward compatibility
     but is never applied as `text[:max_input_chars]`. Do not reintroduce that cap.
-    `smart_merge()` in `services/summarization.py` appends action items not already
+    `smart_merge()` in `services/nlp/summarization.py` appends action items not already
     in the summary and is called after map-reduce completes. Tests use
     `FakeModel`/`FakeTokenizer` (1 word = 1 token) -- never load real BART weights
     in automated tests.
 
 15. **Participant matching and meeting platform imports.**
-    - `match(assignee_name, participants)` in `services/participant_matching.py`
+    - `match(assignee_name, participants)` in `services/nlp/participant_matching.py`
       implements a three-tier matching hierarchy: normalised exact match, unique
       first-name match, and difflib fuzzy match (ratio >= 0.8 with unique best
       candidate). Pronouns ("he", "she", "they", etc.) and generic group terms
@@ -503,7 +595,7 @@ meeting_participants                  (many-to-1 with meetings)
       (`replace_meeting_participants`), and updates `meetings.platform` and
       `meetings.external_meeting_id`.
 
-16. **Task detection algorithm (`services/task_detection.py`).**
+16. **Task detection algorithm (`services/nlp/task_detection.py`).**
     The detector runs five stages on each sentence in order:
     1. **Negation guard** — skip sentences containing `will not / won't / nobody /
        no one / doesn't / didn't / never / cannot`.
@@ -514,30 +606,120 @@ meeting_participants                  (many-to-1 with meetings)
     3. **Question guard** — skip bare questions (ends `?` or auxiliary-led) unless
        a strong obligation cue (`can you`, `make sure`, etc.) is also present.
     4. **Keyword matching** — `STRONG_CUES` (will, needs to, must, has to, please,
-       deadline, responsible for, can you, let's, make sure, follow up, ensure…)
-       or `STRONG_ACTION_VERBS` (submit, fix, deliver, deploy, etc.). Weak verbs
-       (review, check, discuss) only count when a strong cue is also present.
+       deadline, responsible for, can you, let's, make sure, follow up, ensure,
+       promised to…) or `STRONG_ACTION_VERBS` (submit, fix, deliver, deploy, etc.).
+       Weak verbs (review, check, discuss) only count when a strong cue is also present.
+       Without spaCy, a listed verb used as a noun ("test cases", "the release",
+       "an update") is not treated as a task.
     5. **Dep-parse fallback** — uses `token.dep_` to detect imperatives (ROOT VERB
        with no subject and not past tense) or future/modal patterns (ROOT VERB +
        modal aux `will/must/shall` + named nsubj). Past-tense ROOT verbs (tag
        `VBD/VBN`) are excluded.
 
-    Relative date phrases (`tomorrow`, `next Friday`, day names) are resolved to
-    ISO `YYYY-MM-DD` via `dateparser` when a `meeting_date` is passed. The original
-    phrase is kept in `due_date`; the ISO form goes into `due_date_iso`.
+    Relative date phrases (`tomorrow`, `next Friday`, day names) and absolute
+    dates (`November 20`, `2026-11-20`) are captured in `due_date`. Relative
+    phrases are resolved to ISO `YYYY-MM-DD` via `dateparser` when a
+    `meeting_date` is passed. The ISO form goes into `due_date_iso`.
+
+    **Verification** (`services/nlp/task_verification.py`) runs after detection
+    on the whole meeting. It keeps the spoken sentence and any timestamp,
+    attributes first-person commitments to the current speaker, collapses
+    repeats, and stores uncertain lines in `task_reviews`. It does not invent
+    a person's name when the transcript does not say who will do the work.
+    `verify_meeting_tasks(transcript, tasks=None, *, nlp=None, participants=None,
+    meeting_date=None, segments=None)` is keyword-only after the transcript.
+    `prepare_meeting_turns()` keeps each line's original wording as `source_text`,
+    moves timestamps onto tasks, and rewrites Arabic-script lines with `urdu_norm`
+    or the Roman Urdu lexicon, keeping the gloss that preserves more of the
+    commitment. A transliterated name is aligned to a Latin speaker label already
+    on the transcript. A named "please" is saved for that person even when nobody
+    answers; a question still waits for the reply. Marian runs only when Arabic
+    script remains.
 
     **Public signatures are locked** — `detect_tasks(text, nlp=None, nlp_model=None,
     *, participants=None, meeting_date=None)` and `get_task_summary(tasks)`. Add
     new behaviour only via keyword-only parameters with defaults. Never copy fixture
     sentences into rules; tune only on the dev split of `tests/fixtures/task_labels.json`.
 
-    **Eval script:** `python scripts/eval_tasks.py` prints precision/recall/F1 on
-    dev (20) and held-out (10) splits and appends a dated section to
+    **Eval scripts:** `python scripts/eval_tasks.py` prints precision/recall/F1 on
+    dev (20) and held-out (10) sentence splits and appends a dated section to
     `docs/task-detection-eval.md`. Always record baseline before changing the detector.
+    `python scripts/eval_meeting_tasks.py` scores annotated English, mixed, and
+    Urdu meetings in `tests/fixtures/meeting_actions.json` and appends missed and
+    incorrect tasks to `docs/meeting-task-eval.md`. Urdu lines use the phrase
+    table only; a line it cannot render is a miss, not a neural-model guess.
+
+17. **Live meetings and the shared task board.**
+    - `POST /live/start` creates `live_rooms` and can email the join link.
+      `GET /live/<token>` renders the Meet-style room (`templates/live/room.html`,
+      `static/js/live-room.js`): stage (local camera preview), sidebar (People |
+      Chat), bottom toolbar (mic, camera, record, save, host end). Recording does
+      **not** auto-start; the user enables mic/camera then taps Record. Uploads go
+      to `POST /live/<token>/recording` (audio `.webm` / `.ogg`). In-room chat
+      uses `live_messages` via `GET /live/<token>/messages` and
+      `POST /live/<token>/chat` (form `csrf_token` + `message`). Participant
+      video and audio use a mesh of peer connections. Admitted people appear
+      together in one gallery. Audio and video are negotiated as soon as
+      someone is in the meeting, so a mic or camera turned on afterwards still
+      reaches everyone. The browser asks for the mic and camera on entry.
+      Signaling is stored in `live_signals` via `GET|POST /live/<token>/signal`.
+      `GET` with `bootstrap=1` returns a cursor and does not replay old
+      signals; the participant with the lower user id keeps sending a fresh
+      offer until the other side answers. Roster polling uses `GET /live/<token>/roster`.
+      **Waiting room:** guests join as `pending` on `live_members.admission_status`;
+      host approval sets `host_admitted_at` (legacy ``admitted`` rows without that
+      timestamp count as waiting). Guests POST `/live/<token>/request` to register;
+      host admits via `POST /live/<token>/admit` or denies via `POST /live/<token>/deny`;
+      guests poll `GET /live/<token>/admission` until `admitted`.
+      **Record** saves **microphone audio only** (for Whisper); live camera is not
+      uploaded unless present in the audio file format.
+      The name saved on the room page is the speaker label. Everyone who joined
+      is stored as a participant, even if they did not speak. The host ends the
+      room; `services/live.py` transcribes each track, prefixes `Name (email):`,
+      and submits that transcript to the existing pipeline.
+    - `ambiguous_matches()` reports a tie. `send_meeting_followups` writes
+      `task_confirmations` and status `waiting` instead of sending. The assigner
+      (`assigned_by_email`) or the meeting host confirms on `/tasks` or the result
+      page, and mail is sent only after no ties remain.
+    - `/tasks` lists every task in meetings the user owns, joined, or was assigned
+      in. Only the assignee email can set status to `pending`, `started`,
+      `doing`, or `completed`. Other people see that status and cannot change it.
 
 ---
 
-## 8. Sprint Working Rules
+## 8. Design system (Sage + Warm Ivory)
+
+Server-rendered UI uses `static/css/style.css` and `templates/macros/icons.html`
+(inline SVG, no icon font). Fonts: **Sora** (headings) and **DM Sans** (body) via
+`base.html`.
+
+| Token | Value | Use |
+|---|---|---|
+| `--color-forest` | `#263A35` | Primary text, primary buttons, video stage |
+| `--color-sage` | `#829B8A` | Accents, links, chart series, success |
+| `--color-mint-soft` | `#DCE8DF` | Table headers, hovers, subtle fills |
+| `--color-ivory` | `#F7F5EF` | Page background |
+| `--color-white` | `#FFFFFF` | Cards, nav pill, inputs |
+| `--bg` / `--surface` | ivory / white | Layout surfaces |
+| `--text-muted` | `#5F726B` | Secondary copy |
+| `--accent-coral` | `#8B6348` | Warm accent (priority, tense vibe) |
+
+**Components:** floating pill navbar (`navbar-shell`), buttons (`btn-primary`,
+`btn-outline`, `btn-ghost`), `card` + `card-pad` / `card-flush`, `form-control`,
+`alert-*`, badge variants (`badge-mint`, `badge-lilac`, `badge-queued`, …),
+`empty-state`, `bento-stats` / `bento-main`, `listening-orb` + CSS waveform on
+landing and live room.
+
+**Motion:** CSS only (`page-rise`, hover lift, orb/waveform). Respect
+`prefers-reduced-motion`. No Framer Motion.
+
+**Layout helpers:** `page-title`, `page-lead`, `back-link`, `container-narrow`,
+`container-medium`, `container-wide`. Avoid inline styles in templates — extend
+`style.css` instead.
+
+---
+
+## 9. Sprint Working Rules
 
 These rules apply to every task in every future sprint:
 
@@ -570,7 +752,7 @@ These rules apply to every task in every future sprint:
 
 ---
 
-## 9. Security Architecture
+## 10. Security Architecture
 
 - **CSRF Protection:** Flask-WTF `CSRFProtect` initialized in `create_app()`. Meta tag `<meta name="csrf-token">` in `base.html`, hidden `csrf_token` input in all POST forms. `static/js/main.js` automatically intercepts `fetch` and `XMLHttpRequest` to set `X-CSRFToken`. Disabled in test fixtures with `WTF_CSRF_ENABLED = False`, tested explicitly with `csrf_app` fixture.
 - **Upload Hardening:** User-uploaded files are sanitised with `werkzeug.utils.secure_filename()`. Filenames saved on disk use `u{user_id}_{uuid4().hex}{ext}` to eliminate collisions and path traversal. Original filename is stored in SQLite for UI presentation. File extensions are validated against `ALLOWED_AUDIO` post-sanitisation.
@@ -582,7 +764,7 @@ These rules apply to every task in every future sprint:
 
 ---
 
-## 10. Model Benchmarks
+## 11. Model Benchmarks
 
 Empirical performance evaluation across summarization configurations on CPU:
 

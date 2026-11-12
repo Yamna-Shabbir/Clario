@@ -46,7 +46,7 @@ from services.integrations.google_meet import (
     list_recent_meetings,
     revoke_token,
 )
-from services.participant_matching import match, rematch_meeting_tasks
+from services.nlp.participant_matching import match, rematch_meeting_tasks
 
 integrations_bp = Blueprint("integrations", __name__, url_prefix="/integrations")
 

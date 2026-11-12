@@ -102,18 +102,138 @@ def init_db(db_path: str = DB_PATH) -> None:
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
             );
 
+            -- ── Follow-up emails (many-to-1 with meetings) ────────────────
+            CREATE TABLE IF NOT EXISTS meeting_emails (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id INTEGER NOT NULL,
+                recipient  TEXT    NOT NULL,
+                subject    TEXT,
+                status     TEXT    NOT NULL,
+                detail     TEXT,
+                created_at TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+            );
+
+            -- ── Decisions (many-to-1 with meetings) ───────────────────────
+            CREATE TABLE IF NOT EXISTS decisions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id  INTEGER NOT NULL,
+                content     TEXT    NOT NULL,
+                confidence  REAL    DEFAULT 0.8,
+                source_text TEXT,
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+            );
+
             -- ── Tasks (many-to-1 with meetings) ───────────────────────────
             CREATE TABLE IF NOT EXISTS tasks (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id        INTEGER NOT NULL,
+                description       TEXT,
+                assigned_to       TEXT    DEFAULT 'Team',
+                due_date          TEXT    DEFAULT 'Not specified',
+                status            TEXT    DEFAULT 'pending',
+                keyword           TEXT,
+                priority          TEXT    DEFAULT 'Low',
+                assigned_email    TEXT,
+                assigned_by_email TEXT,
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+            );
+
+            -- ── Who said which part of a live meeting ─────────────────────
+            CREATE TABLE IF NOT EXISTS meeting_speaker_turns (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id    INTEGER NOT NULL,
+                speaker_name  TEXT    NOT NULL,
+                speaker_email TEXT,
+                content       TEXT    NOT NULL,
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+            );
+
+            -- ── Commitments a person should confirm before they are tasks ─
+            CREATE TABLE IF NOT EXISTS task_reviews (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 meeting_id     INTEGER NOT NULL,
+                kind           TEXT    NOT NULL,
                 description    TEXT,
-                assigned_to    TEXT    DEFAULT 'Team',
-                due_date       TEXT    DEFAULT 'Not specified',
-                status         TEXT    DEFAULT 'pending',
-                keyword        TEXT,
-                priority       TEXT    DEFAULT 'Low',
-                assigned_email TEXT,
+                assigned_to    TEXT,
+                due_date       TEXT,
+                source_text    TEXT,
+                source_context TEXT,
+                evidence_time  TEXT,
+                reason         TEXT    NOT NULL,
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+            );
+
+            -- ── Name collisions waiting for the assigner to choose ────────
+            CREATE TABLE IF NOT EXISTS task_confirmations (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id      INTEGER NOT NULL,
+                task_id         INTEGER NOT NULL UNIQUE,
+                assignee_name   TEXT    NOT NULL,
+                candidates_json TEXT    NOT NULL,
+                status          TEXT    NOT NULL DEFAULT 'pending',
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            );
+
+            -- ── Live rooms started inside Clario ──────────────────────────
+            CREATE TABLE IF NOT EXISTS live_rooms (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                host_user_id INTEGER NOT NULL,
+                title        TEXT    DEFAULT 'Live meeting',
+                join_token   TEXT    NOT NULL UNIQUE,
+                status       TEXT    NOT NULL DEFAULT 'live',
+                meeting_id   INTEGER,
+                created_at   TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (host_user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS live_members (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id          INTEGER NOT NULL,
+                user_id          INTEGER NOT NULL,
+                display_name     TEXT    NOT NULL,
+                email            TEXT    NOT NULL,
+                admission_status TEXT    NOT NULL DEFAULT 'pending',
+                joined_at        TEXT    DEFAULT (datetime('now')),
+                UNIQUE(room_id, user_id),
+                FOREIGN KEY (room_id) REFERENCES live_rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS live_recordings (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id    INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                audio_path TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (room_id) REFERENCES live_rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS live_messages (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id      INTEGER NOT NULL,
+                user_id      INTEGER NOT NULL,
+                display_name TEXT    NOT NULL,
+                message      TEXT    NOT NULL,
+                created_at   TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (room_id) REFERENCES live_rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS live_signals (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_id      INTEGER NOT NULL,
+                from_user_id INTEGER NOT NULL,
+                to_user_id   INTEGER NOT NULL,
+                kind         TEXT    NOT NULL,
+                payload      TEXT    NOT NULL,
+                created_at   TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (room_id) REFERENCES live_rooms(id) ON DELETE CASCADE,
+                FOREIGN KEY (from_user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (to_user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
             -- ── OAuth Connections ─────────────────────────────────────────
@@ -170,7 +290,26 @@ def init_db(db_path: str = DB_PATH) -> None:
         task_cols = _get_columns("tasks")
         if "assigned_email" not in task_cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN assigned_email TEXT")
-            
+        if "assigned_by_email" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN assigned_by_email TEXT")
+        if "source_text" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN source_text TEXT")
+        if "evidence_time" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN evidence_time TEXT")
+        if "source_context" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN source_context TEXT")
+
+        member_cols = _get_columns("live_members")
+        if "admission_status" not in member_cols:
+            conn.execute(
+                "ALTER TABLE live_members ADD COLUMN admission_status "
+                "TEXT NOT NULL DEFAULT 'admitted'",
+            )
+        if "host_admitted_at" not in member_cols:
+            conn.execute(
+                "ALTER TABLE live_members ADD COLUMN host_admitted_at TEXT",
+            )
+
         conn.commit()
     print(f" DB ready: {db_path}")
 
@@ -407,8 +546,9 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
     with get_connection(db_path) as conn:
         conn.executemany(
             """INSERT INTO tasks
-               (meeting_id, description, assigned_to, due_date, status, keyword, priority, assigned_email)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (meeting_id, description, assigned_to, due_date, status, keyword,
+                priority, assigned_email, source_text, evidence_time, source_context)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     meeting_id,
@@ -419,11 +559,118 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
                     t.get("keyword",      ""),
                     t.get("priority",     "Low"),
                     t.get("assigned_email"),
+                    t.get("source_text") or t.get("description") or "",
+                    t.get("evidence_time") or "",
+                    t.get("source_context") or "",
                 )
                 for t in tasks
             ],
         )
         conn.commit()
+
+
+def insert_decisions(meeting_id: int, decisions: List[Dict],
+                     db_path: str = DB_PATH) -> None:
+    """Replace stored decisions for a meeting with *decisions*."""
+    with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM decisions WHERE meeting_id = ?", (meeting_id,))
+        conn.executemany(
+            """INSERT INTO decisions (meeting_id, content, confidence, source_text)
+               VALUES (?,?,?,?)""",
+            [
+                (
+                    meeting_id,
+                    d.get("text") or d.get("content") or "",
+                    d.get("confidence", 0.8),
+                    d.get("source") or d.get("text") or d.get("content") or "",
+                )
+                for d in decisions
+                if (d.get("text") or d.get("content"))
+            ],
+        )
+        conn.commit()
+
+
+def replace_meeting_emails(meeting_id: int, rows: List[Dict],
+                           db_path: str = DB_PATH) -> None:
+    """Replace the follow-up email log for one meeting."""
+    with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM meeting_emails WHERE meeting_id = ?", (meeting_id,))
+        conn.executemany(
+            """INSERT INTO meeting_emails (meeting_id, recipient, subject, status, detail)
+               VALUES (?,?,?,?,?)""",
+            [
+                (
+                    meeting_id,
+                    row.get("recipient", ""),
+                    row.get("subject", ""),
+                    row.get("status", "skipped"),
+                    row.get("detail", ""),
+                )
+                for row in rows
+            ],
+        )
+        conn.commit()
+
+
+def get_meeting_emails(meeting_id: int, db_path: str = DB_PATH) -> List[Dict]:
+    """Return follow-up email attempts for a meeting, oldest first."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM meeting_emails WHERE meeting_id = ? ORDER BY id",
+            (meeting_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_decisions_by_meeting(meeting_id: int,
+                             db_path: str = DB_PATH) -> List[Dict]:
+    """Return decisions stored for a meeting, in insertion order."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM decisions WHERE meeting_id = ? ORDER BY id",
+            (meeting_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def replace_task_reviews(meeting_id: int, reviews: List[Dict],
+                         db_path: str = DB_PATH) -> None:
+    """Replace the human-review list for one meeting."""
+    with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM task_reviews WHERE meeting_id = ?", (meeting_id,))
+        conn.executemany(
+            """INSERT INTO task_reviews
+               (meeting_id, kind, description, assigned_to, due_date,
+                source_text, source_context, evidence_time, reason)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            [
+                (
+                    meeting_id,
+                    item.get("kind") or "possible_miss",
+                    item.get("description") or "",
+                    item.get("assigned_to") or "",
+                    item.get("due_date") or "Not specified",
+                    item.get("source_text") or item.get("description") or "",
+                    item.get("source_context") or "",
+                    item.get("evidence_time") or "",
+                    item.get("reason") or "Needs review",
+                )
+                for item in reviews
+                if (item.get("description") or item.get("source_text"))
+            ],
+        )
+        conn.commit()
+
+
+def get_task_reviews(meeting_id: int, db_path: str = DB_PATH) -> List[Dict]:
+    """Return review items for a meeting, in insertion order."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM task_reviews WHERE meeting_id = ? ORDER BY id",
+            (meeting_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
 
 def get_tasks_by_meeting(meeting_id: int,
@@ -507,6 +754,442 @@ def mark_task_complete(task_id: int, db_path: str = DB_PATH) -> None:
     with get_connection(db_path) as conn:
         conn.execute(
             "UPDATE tasks SET status = 'completed' WHERE id = ?", (task_id,)
+        )
+        conn.commit()
+
+
+TASK_STATUSES = ("pending", "started", "doing", "completed")
+
+
+def set_assignee_task_status(task_id: int, email: str, status: str,
+                             db_path: str = DB_PATH) -> Optional[int]:
+    """Set a task status when the email is the assignee. Returns the meeting id."""
+    if status not in TASK_STATUSES:
+        return None
+    cleaned = (email or "").strip().lower()
+    if not cleaned:
+        return None
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            """SELECT id, meeting_id FROM tasks
+               WHERE id = ? AND lower(assigned_email) = ?""",
+            (task_id, cleaned),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE tasks SET status = ? WHERE id = ?",
+            (status, task_id),
+        )
+        conn.commit()
+        return row["meeting_id"]
+
+
+def get_tasks_visible_to_user(user_id: int, email: str,
+                              db_path: str = DB_PATH) -> List[Dict]:
+    """Tasks from meetings the user owns, joined, or was assigned in.
+
+    Everyone in that meeting can see every task and its status.
+    """
+    cleaned = (email or "").strip().lower()
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT tk.*, m.title AS meeting_title, m.meeting_date, m.user_id AS owner_id
+            FROM tasks tk
+            JOIN meetings m ON m.id = tk.meeting_id
+            WHERE m.id IN (
+                SELECT id FROM meetings WHERE user_id = ?
+                UNION
+                SELECT meeting_id FROM meeting_participants
+                WHERE lower(COALESCE(email, '')) = ?
+                UNION
+                SELECT meeting_id FROM tasks
+                WHERE lower(COALESCE(assigned_email, '')) = ?
+            )
+            ORDER BY tk.id DESC
+            """,
+            (user_id, cleaned, cleaned),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def insert_speaker_turns(meeting_id: int, turns: List[Dict[str, Any]],
+                         db_path: str = DB_PATH) -> None:
+    """Replace stored speaker turns for a meeting."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "DELETE FROM meeting_speaker_turns WHERE meeting_id = ?",
+            (meeting_id,),
+        )
+        conn.executemany(
+            """INSERT INTO meeting_speaker_turns
+               (meeting_id, speaker_name, speaker_email, content)
+               VALUES (?, ?, ?, ?)""",
+            [
+                (
+                    meeting_id,
+                    turn.get("speaker_name") or "Speaker",
+                    (turn.get("speaker_email") or "").strip().lower(),
+                    turn.get("content") or "",
+                )
+                for turn in turns
+                if (turn.get("content") or "").strip()
+            ],
+        )
+        conn.commit()
+
+
+def get_speaker_turns(meeting_id: int, db_path: str = DB_PATH) -> List[Dict]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT * FROM meeting_speaker_turns
+               WHERE meeting_id = ? ORDER BY id""",
+            (meeting_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def set_task_assigner(task_id: int, email: str, db_path: str = DB_PATH) -> None:
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "UPDATE tasks SET assigned_by_email = ? WHERE id = ?",
+            ((email or "").strip().lower(), task_id),
+        )
+        conn.commit()
+
+
+def replace_pending_confirmations(meeting_id: int, rows: List[Dict[str, Any]],
+                                  db_path: str = DB_PATH) -> None:
+    """Replace the pending name-collision rows for a meeting."""
+    import json
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "DELETE FROM task_confirmations WHERE meeting_id = ? AND status = 'pending'",
+            (meeting_id,),
+        )
+        for row in rows:
+            conn.execute(
+                """INSERT INTO task_confirmations
+                   (meeting_id, task_id, assignee_name, candidates_json, status)
+                   VALUES (?, ?, ?, ?, 'pending')
+                   ON CONFLICT(task_id) DO UPDATE SET
+                     assignee_name = excluded.assignee_name,
+                     candidates_json = excluded.candidates_json,
+                     status = 'pending'""",
+                (
+                    meeting_id,
+                    row["task_id"],
+                    row.get("assignee_name") or "",
+                    json.dumps(row.get("candidates") or []),
+                ),
+            )
+        conn.commit()
+
+
+def get_pending_confirmations(meeting_id: int, db_path: str = DB_PATH) -> List[Dict]:
+    import json
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT c.*, tk.description, tk.assigned_by_email
+               FROM task_confirmations c
+               JOIN tasks tk ON tk.id = c.task_id
+               WHERE c.meeting_id = ? AND c.status = 'pending'
+               ORDER BY c.id""",
+            (meeting_id,),
+        ).fetchall()
+    parsed = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["candidates"] = json.loads(item.get("candidates_json") or "[]")
+        except json.JSONDecodeError:
+            item["candidates"] = []
+        parsed.append(item)
+    return parsed
+
+
+def get_confirmations_for_user(user_id: int, email: str,
+                               db_path: str = DB_PATH) -> List[Dict]:
+    """Pending choices for the meeting owner or the person who assigned the task."""
+    import json
+    cleaned = (email or "").strip().lower()
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT c.*, tk.description, tk.assigned_by_email, m.title AS meeting_title
+               FROM task_confirmations c
+               JOIN tasks tk ON tk.id = c.task_id
+               JOIN meetings m ON m.id = c.meeting_id
+               WHERE c.status = 'pending'
+                 AND (m.user_id = ? OR lower(COALESCE(tk.assigned_by_email, '')) = ?)
+               ORDER BY c.id""",
+            (user_id, cleaned),
+        ).fetchall()
+    parsed = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["candidates"] = json.loads(item.get("candidates_json") or "[]")
+        except json.JSONDecodeError:
+            item["candidates"] = []
+        parsed.append(item)
+    return parsed
+
+
+def resolve_task_confirmation(meeting_id: int, task_id: int, email: str,
+                              db_path: str = DB_PATH) -> bool:
+    """Point a task at one of the colliding people. Returns False if not allowed."""
+    import json
+    cleaned = (email or "").strip().lower()
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            """SELECT candidates_json FROM task_confirmations
+               WHERE meeting_id = ? AND task_id = ? AND status = 'pending'""",
+            (meeting_id, task_id),
+        ).fetchone()
+        if not row:
+            return False
+        try:
+            candidates = json.loads(row["candidates_json"] or "[]")
+        except json.JSONDecodeError:
+            candidates = []
+        chosen = next(
+            (c for c in candidates if (c.get("email") or "").strip().lower() == cleaned),
+            None,
+        )
+        if not chosen:
+            return False
+        conn.execute(
+            "UPDATE tasks SET assigned_to = ?, assigned_email = ? WHERE id = ?",
+            (chosen.get("name") or cleaned, cleaned, task_id),
+        )
+        conn.execute(
+            """UPDATE task_confirmations SET status = 'resolved'
+               WHERE meeting_id = ? AND task_id = ?""",
+            (meeting_id, task_id),
+        )
+        conn.commit()
+        return True
+
+
+def create_live_room(host_user_id: int, title: str, join_token: str,
+                     db_path: str = DB_PATH) -> int:
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """INSERT INTO live_rooms (host_user_id, title, join_token, status)
+               VALUES (?, ?, ?, 'live')""",
+            (host_user_id, title or "Live meeting", join_token),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+
+def get_live_room_by_token(join_token: str, db_path: str = DB_PATH) -> Optional[Dict]:
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM live_rooms WHERE join_token = ?",
+            (join_token,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+LIVE_ADMISSION_STATUSES = ("pending", "admitted", "denied")
+
+
+def add_live_member(room_id: int, user_id: int, display_name: str, email: str,
+                    db_path: str = DB_PATH, *, keep_existing_name: bool = False,
+                    admission_status: str = "pending") -> None:
+    """Add a person to a live room (waiting room defaults to ``pending``).
+
+    ``keep_existing_name`` leaves a name the person already saved. The email
+    is still refreshed from their account. Re-joining does not reset ``admitted``.
+    """
+    status = admission_status if admission_status in LIVE_ADMISSION_STATUSES else "pending"
+    name_update = "" if keep_existing_name else "display_name = excluded.display_name,"
+    with get_connection(db_path) as conn:
+        conn.execute(
+            f"""INSERT INTO live_members (room_id, user_id, display_name, email, admission_status)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(room_id, user_id) DO UPDATE SET
+                 {name_update}
+                 email = excluded.email,
+                 admission_status = CASE
+                   WHEN live_members.host_admitted_at IS NOT NULL THEN 'admitted'
+                   WHEN excluded.admission_status = 'denied' THEN 'denied'
+                   WHEN excluded.admission_status = 'pending' THEN 'pending'
+                   WHEN excluded.admission_status = 'admitted' THEN 'admitted'
+                   ELSE live_members.admission_status
+                 END""",
+            (room_id, user_id, display_name or email, (email or "").strip().lower(), status),
+        )
+        conn.commit()
+
+
+def get_live_member(room_id: int, user_id: int, db_path: str = DB_PATH) -> Optional[Dict]:
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM live_members WHERE room_id = ? AND user_id = ?",
+            (room_id, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def set_live_member_admission(room_id: int, user_id: int, status: str,
+                              db_path: str = DB_PATH) -> bool:
+    """Host sets waiting-room status for a participant."""
+    if status not in LIVE_ADMISSION_STATUSES:
+        return False
+    with get_connection(db_path) as conn:
+        if status == "admitted":
+            cur = conn.execute(
+                """UPDATE live_members
+                   SET admission_status = ?, host_admitted_at = datetime('now')
+                   WHERE room_id = ? AND user_id = ?""",
+                (status, room_id, user_id),
+            )
+        else:
+            cur = conn.execute(
+                """UPDATE live_members
+                   SET admission_status = ?, host_admitted_at = NULL
+                   WHERE room_id = ? AND user_id = ?""",
+                (status, room_id, user_id),
+            )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_live_members(room_id: int, db_path: str = DB_PATH, *,
+                     admission: Optional[str] = None) -> List[Dict]:
+    with get_connection(db_path) as conn:
+        if admission and admission in LIVE_ADMISSION_STATUSES:
+            rows = conn.execute(
+                """SELECT * FROM live_members
+                   WHERE room_id = ? AND admission_status = ?
+                   ORDER BY id""",
+                (room_id, admission),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM live_members WHERE room_id = ? ORDER BY id",
+                (room_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_live_recording(room_id: int, user_id: int, audio_path: str,
+                       db_path: str = DB_PATH) -> None:
+    """Keep the newest recording for each person in the room."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "DELETE FROM live_recordings WHERE room_id = ? AND user_id = ?",
+            (room_id, user_id),
+        )
+        conn.execute(
+            """INSERT INTO live_recordings (room_id, user_id, audio_path)
+               VALUES (?, ?, ?)""",
+            (room_id, user_id, audio_path),
+        )
+        conn.commit()
+
+
+def get_live_recordings(room_id: int, db_path: str = DB_PATH) -> List[Dict]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT r.*, m.display_name, m.email
+               FROM live_recordings r
+               JOIN live_members m ON m.room_id = r.room_id AND m.user_id = r.user_id
+               WHERE r.room_id = ?
+               ORDER BY r.id""",
+            (room_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_live_message(room_id: int, user_id: int, display_name: str, message: str,
+                     db_path: str = DB_PATH) -> int:
+    """Append a chat line for a live room."""
+    cleaned = (message or "").strip()
+    if not cleaned:
+        return 0
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """INSERT INTO live_messages (room_id, user_id, display_name, message)
+               VALUES (?, ?, ?, ?)""",
+            (room_id, user_id, display_name or "Participant", cleaned[:2000]),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_live_messages(room_id: int, *, since_id: int = 0,
+                      limit: int = 100, db_path: str = DB_PATH) -> List[Dict]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT id, user_id, display_name, message, created_at
+               FROM live_messages
+               WHERE room_id = ? AND id > ?
+               ORDER BY id ASC
+               LIMIT ?""",
+            (room_id, since_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_live_signal(room_id: int, from_user_id: int, to_user_id: int, kind: str,
+                    payload: str, db_path: str = DB_PATH) -> int:
+    """Store a WebRTC signaling message for a participant."""
+    import json as _json
+
+    if not kind or not to_user_id:
+        return 0
+    if not isinstance(payload, str):
+        payload = _json.dumps(payload)
+    if len(payload) > 65536:
+        return 0
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """INSERT INTO live_signals (room_id, from_user_id, to_user_id, kind, payload)
+               VALUES (?, ?, ?, ?, ?)""",
+            (room_id, from_user_id, to_user_id, kind[:32], payload),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+def get_live_signals_for_user(room_id: int, user_id: int, *, since_id: int = 0,
+                              limit: int = 80, db_path: str = DB_PATH) -> List[Dict]:
+    """Return signaling rows addressed to this user."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT id, from_user_id, to_user_id, kind, payload, created_at
+               FROM live_signals
+               WHERE room_id = ? AND to_user_id = ? AND id > ?
+               ORDER BY id ASC
+               LIMIT ?""",
+            (room_id, user_id, since_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def latest_live_signal_id(room_id: int, user_id: int, db_path: str = DB_PATH) -> int:
+    """Highest signaling row id already addressed to this participant."""
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            """SELECT COALESCE(MAX(id), 0) AS max_id
+               FROM live_signals
+               WHERE room_id = ? AND to_user_id = ?""",
+            (room_id, user_id),
+        ).fetchone()
+        return int(row["max_id"] if row else 0)
+
+
+def end_live_room(room_id: int, meeting_id: int, db_path: str = DB_PATH) -> None:
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """UPDATE live_rooms
+               SET status = 'ended', meeting_id = ?
+               WHERE id = ?""",
+            (meeting_id, room_id),
         )
         conn.commit()
 

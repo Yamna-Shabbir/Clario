@@ -16,7 +16,7 @@ import time
 # Ensure project root in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from services.summarization import load_summarizer, summarize_text
+from services.nlp.summarization import load_summarizer, summarize_text
 
 
 def run_comparison(transcript_path: str, model_name: str = "facebook/bart-large-cnn"):

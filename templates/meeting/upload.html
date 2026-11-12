@@ -1,96 +1,69 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_arrow_left, icon_upload, icon_mic %}
 
 {% block title %}Upload meeting{% endblock %}
 
 {% block content %}
 <div class="page-body">
-<div class="container" style="max-width:760px;">
+<div class="container container-narrow">
 
-  <div style="margin-bottom:32px;">
-    <a href="{{ url_for('dashboard.index') }}" class="text-muted" style="font-size:0.9rem;">
-      ← Back to dashboard
-    </a>
-  </div>
+  <a href="{{ url_for('dashboard.index') }}" class="back-link">{{ icon_arrow_left() }} Back to dashboard</a>
 
-  <h1 style="font-size:2rem; font-weight:800; margin-bottom:6px;">Upload a meeting</h1>
-  <p class="text-muted" style="margin-bottom:36px;">
-    Provide an audio recording <em>or</em> paste the transcript directly —
-    Clario will do the rest.
+  <h1 class="page-title">Upload a meeting</h1>
+  <p class="page-lead stack-lg">
+    Provide an audio recording or paste the transcript directly. Clario will do the rest.
   </p>
 
   {% if session.get('prefill_participants') %}
-  <div style="margin-bottom:24px; padding:16px 20px; background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); border-radius:12px; display:flex; align-items:center; justify-content:space-between;">
+  <div class="callout row-between">
     <div>
-      <span style="font-weight:600; color:#A5B4FC; display:block; margin-bottom:2px;">
-        📹 Google Meet Participants Linked
-      </span>
-      <span style="font-size:0.88rem; color:var(--text-muted);">
-        {{ session.get('prefill_participants')|length }} participant(s) queued for this upload. Action item assignees will be matched against this roster.
+      <span class="callout__title">Google Meet participants linked</span>
+      <span class="callout__text">
+        {{ session.get('prefill_participants')|length }} participant(s) queued for this upload.
       </span>
     </div>
-    <span class="badge" style="background:rgba(99,102,241,0.25); color:#C7D2FE;">Ready to Link</span>
+    <span class="badge badge-lilac">Ready to link</span>
   </div>
   {% endif %}
 
-  <form id="upload-form" method="POST"
-        action="{{ url_for('meeting.upload') }}"
-        enctype="multipart/form-data"
-        novalidate>
+  <form id="upload-form" method="POST" action="{{ url_for('meeting.upload') }}" enctype="multipart/form-data" novalidate>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
 
-    <!-- ── Meeting Details ──────────────────────────────────────── -->
-    <div class="card" style="padding:32px; margin-bottom:24px;">
-      <h2 class="section-heading" style="font-size:1rem;">🏷️ Meeting details</h2>
-      <div class="form-group" style="margin-bottom:0;">
+    <div class="card card-pad stack-md">
+      <h2 class="section-heading">Meeting details</h2>
+      <div class="form-group">
+        <label class="sr-only" for="meeting_title">Meeting title</label>
         <input type="text" id="meeting_title" name="meeting_title" class="form-control" placeholder="E.g. Q3 Roadmap Planning (optional)">
       </div>
     </div>
 
-    <!-- ── Audio upload ──────────────────────────────────────── -->
-    <div class="card" style="padding:32px; margin-bottom:24px;">
-      <h2 class="section-heading" style="font-size:1rem;">🎤 Audio file</h2>
-
+    <div class="card card-pad stack-md">
+      <h2 class="section-heading">Audio file</h2>
       <div class="upload-zone" id="upload-zone">
-        <div class="upload-icon">🎵</div>
-        <p style="font-weight:600; margin-bottom:4px;">
-          Drag &amp; drop your audio here
-        </p>
+        <div class="upload-icon">{{ icon_upload(32, 'icon') }}</div>
+        <p class="empty-state__title">Drag and drop your audio here</p>
         <p class="upload-hint">or click to browse — MP3, WAV, M4A, OGG, FLAC, WEBM</p>
-        <input
-          type="file" id="audio_file" name="audio_file"
-          accept=".mp3,.wav,.m4a,.ogg,.flac,.webm"
-          style="display:none;"
-        />
+        <input type="file" id="audio_file" name="audio_file" accept=".mp3,.wav,.m4a,.ogg,.flac,.webm" class="sr-only-file" hidden />
       </div>
     </div>
 
-    <!-- ── Text input alternative ───────────────────────────── -->
-    <div class="card" style="padding:32px; margin-bottom:28px;">
-      <h2 class="section-heading" style="font-size:1rem;">📝 Paste transcript (optional)</h2>
-      <div class="form-group" style="margin-bottom:0;">
-        <textarea
-          id="text_input" name="text_input"
-          class="form-control" style="min-height:180px;"
-          placeholder="Paste your meeting transcript here if you don't have an audio file…"
-        ></textarea>
+    <div class="card card-pad stack-md">
+      <h2 class="section-heading">Paste transcript (optional)</h2>
+      <div class="form-group">
+        <label class="sr-only" for="text_input">Transcript</label>
+        <textarea id="text_input" name="text_input" class="form-control" placeholder="Paste your meeting transcript here if you do not have an audio file…"></textarea>
       </div>
     </div>
 
-    <!-- ── Submit ───────────────────────────────────────────── -->
-    <div id="upload-spinner" style="display:none; margin-bottom:20px; text-align:center;">
+    <div id="upload-spinner" class="stack-md" hidden>
       <div class="logo-loader">
-        <span class="logo-pulse">🎙️</span>
+        <span class="logo-pulse">{{ icon_mic(28, 'icon') }}</span>
       </div>
-      <h3 id="loading-percentage" style="font-size:2rem; font-weight:800; color:var(--text); margin-top:16px; margin-bottom:4px;">0%</h3>
-      <p id="loading-status-text" class="text-muted" style="font-size:0.9rem;">
-        Uploading audio file...
-      </p>
+      <h3 id="loading-percentage" class="stat-number text-center">0%</h3>
+      <p id="loading-status-text" class="text-muted text-center">Uploading audio file...</p>
     </div>
 
-    <button id="upload-submit-btn" type="submit" class="btn btn-primary btn-block">
-      🚀 Process meeting
-    </button>
-
+    <button id="upload-submit-btn" type="submit" class="btn btn-primary btn-block">Process meeting</button>
   </form>
 
 </div>

@@ -124,6 +124,24 @@ def seed() -> None:
     if os.path.exists(DB_PATH):
         try:
             conn = get_connection(DB_PATH)
+            tables = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
+            if "decisions" in tables:
+                conn.execute("DELETE FROM decisions")
+            if "task_confirmations" in tables:
+                conn.execute("DELETE FROM task_confirmations")
+            if "meeting_speaker_turns" in tables:
+                conn.execute("DELETE FROM meeting_speaker_turns")
+            if "live_recordings" in tables:
+                conn.execute("DELETE FROM live_recordings")
+            if "live_members" in tables:
+                conn.execute("DELETE FROM live_members")
+            if "live_rooms" in tables:
+                conn.execute("DELETE FROM live_rooms")
             conn.execute("DELETE FROM tasks")
             conn.execute("DELETE FROM summaries")
             conn.execute("DELETE FROM transcripts")

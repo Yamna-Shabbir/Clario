@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from scripts.eval_summary import eval_summary
-from services.summarization import load_summarizer
+from services.nlp.summarization import load_summarizer
 
 
 def run_matrix():

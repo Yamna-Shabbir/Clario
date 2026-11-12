@@ -34,8 +34,8 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from config import BART_MODEL
-from services.summarization import load_summarizer, smart_merge, summarize_text
-from services.task_detection import detect_tasks
+from services.nlp.summarization import load_summarizer, smart_merge, summarize_text
+from services.nlp.task_detection import detect_tasks
 
 
 def check_topic_coverage(

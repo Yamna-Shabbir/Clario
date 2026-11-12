@@ -27,7 +27,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from services.task_detection import detect_tasks, load_nlp
+from services.nlp.task_detection import detect_tasks, load_nlp
 
 FIXTURE_PATH = PROJECT_ROOT / "tests" / "fixtures" / "task_labels.json"
 EVAL_DOC     = PROJECT_ROOT / "docs" / "task-detection-eval.md"

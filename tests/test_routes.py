@@ -20,6 +20,11 @@ import pytest
 # ---------------------------------------------------------------------------
 
 class TestPublicRoutes:
+    def test_health_200(self, client):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "ok"
+
     def test_landing_200(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
@@ -246,12 +251,32 @@ class TestAuthenticatedFlows:
         resp2 = c.get(location)
         assert resp2.status_code == 200
 
-        # Find a task id in the page — look for /task/<id>/complete form action
-        match = re.search(rb"/task/(\d+)/complete", resp2.data)
-        if match:
-            task_id = match.group(1).decode()
-            resp3 = c.post(f"/task/{task_id}/complete", follow_redirects=True)
-            assert resp3.status_code == 200
+        from models.database import get_connection, init_db
+        from config import DB_PATH
+
+        loc = location if isinstance(location, str) else location.decode()
+        m = re.search(r"/result/(\d+)", loc)
+        meeting_id = int(m.group(1)) if m else None
+        if meeting_id:
+            init_db(DB_PATH)
+            with get_connection(DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT id FROM tasks WHERE meeting_id = ? LIMIT 1",
+                    (meeting_id,),
+                ).fetchone()
+                if row:
+                    conn.execute(
+                        "UPDATE tasks SET assigned_email = ? WHERE id = ?",
+                        ("test@example.com", row["id"]),
+                    )
+                    conn.commit()
+                    task_id = row["id"]
+                    resp3 = c.post(
+                        f"/tasks/{task_id}/status",
+                        data={"status": "completed"},
+                        follow_redirects=True,
+                    )
+                    assert resp3.status_code == 200
 
     def test_complete_task_wrong_user(self, app):
         """User B must not complete user A's task."""
@@ -267,7 +292,26 @@ class TestAuthenticatedFlows:
         )
         location = resp.headers["Location"]
         result_resp = c_a.get(location)
-        match = re.search(rb"/task/(\d+)/complete", result_resp.data)
+        loc = location if isinstance(location, str) else location.decode()
+        meeting_match = re.search(r"/result/(\d+)", loc)
+        task_id = None
+        if meeting_match:
+            from models.database import get_connection, init_db
+            from config import DB_PATH
+            init_db(DB_PATH)
+            mid = int(meeting_match.group(1))
+            with get_connection(DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT id FROM tasks WHERE meeting_id = ? LIMIT 1",
+                    (mid,),
+                ).fetchone()
+                if row:
+                    task_id = row["id"]
+                    conn.execute(
+                        "UPDATE tasks SET assigned_email = ? WHERE id = ?",
+                        ("u2@b.com", task_id),
+                    )
+                    conn.commit()
 
         c_b = app.test_client()
         c_b.post(
@@ -276,11 +320,13 @@ class TestAuthenticatedFlows:
         )
         c_b.post("/login", data=dict(email="u2@b.com", password="Password1!"))
 
-        if match:
-            task_id = match.group(1).decode()
-            resp_b = c_b.post(f"/task/{task_id}/complete", follow_redirects=True)
+        if task_id:
+            resp_b = c_b.post(
+                f"/task/{task_id}/complete",
+                follow_redirects=True,
+            )
             assert resp_b.status_code == 200
-            assert b"not found" in resp_b.data.lower() or b"access denied" in resp_b.data.lower()
+            assert b"only the person assigned" in resp_b.data.lower()
 
     def test_search_returns_results(self, logged_in_client):
         c, _ = logged_in_client

@@ -47,9 +47,37 @@ DB_PATH         = _env("CLARIO_DB_PATH",         os.path.join(DATA_DIR, "databas
 UPLOAD_DIR         = _env("CLARIO_UPLOAD_DIR",      os.path.join(ROOT_DIR, "uploads"))
 MAX_UPLOAD_MB      = int(_env("CLARIO_MAX_UPLOAD_MB", "200"))
 MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024
+# Chart PNGs. On Render set this to the persistent disk (e.g. /var/data/graphs)
+# so redeploys do not wipe meeting charts. Served at /static/graphs/...
+STATIC_GRAPH_DIR   = _env(
+    "CLARIO_STATIC_GRAPH_DIR",
+    os.path.join(ROOT_DIR, "static", "graphs"),
+)
 
 # ── Model settings ─────────────────────────────────────────────────────────────
-WHISPER_MODEL   = _env("CLARIO_WHISPER_MODEL",   "tiny.en")
+# Urdu Sukhan ASR v1: Urdu + English + code-switching (gated Hugging Face repo).
+# A failed download is reported. Clario does not switch to another checkpoint.
+WHISPER_MODEL   = _env("CLARIO_WHISPER_MODEL",   "Loudness-ai/urdu-sukhan-asr-v1")
+# Speech weights live on the project drive. The default user cache is often
+# the small system disk, which cannot hold this model.
+HF_MODELS_DIR   = _env("CLARIO_HF_MODELS_DIR",   os.path.join(DATA_DIR, "hf-models"))
+WHISPER_FALLBACK = _env("CLARIO_WHISPER_FALLBACK", "small")
+# ``transcribe`` keeps source language; ``translate`` emits English.
+# Sukhan is ASR-only (translation untested); Urdu script is translated afterwards.
+WHISPER_TASK    = _env("CLARIO_WHISPER_TASK",      "translate").strip().lower()
+# ``auto`` lets Whisper detect language per segment (best for code-switching).
+WHISPER_LANGUAGE = _env("CLARIO_WHISPER_LANGUAGE", "auto").strip().lower()
+WHISPER_INITIAL_PROMPT = _env(
+    "CLARIO_WHISPER_INITIAL_PROMPT",
+    "Business meeting in English and Urdu.",
+)
+ENABLE_TEXT_TRANSLATION = _env("CLARIO_ENABLE_TEXT_TRANSLATION", "True").lower() in (
+    "1", "true", "yes",
+)
+TRANSLATION_MODEL = _env(
+    "CLARIO_TRANSLATION_MODEL",
+    "Helsinki-NLP/opus-mt-ur-en",
+)
 # Default is sshleifer/distilbart-cnn-12-6 (~40% faster on CPU with 100% smart-merge topic coverage).
 # Override with facebook/bart-large-cnn for slightly better standalone summaries (at ~40% slower CPU speed).
 BART_MODEL      = _env("CLARIO_BART_MODEL",      "sshleifer/distilbart-cnn-12-6")
@@ -78,6 +106,16 @@ GOOGLE_CLIENT_ID        = _env("CLARIO_GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET    = _env("CLARIO_GOOGLE_CLIENT_SECRET", "")
 OAUTH_REDIRECT_BASE     = _env("CLARIO_OAUTH_REDIRECT_BASE", "http://127.0.0.1:5000")
 TOKEN_ENCRYPTION_KEY    = _env("CLARIO_TOKEN_ENCRYPTION_KEY", "")
+
+# ── Follow-up email ────────────────────────────────────────────────────────────
+# Leave CLARIO_SMTP_HOST empty to keep copies in CLARIO_EMAIL_DIR instead of sending.
+SMTP_HOST     = _env("CLARIO_SMTP_HOST", "")
+SMTP_PORT     = int(_env("CLARIO_SMTP_PORT", "587"))
+SMTP_USER     = _env("CLARIO_SMTP_USER", "")
+SMTP_PASSWORD = _env("CLARIO_SMTP_PASSWORD", "")
+SMTP_FROM     = _env("CLARIO_SMTP_FROM", "") or SMTP_USER
+SMTP_TLS      = _env("CLARIO_SMTP_TLS", "True").lower() in ("1", "true", "yes")
+EMAIL_DIR     = _env("CLARIO_EMAIL_DIR", "")
 
 # ── Secret key — must come from the environment ────────────────────────────────
 # Production (DEBUG=False): CLARIO_SECRET_KEY must be set; a RuntimeError is

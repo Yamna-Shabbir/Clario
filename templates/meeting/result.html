@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_arrow_left, icon_mic, icon_clipboard, icon_calendar, icon_user, icon_check, icon_video %}
 
 {% block title %}Meeting #{{ meeting.id }} results{% endblock %}
 
@@ -6,130 +7,159 @@
 <div class="page-body">
 <div class="container">
 
-  <!-- ── Breadcrumb ───────────────────────────────────────── -->
-  <div style="margin-bottom:28px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-    <a href="{{ url_for('dashboard.index') }}" class="text-muted" style="font-size:0.9rem;">
-      ← Back to dashboard
-    </a>
-    <span class="badge badge-purple">Meeting #{{ meeting.id }}</span>
+  <div class="row-between stack-sm">
+    <a href="{{ url_for('dashboard.index') }}" class="back-link">{{ icon_arrow_left() }} Back to dashboard</a>
+    <span class="badge badge-lilac">Meeting #{{ meeting.id }}</span>
   </div>
 
-  <!-- ── Heading ──────────────────────────────────────────── -->
-  <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; margin-bottom:4px; gap:16px;">
-    <h1 style="font-size:2.2rem; font-weight:800; margin:0;">
-      {{ meeting.title or "Untitled Meeting" }}
-    </h1>
-    {% if meeting.status in ['queued', 'processing'] %}
-      <span class="badge" style="background:#6366F1; color:#fff; font-size:0.95rem; padding:8px 16px;">
-        ⏳ {{ meeting.status|capitalize }}
-      </span>
-    {% elif meeting.status == 'failed' %}
-      <span class="badge" style="background:#EF4444; color:#fff; font-size:0.95rem; padding:8px 16px;">
-        ❌ Failed
-      </span>
-    {% else %}
-      <button onclick="window.print()" class="btn btn-outline hide-on-print" style="display:flex; align-items:center; gap:8px;">
-        📄 Export to PDF
-      </button>
-    {% endif %}
+  <div class="row-between stack-sm">
+    <h1 class="page-title">{{ meeting.title or "Untitled Meeting" }}</h1>
   </div>
-  
-  <p class="text-muted" style="margin-bottom:36px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-    <span>📅 {{ meeting.meeting_date }}</span>
+  <div class="row-between stack-sm">
+    <div class="row-actions hide-on-print">
+      {% if meeting.status in ['queued', 'processing'] %}
+        {% if meeting.status == 'queued' %}
+          <span class="badge badge-queued">Queued</span>
+        {% else %}
+          <span class="badge badge-processing">Processing</span>
+        {% endif %}
+      {% elif meeting.status == 'failed' %}
+        <span class="badge badge-failed">Failed</span>
+      {% else %}
+        <button type="button" onclick="window.print()" class="btn btn-outline">
+          {{ icon_clipboard(16, 'icon') }} Export to PDF
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <p class="meta-row">
+    <span>{{ icon_calendar(14, 'icon') }} {{ meeting.meeting_date }}</span>
     {% if meeting.created_at %}
-      <span style="opacity:0.5;">|</span>
+      <span class="meta-row__sep">|</span>
       <span>processed {{ meeting.created_at[:19] }}</span>
     {% endif %}
     {% if meeting.sentiment and meeting.status not in ['queued', 'processing', 'failed'] %}
-      <span style="opacity:0.5;">|</span>
+      <span class="meta-row__sep">|</span>
       {% if meeting.sentiment == 'Positive' %}
-        <span style="color:#7CA88B; font-weight:600;">🟢 Positive Vibe</span>
+        <span class="vibe-positive">Positive vibe</span>
       {% elif meeting.sentiment == 'Tense' %}
-        <span style="color:#C88585; font-weight:600;">🔴 Tense Vibe</span>
+        <span class="vibe-tense">Tense vibe</span>
       {% else %}
-        <span style="color:#D9B384; font-weight:600;">🟡 Neutral Vibe</span>
+        <span class="vibe-neutral">Neutral vibe</span>
       {% endif %}
     {% endif %}
   </p>
 
   {% if meeting.status in ['queued', 'processing'] %}
-  <!-- ── Loading / In-Progress State ────────────────────────── -->
-  <div id="processing-container" class="card" style="padding:56px 32px; text-align:center; margin-bottom:32px;"
+  <div id="processing-container"
+       class="card processing-panel"
        data-meeting-id="{{ meeting.id }}"
        data-status="{{ meeting.status }}"
        data-stage="{{ meeting.progress_stage or 'queued' }}">
-    <div class="logo-loader" style="margin-bottom:24px;">
-      <span class="logo-pulse" style="font-size:3rem; display:inline-block;">🎙️</span>
+    <div class="logo-loader stack-md">
+      <span class="logo-pulse">{{ icon_mic(28, 'icon') }}</span>
     </div>
-    <h2 id="processing-title" style="font-size:1.6rem; font-weight:800; margin-bottom:8px;">
-      Processing Your Meeting...
-    </h2>
-    <p id="processing-stage-text" class="text-muted" style="font-size:1rem; margin-bottom:28px;">
+    <h2 id="processing-title" class="processing-title">Processing your meeting</h2>
+    <p id="processing-stage-text" class="text-muted stack-md">
       {% if meeting.progress_stage == 'transcribing' %}
-        🎙️ Transcribing audio recording (Whisper AI)...
+        Transcribing audio recording (Whisper AI)...
       {% elif meeting.progress_stage == 'detecting_tasks' %}
-        🔍 Extracting action items and assignees (spaCy)...
+        Labelling decisions and action items...
       {% elif meeting.progress_stage == 'summarizing' %}
-        📋 Generating meeting summary (BART AI)...
+        Generating meeting summary (BART AI)...
       {% elif meeting.progress_stage == 'saving' %}
-        💾 Persisting results to database...
+        Persisting results to database...
       {% elif meeting.progress_stage == 'generating_charts' %}
-        📊 Generating knowledge graphs and analytics...
+        Generating knowledge graphs and analytics...
       {% else %}
-        ⏳ Queued for processing...
+        Queued for processing...
       {% endif %}
     </p>
-
-    <!-- Progress bar -->
-    <div style="max-width:440px; margin:0 auto 20px; background:rgba(255,255,255,0.08); border-radius:10px; height:8px; overflow:hidden;">
-      <div id="processing-progress-bar" style="height:100%; width:15%; background:var(--primary); transition:width 0.4s ease;"></div>
+    <div class="progress-track">
+      <div id="processing-progress-bar" class="progress-bar"></div>
     </div>
-    <p class="text-muted" style="font-size:0.85rem;">
-      This page will automatically refresh as soon as processing completes.
-    </p>
+    <p class="text-muted">This page will automatically refresh as soon as processing completes.</p>
   </div>
 
   {% elif meeting.status == 'failed' %}
-  <!-- ── Failed State ─────────────────────────────────────── -->
-  <div class="card" style="padding:48px 32px; text-align:center; border-color:rgba(239,68,68,0.4); background:rgba(239,68,68,0.04); margin-bottom:32px;">
-    <div style="font-size:3rem; margin-bottom:16px;">❌</div>
-    <h2 style="font-size:1.6rem; font-weight:800; color:#EF4444; margin-bottom:12px;">
-      Meeting Processing Failed
-    </h2>
-    <p style="color:var(--text); max-width:640px; margin:0 auto 28px; font-size:1rem; line-height:1.6;">
+  <div class="card failure-panel stack-lg">
+    <h2 class="failure-panel__title">Meeting processing failed</h2>
+    <p class="stack-md">
       {{ meeting.error_message or "An unexpected error occurred during processing." }}
     </p>
-    <div style="display:flex; justify-content:center; gap:16px; flex-wrap:wrap;">
-      <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary">
-        🔄 Upload Again
-      </a>
-      <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline">
-        Back to Dashboard
-      </a>
+    <div class="row-actions">
+      <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary">Upload again</a>
+      <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline">Back to dashboard</a>
     </div>
   </div>
 
   {% else %}
 
-  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; margin-bottom:32px;">
-
-    <!-- ── Summary ──────────────────────────────────────────── -->
-    <div class="card" style="padding:28px;">
-      <h2 class="section-heading">📋 Summary</h2>
-      <p style="line-height:1.75; color:var(--muted);">
-        {{ meeting.summary or "No summary generated." }}
-      </p>
+  <div class="result-grid-2">
+    <div class="card card-pad">
+      <h2 class="section-heading">{{ icon_clipboard(18, 'icon') }} Summary</h2>
+      <p class="text-muted">{{ meeting.summary or "No summary generated." }}</p>
     </div>
-
-    <!-- ── Transcript ───────────────────────────────────────── -->
-    <div class="card" style="padding:28px;">
-      <h2 class="section-heading">📄 Transcript</h2>
+    <div class="card card-pad">
+      <h2 class="section-heading">{{ icon_mic(18, 'icon') }} Transcript</h2>
       <div class="transcript-box">{{ meeting.transcript or "No transcript available." }}</div>
     </div>
-
   </div>
 
-  <!-- ── Attendees ──────────────────────────────────────────── -->
+  {% if confirmations %}
+  <h2 class="section-heading">Confirm a shared name</h2>
+  <div class="card card-pad stack-lg">
+    <p class="text-muted stack-md">More than one person has this name. Choose who the task belongs to. Mail goes out after every shared name is confirmed.</p>
+    {% for item in confirmations %}
+    <form method="POST" action="{{ url_for('tasks.confirm', task_id=item.task_id) }}" class="stack-sm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <input type="hidden" name="return_to" value="result"/>
+      <p class="stack-sm"><strong>{{ item.description }}</strong></p>
+      <div class="form-row">
+        <select name="email" class="form-control">
+          {% for person in item.candidates %}
+          <option value="{{ person.email }}">{{ person.name }} — {{ person.email }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Confirm</button>
+      </div>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if followups %}
+  <h2 class="section-heading">Follow-up mail ({{ followups|length }})</h2>
+  <div class="card card-flush stack-lg">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>To</th>
+            <th>Subject</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for mail in followups %}
+          <tr>
+            <td>{{ mail.recipient or "—" }}</td>
+            <td>{{ mail.subject }}</td>
+            <td>
+              {{ mail.status }}
+              {% if mail.detail %}
+              <div class="text-muted td-preview">{{ mail.detail }}</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
   {% set attendees = [] %}
   {% for t in tasks %}
     {% if t.assigned_to and t.assigned_to != 'Unknown' and t.assigned_to != 'Team' and t.assigned_to not in attendees %}
@@ -138,23 +168,22 @@
   {% endfor %}
 
   {% if attendees %}
-  <div style="margin-bottom:32px;">
-    <h2 class="section-heading">👥 Meeting Attendees</h2>
-    <div style="display:flex; flex-wrap:wrap; gap:10px;">
+  <div class="stack-lg">
+    <h2 class="section-heading">{{ icon_user(18, 'icon') }} Meeting attendees</h2>
+    <div class="row-actions">
       {% for person in attendees %}
-        <span class="badge badge-green attendee-tag" data-name="{{ person }}" style="cursor:pointer; font-size: 0.9rem; padding: 6px 14px;" title="View tasks for {{ person }}">
-          👤 {{ person }}
-        </span>
+      <span class="badge badge-mint attendee-tag badge-clickable" data-name="{{ person }}" title="View tasks for {{ person }}">
+        {{ icon_user(14, 'icon') }} {{ person }}
+      </span>
       {% endfor %}
     </div>
   </div>
   {% endif %}
 
-  <!-- ── Meeting Participants (Platform Integration) ─────────── -->
   {% if participants %}
-  <div style="margin-bottom:32px;">
-    <h2 class="section-heading">👥 Meeting Participants ({{ participants|length }})</h2>
-    <div class="card" style="padding:0; overflow:hidden;">
+  <div class="stack-lg">
+    <h2 class="section-heading">{{ icon_user(18, 'icon') }} Meeting participants ({{ participants|length }})</h2>
+    <div class="card card-flush">
       <div class="table-wrap">
         <table>
           <thead>
@@ -169,32 +198,30 @@
           <tbody>
             {% for p in participants %}
             <tr>
-              <td style="font-weight:600;">{{ p.name or 'Unknown' }}</td>
+              <td><strong>{{ p.name or 'Unknown' }}</strong></td>
               <td>
                 {% if p.email %}
-                  <code style="color:#A5B4FC;">{{ p.email }}</code>
+                  <code>{{ p.email }}</code>
                 {% else %}
-                  <span class="text-muted" style="font-size:0.8rem;">email unavailable</span>
+                  <span class="text-muted">email unavailable</span>
                 {% endif %}
               </td>
-              <td class="text-muted" style="font-size:0.85rem;">
+              <td class="text-muted td-nowrap">
                 {% if p.joined_at %}
                   {{ p.joined_at[:19] | replace("T", " ") }} UTC
                 {% else %}
                   —
                 {% endif %}
               </td>
-              <td class="text-muted" style="font-size:0.85rem;">
+              <td class="text-muted td-nowrap">
                 {% if p.left_at %}
                   {{ p.left_at[:19] | replace("T", " ") }} UTC
                 {% else %}
-                  <span style="color:#86efac;">Active</span>
+                  <span class="vibe-positive">Active</span>
                 {% endif %}
               </td>
               <td>
-                <span class="badge" style="background:rgba(255,255,255,0.06); font-size:0.75rem;">
-                  {{ p.source | default('google_meet') }}
-                </span>
+                <span class="badge badge-muted">{{ p.source | default('google_meet') }}</span>
               </td>
             </tr>
             {% endfor %}
@@ -205,224 +232,270 @@
   </div>
   {% endif %}
 
-  <!-- ── Tasks ────────────────────────────────────────────── -->
-  <h2 class="section-heading">✅ Action items ({{ tasks|length }})</h2>
+  <h2 class="section-heading">Decisions ({{ decisions|length }})</h2>
+  {% if decisions %}
+  <div class="card card-flush stack-lg">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Decision</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in decisions %}
+          <tr>
+            <td><span class="badge badge-lilac">{{ d.id }}</span></td>
+            <td>
+              {{ d.content }}
+              {% if d.source_text and d.source_text != d.content %}
+              <div class="text-muted">Spoken: “{{ d.source_text }}”</div>
+              {% endif %}
+            </td>
+            <td>{{ '%.0f'|format((d.confidence or 0) * 100) }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-muted stack-lg">No decisions were extracted from this meeting.</p>
+  {% endif %}
+
+  <h2 class="section-heading">{{ icon_check(18, 'icon') }} Action items ({{ tasks|length }})</h2>
 
   {% if tasks %}
-    <div class="card" style="padding:0; overflow:hidden; margin-bottom:32px;">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Description</th>
-              <th>Assigned to</th>
-              <th>Due date</th>
-              <th>Priority</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for t in tasks %}
-            <tr>
-              <td><span class="badge badge-purple">{{ t.id }}</span></td>
-              <td style="max-width:340px;">{{ t.description }}</td>
-              <td>
-                {% if t.assigned_to != 'Unknown' and t.assigned_to != 'Team' %}
-                  <span class="badge badge-green attendee-tag" data-name="{{ t.assigned_to }}" style="cursor:pointer;" title="View tasks for {{ t.assigned_to }}">👤 {{ t.assigned_to }}</span>
-                  {% if t.assigned_email %}
-                    <span class="text-muted" style="font-size:0.75rem; display:block; margin-top:3px;" title="{{ t.assigned_email }}">✉️ {{ t.assigned_email }}</span>
-                  {% endif %}
-                {% else %}
-                  <span class="badge badge-blue">{{ t.assigned_to }}</span>
+  <div class="card card-flush stack-lg">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Description</th>
+            <th>Assigned to</th>
+            <th>Due date</th>
+            <th>Priority</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in tasks %}
+          <tr>
+            <td><span class="badge badge-lilac">{{ t.id }}</span></td>
+            <td class="td-preview">
+              {{ t.description }}
+              {% if t.source_text and t.source_text != t.description %}
+              <div class="text-muted">Spoken: “{{ t.source_text }}”</div>
+              {% endif %}
+              {% if t.source_context %}
+              <div class="text-muted">In response to: “{{ t.source_context }}”</div>
+              {% endif %}
+              {% if t.evidence_time %}
+              <div class="text-muted">{{ t.evidence_time }}</div>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.assigned_to != 'Unknown' and t.assigned_to != 'Team' %}
+                <span class="badge badge-mint attendee-tag badge-clickable" data-name="{{ t.assigned_to }}" title="View tasks for {{ t.assigned_to }}">
+                  {{ icon_user(14, 'icon') }} {{ t.assigned_to }}
+                </span>
+                {% if t.assigned_email %}
+                  <span class="text-muted td-preview">{{ t.assigned_email }}</span>
                 {% endif %}
-              </td>
-              <td>
-                {% if t.due_date != 'Not specified' %}
-                  <span class="badge badge-amber">📅 {{ t.due_date }}</span>
-                {% else %}
-                  <span class="text-muted">—</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if t.priority == 'High' %}
-                  <span class="badge" style="background-color:rgba(166,68,68,0.18); color:#C88585;">🔴 High</span>
-                {% elif t.priority == 'Medium' %}
-                  <span class="badge" style="background-color:rgba(196,139,71,0.18); color:#D9B384;">🟡 Medium</span>
-                {% else %}
-                  <span class="badge" style="background-color:rgba(74,124,89,0.18); color:#7CA88B;">🟢 Low</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if t.status == 'completed' %}
-                  <span class="badge badge-green">✅ Done</span>
-                {% else %}
-                  <span class="badge badge-amber">🔄 Pending</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if t.status != 'completed' %}
-                <form method="POST" action="{{ url_for('meeting.complete_task', task_id=t.id) }}"
-                      style="margin:0;">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                  <button type="submit" class="btn btn-outline btn-sm"
-                          title="Mark as done"
-                          onclick="return confirm('Mark this task as completed?')">
-                    ✔ Done
-                  </button>
-                </form>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+              {% else %}
+                <span class="badge badge-lilac">{{ t.assigned_to }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.due_date != 'Not specified' %}
+                <span class="badge badge-amber">{{ icon_calendar(12, 'icon') }} {{ t.due_date }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.priority == 'High' %}
+                <span class="badge badge-priority-high">High</span>
+              {% elif t.priority == 'Medium' %}
+                <span class="badge badge-priority-medium">Medium</span>
+              {% else %}
+                <span class="badge badge-priority-low">Low</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.assigned_email and t.assigned_email|lower == my_email %}
+              <form method="POST" action="{{ url_for('tasks.update_status', task_id=t.id) }}" class="form-row">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <input type="hidden" name="return_to" value="result"/>
+                <select name="status" class="form-control">
+                  {% for status in statuses %}
+                  <option value="{{ status }}" {% if t.status == status %}selected{% endif %}>{{ status_labels[status] }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-outline btn-sm">Save</button>
+              </form>
+              {% else %}
+                {{ status_labels.get(t.status, t.status) }}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-
+  </div>
   {% else %}
-    <div class="card" style="padding:40px; text-align:center; margin-bottom:32px;">
-      <p class="text-muted">No action items were detected in this meeting.</p>
-    </div>
+  <div class="card empty-state stack-lg">
+    <p class="empty-state__title">No action items</p>
+    <p class="empty-state__lead">No action items were detected in this meeting.</p>
+  </div>
   {% endif %}
 
-  <!-- ── Analytics & Visualizations ───────────────────────── -->
+  <h2 class="section-heading">Needs review ({{ reviews|length }})</h2>
+  {% if reviews %}
+  <p class="text-muted">These lines may be commitments. The assignee, deadline, or meaning was not clear enough to save them as action items.</p>
+  <div class="card card-flush stack-lg">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Why it is here</th>
+            <th>Evidence</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in reviews %}
+          <tr>
+            <td>{{ item.reason }}</td>
+            <td class="td-preview">
+              {{ item.source_text or item.description }}
+              {% if item.source_context %}
+              <div class="text-muted">Earlier line: “{{ item.source_context }}”</div>
+              {% endif %}
+            </td>
+            <td>{% if item.evidence_time %}{{ item.evidence_time }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-muted stack-lg">Nothing was flagged for review.</p>
+  {% endif %}
+
   {% if meeting.graph_path or meeting.bar_chart_path or meeting.donut_chart_path %}
-  <div style="margin-bottom:32px;">
-    <h2 class="section-heading">📊 Meeting Analytics</h2>
-    
-    <div style="display:grid; grid-template-columns: 1fr; gap:24px; margin-bottom:24px;">
-      {% if meeting.graph_path %}
-      <div class="card" style="padding:20px; text-align:center;">
-        <h3 style="margin-top:0; font-size:1.1rem; color:var(--text); margin-bottom:16px;">Knowledge Graph</h3>
-        <img src="{{ url_for('static', filename=meeting.graph_path) }}"
-             alt="Knowledge graph" class="graph-img"
-             style="max-width:100%; border-radius:8px;" loading="lazy">
-      </div>
-      {% endif %}
-    </div>
+  <div class="stack-lg">
+    <h2 class="section-heading">{{ icon_video(18, 'icon') }} Meeting analytics</h2>
 
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:24px;">
+    {% if meeting.graph_path %}
+    <div class="card card-pad text-center stack-md">
+      <h3 class="feature-title">Knowledge graph</h3>
+      <img src="{{ url_for('static', filename=meeting.graph_path) }}"
+           alt="Knowledge graph" class="graph-img" loading="lazy">
+    </div>
+    {% endif %}
+
+    <div class="graph-grid">
       {% if meeting.bar_chart_path %}
-      <div class="card" style="padding:20px; text-align:center;">
+      <div class="card card-pad text-center">
         <img src="{{ url_for('static', filename=meeting.bar_chart_path) }}"
-             alt="Assignee Bar Chart" class="graph-img"
-             style="max-width:100%; border-radius:8px;" loading="lazy">
+             alt="Assignee bar chart" class="graph-img" loading="lazy">
       </div>
       {% endif %}
-
       {% if meeting.donut_chart_path %}
-      <div class="card" style="padding:20px; text-align:center;">
+      <div class="card card-pad text-center">
         <img src="{{ url_for('static', filename=meeting.donut_chart_path) }}"
-             alt="Task Priority Distribution Chart" class="graph-img"
-             style="max-width:100%; border-radius:8px;" loading="lazy">
+             alt="Task priority distribution chart" class="graph-img" loading="lazy">
       </div>
       {% endif %}
-      
       {% if meeting.status_chart_path %}
-      <div class="card" style="padding:20px; text-align:center;">
+      <div class="card card-pad text-center">
         <img src="{{ url_for('static', filename=meeting.status_chart_path) }}"
-             alt="Task Completion Status Chart" class="graph-img"
-             style="max-width:100%; border-radius:8px;" loading="lazy">
+             alt="Task completion status chart" class="graph-img" loading="lazy">
       </div>
       {% endif %}
     </div>
   </div>
   {% endif %}
 
-  <!-- ── Actions ───────────────────────────────────────────────── -->
-  <div style="display:flex; gap:14px; flex-wrap:wrap;">
-    <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary">
-      + Process another meeting
-    </a>
-    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline">
-      Dashboard
-    </a>
+  <div class="row-actions">
+    <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary">Process another meeting</a>
+    <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline">Dashboard</a>
   </div>
   {% endif %}
 
-  <!-- ── Image Modal / Lightbox ────────────────────────────────── -->
   <div id="image-modal" class="image-modal">
-    <span id="image-modal-close" class="image-modal-close">&larr; Back to Dashboard</span>
-    <img id="image-modal-content" class="image-modal-content">
+    <button type="button" id="image-modal-close" class="image-modal-close">Back</button>
+    <img id="image-modal-content" class="image-modal-content" alt="">
   </div>
 
-  <!-- ── Attendee Task Modal ────────────────────────────────────── -->
   <div id="attendee-modal" class="image-modal">
-    <div class="attendee-modal-content card" style="background:var(--bg-deep); padding: 30px; margin: 10vh auto; max-width: 600px; position:relative;">
-      <span id="attendee-modal-close" class="image-modal-close" style="position:absolute; top:15px; right:20px; left:auto; cursor:pointer;">&times; Close</span>
-      <h3 id="attendee-modal-title" style="margin-bottom:20px; font-size:1.5rem; display:flex; align-items:center; gap:10px;"></h3>
-      <div id="attendee-modal-body" style="max-height: 60vh; overflow-y: auto; padding-right: 10px;"></div>
+    <div class="attendee-modal-content card">
+      <button type="button" id="attendee-modal-close" class="image-modal-close" aria-label="Close">Close</button>
+      <h3 id="attendee-modal-title" class="page-title stack-sm"></h3>
+      <div id="attendee-modal-body"></div>
     </div>
   </div>
 
 </div>
 </div>
 
-  <!-- ── Interactive Attendee Script ────────────────────────────── -->
-  <script>
-    const tasksData = {{ tasks|tojson }};
+<script>
+  const tasksData = {{ tasks|tojson }};
 
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str || '';
-      return div.innerHTML;
-    }
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
 
-    document.addEventListener("DOMContentLoaded", () => {
-      const modal = document.getElementById("attendee-modal");
-      const modalTitle = document.getElementById("attendee-modal-title");
-      const modalBody = document.getElementById("attendee-modal-body");
-      const closeBtn = document.getElementById("attendee-modal-close");
+  document.addEventListener("DOMContentLoaded", () => {
+    const modal = document.getElementById("attendee-modal");
+    const modalTitle = document.getElementById("attendee-modal-title");
+    const modalBody = document.getElementById("attendee-modal-body");
+    const closeBtn = document.getElementById("attendee-modal-close");
 
-      // Click to open
-      document.querySelectorAll(".attendee-tag").forEach(tag => {
-        tag.addEventListener("click", () => {
-          const person = tag.getAttribute("data-name");
-          const personTasks = tasksData.filter(t => t.assigned_to === person);
-          
-          modalTitle.innerHTML = `👤 Tasks for <span class="text-purple">${escapeHtml(person)}</span>`;
-          modalBody.innerHTML = "";
-          
-          if (personTasks.length === 0) {
-            modalBody.innerHTML = `<p class="text-muted">No tasks found.</p>`;
-          } else {
-            let listHtml = `<ul style="list-style:none; padding:0; margin:0;">`;
-            personTasks.forEach(pt => {
-               const priorityColor = pt.priority === 'High' ? '#C88585' : (pt.priority === 'Medium' ? '#D9B384' : '#7CA88B');
-               const statusIcon = pt.status === 'completed' ? '✅' : '🔄';
-               listHtml += `
-                 <li style="padding:18px; border:1px solid var(--border); margin-bottom:12px; background:rgba(255,255,255,0.02); border-radius:12px; transition:all 0.2s ease;">
-                   <div style="font-weight:600; margin-bottom:10px; font-size:1.05rem; line-height:1.5;">${escapeHtml(pt.description)}</div>
-                   <div style="font-size:0.85rem; color:var(--muted); display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-                     <span style="display:flex; align-items:center; gap:6px;"><span style="color:#D9B384">📅</span> ${escapeHtml(pt.due_date)}</span>
-                     <span style="display:flex; align-items:center; gap:6px; color:${priorityColor};">● ${escapeHtml(pt.priority)} Priority</span>
-                     <span style="display:flex; align-items:center; gap:6px;">${statusIcon} ${pt.status === 'completed' ? 'Done' : 'Pending'}</span>
-                   </div>
-                 </li>
-               `;
-            });
-            listHtml += `</ul>`;
-            modalBody.innerHTML = listHtml;
-          }
-          
-          modal.style.display = "block";
-        });
-      });
+    document.querySelectorAll(".attendee-tag").forEach(tag => {
+      tag.addEventListener("click", () => {
+        const person = tag.getAttribute("data-name");
+        const personTasks = tasksData.filter(t => t.assigned_to === person);
 
-      // Click to close
-      closeBtn.addEventListener("click", () => {
-        modal.style.display = "none";
-      });
+        modalTitle.innerHTML = `Tasks for <span class="text-accent">${escapeHtml(person)}</span>`;
+        modalBody.innerHTML = "";
 
-      // Close on outside click
-      window.addEventListener("click", (e) => {
-        if (e.target == modal) {
-          modal.style.display = "none";
+        if (personTasks.length === 0) {
+          modalBody.innerHTML = `<p class="text-muted">No tasks found.</p>`;
+        } else {
+          let listHtml = `<ul class="modal-task-list">`;
+          personTasks.forEach(pt => {
+            const statusLabel = pt.status === 'completed' ? 'Done' : (pt.status || 'Pending');
+            listHtml += `
+              <li class="modal-task-item">
+                <div class="modal-task-item__title">${escapeHtml(pt.description)}</div>
+                <div class="modal-task-item__meta">
+                  <span>Due: ${escapeHtml(pt.due_date)}</span>
+                  <span>${escapeHtml(pt.priority)} priority</span>
+                  <span>${statusLabel}</span>
+                </div>
+              </li>`;
+          });
+          listHtml += `</ul>`;
+          modalBody.innerHTML = listHtml;
         }
+
+        modal.style.display = "block";
       });
     });
-  </script>
 
+    closeBtn.addEventListener("click", () => { modal.style.display = "none"; });
+    window.addEventListener("click", (e) => {
+      if (e.target === modal) modal.style.display = "none";
+    });
+  });
+</script>
 {% endblock %}

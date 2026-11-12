@@ -22,9 +22,10 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from config import (
-    DB_PATH, GRAPH_DIR,
+    DB_PATH, GRAPH_DIR, STATIC_GRAPH_DIR,
     WHISPER_MODEL, BART_MODEL, SPACY_MODEL,
     SUMMARY_MAX_LENGTH, SUMMARY_MIN_LENGTH,
+    ENABLE_TEXT_TRANSLATION,
 )
 import pathlib
 
@@ -43,7 +44,7 @@ def _get_whisper():
     if _whisper_model is None:
         with _whisper_lock:
             if _whisper_model is None:
-                from services.transcription import load_whisper
+                from services.preprocessing.transcription import load_whisper
                 _whisper_model = load_whisper(WHISPER_MODEL)
     return _whisper_model
 
@@ -53,7 +54,7 @@ def _get_summariser():
     if _summariser is None:
         with _summariser_lock:
             if _summariser is None:
-                from services.summarization import load_summarizer
+                from services.nlp.summarization import load_summarizer
                 _summariser = load_summarizer(BART_MODEL)
     return _summariser
 
@@ -63,7 +64,7 @@ def _get_nlp():
     if _nlp is None:
         with _nlp_lock:
             if _nlp is None:
-                from services.task_detection import load_nlp
+                from services.nlp.task_detection import load_nlp
                 _nlp = load_nlp(SPACY_MODEL)
     return _nlp
 
@@ -108,19 +109,23 @@ def run_clario_pipeline(
 
     from models.database import (
         insert_transcript, insert_summary,
-        insert_tasks,
+        insert_tasks, insert_decisions,
     )
-    from services.transcription import transcribe_audio
-    from services.summarization import summarize_text
-    from services.task_detection import detect_tasks
+    from services.preprocessing.participants import mentioned_participants
+    from services.preprocessing.transcription import transcribe_audio
+    from services.nlp.summarization import summarize_text
 
-    # ── 1. Transcription ───────────────────────────────────────────────────────
+    # ── Phase 1. Transcription and cleaning ────────────────────────────────────
     if progress_callback:
         progress_callback("transcribing")
     if audio_path and os.path.exists(audio_path):
         print(" Transcribing audio …")
         try:
-            transcript = transcribe_audio(audio_path, model=_get_whisper())
+            transcript = transcribe_audio(
+                audio_path,
+                model=_get_whisper(),
+                model_size=WHISPER_MODEL,
+            )
         except Exception as exc:
             if text_input and text_input.strip():
                 # Text was also supplied — use it and warn
@@ -140,30 +145,68 @@ def run_clario_pipeline(
         print(" No audio file or text input provided.")
         return None
 
+    from services.nlp.task_verification import (
+        prepare_meeting_turns,
+        render_segments,
+        segment_transcript,
+        verify_meeting_tasks,
+    )
+
+    if ENABLE_TEXT_TRANSLATION:
+        english_turns = prepare_meeting_turns(transcript)
+    else:
+        english_turns = segment_transcript(transcript)
+    transcript = render_segments(english_turns)
     if not transcript.strip():
         print(" Empty transcript — cannot proceed.")
         return None
 
     print(f" Transcript length: {len(transcript)} chars")
 
-    # ── 2. Task detection ──────────────────────────────────────────────────────
+    mentioned = mentioned_participants(transcript)
+    if mentioned:
+        known = {
+            (person.get("email") or "").strip().lower()
+            for person in (participants or [])
+        }
+        participants = list(participants or []) + [
+            person for person in mentioned
+            if person["email"] not in known
+        ]
+
+    # ── Phase 2. Detect tasks, then verify them against the full transcript ──
     if progress_callback:
         progress_callback("detecting_tasks")
-    print(" Detecting tasks …")
+    print(" Classifying utterances and detecting tasks …")
+    nlp = _get_nlp()
+    decisions: List[Dict[str, Any]] = []
+    review_items: List[Dict[str, Any]] = []
     try:
-        tasks = detect_tasks(transcript, nlp_model=_get_nlp(), participants=participants)
+        checked = verify_meeting_tasks(
+            transcript,
+            nlp=nlp,
+            participants=participants,
+            segments=english_turns,
+        )
+        tasks = checked["tasks"]
+        decisions = checked["decisions"]
+        review_items = checked["review"]
+        if checked.get("transcript"):
+            transcript = checked["transcript"]
     except Exception as exc:
         print(f"️  Task detection failed: {exc}")
         tasks = []
+        decisions = []
+        review_items = []
 
-    print(f" {len(tasks)} task(s) detected")
+    print(f" {len(tasks)} task(s), {len(decisions)} decision(s)")
 
     # ── 3. Summarisation ───────────────────────────────────────────────────────
     if progress_callback:
         progress_callback("summarizing")
     print(" Summarising …")
     try:
-        from services.summarization import smart_merge
+        from services.nlp.summarization import smart_merge
         raw_summary = summarize_text(
             transcript,
             summariser  = _get_summariser(),
@@ -175,7 +218,7 @@ def run_clario_pipeline(
     except (Exception, MemoryError) as exc:
         print(f"⚠️  Summarisation failed: {exc}")
         try:
-            from services.summarization import extractive_summarize
+            from services.nlp.summarization import extractive_summarize
             nlp_for_summary = _get_nlp()
             summary = extractive_summarize(transcript, nlp=nlp_for_summary, tasks=tasks)
             print(f"   Extractive fallback summary: {len(summary)} chars")
@@ -211,6 +254,21 @@ def run_clario_pipeline(
             insert_summary(meeting_id,    summary,    db_path)
             if tasks:
                 insert_tasks(meeting_id, tasks, db_path)
+            insert_decisions(meeting_id, decisions, db_path)
+            from models.database import replace_task_reviews
+            replace_task_reviews(meeting_id, review_items, db_path)
+            if participants:
+                from models.database import get_meeting_participants, insert_participants
+                existing = {
+                    (row.get("email") or "").strip().lower()
+                    for row in get_meeting_participants(meeting_id, db_path)
+                }
+                fresh = [
+                    person for person in participants
+                    if (person.get("email") or "").strip().lower() not in existing
+                ]
+                if fresh:
+                    insert_participants(meeting_id, fresh, db_path)
             print(f" Results saved to DB (meeting_id={meeting_id}) with vibe: {vibe}")
         except Exception as exc:
             print(f"️  DB save failed: {exc}")
@@ -219,6 +277,7 @@ def run_clario_pipeline(
         if progress_callback:
             progress_callback("generating_charts")
         try:
+            from services.knowledge_graph.builder import build_decision_graph
             from utils.visualization import (
                 build_knowledge_graph,
                 generate_assignee_bar_chart,
@@ -227,8 +286,7 @@ def run_clario_pipeline(
             )
             from models.database import set_meeting_graphs
             
-            app_root = pathlib.Path(__file__).resolve().parent.parent
-            static_graph_dir = app_root / "static" / "graphs"
+            static_graph_dir = pathlib.Path(STATIC_GRAPH_DIR)
             static_graph_dir.mkdir(parents=True, exist_ok=True)
             
             # Paths
@@ -246,8 +304,16 @@ def run_clario_pipeline(
             sorted_tasks = sorted(tasks, key=lambda t: (0 if t.get("priority") == "High" else 1 if t.get("priority") == "Medium" else 2))
             tasks_for_graph = [dict(t, id=i+1) for i, t in enumerate(sorted_tasks[:25])]
             
-            # Generate
-            build_knowledge_graph(tasks_for_graph, output_path=str(graph_path_abs))
+            decision_graph = build_decision_graph(
+                tasks_for_graph,
+                decisions,
+                meeting_label=f"Meeting {meeting_id}",
+            )
+            build_knowledge_graph(
+                tasks_for_graph,
+                output_path=str(graph_path_abs),
+                decision_graph=decision_graph,
+            )
             generate_assignee_bar_chart(tasks_for_graph, output_path=str(bar_path_abs))
             generate_priority_donut_chart(tasks_for_graph, output_path=str(donut_path_abs))
             generate_status_pie_chart(tasks_for_graph, output_path=str(status_path_abs))
@@ -267,10 +333,15 @@ def run_clario_pipeline(
         "transcript": transcript,
         "summary":    summary,
         "tasks":      tasks,
+        "decisions":  decisions,
+        "review":     review_items,
         "graph_path": graph_path,
         "stats": {
             "meeting_id":   meeting_id,
+            "user_id":      user_id,
+            "db_path":      db_path,
             "task_count":   len(tasks),
+            "decision_count": len(decisions),
             "summary_len":  len(summary),
             "transcript_len": len(transcript),
             "processed_at": datetime.now().isoformat(timespec="seconds"),

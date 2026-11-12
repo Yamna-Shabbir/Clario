@@ -6,7 +6,7 @@ Uses fast mock model and tokenizer objects (zero heavy ML dependencies loaded).
 """
 
 import pytest
-from services.summarization import (
+from services.nlp.summarization import (
     chunk_text_by_tokens,
     deduplicate_sentences,
     smart_merge,

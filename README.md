@@ -78,6 +78,12 @@ python app.py
 
 Open your browser and visit `http://127.0.0.1:5000`.
 
+### Production (Render)
+
+See [docs/deploy-render.md](docs/deploy-render.md) for Gunicorn, `render.yaml`,
+persistent disk paths, environment variables, and hosting limits. Do not use the
+Render free 512 MB plan for audio + ML inference.
+
 ---
 
 ## Environment Variables

@@ -1,127 +1,79 @@
 {% extends "base.html" %}
+{% from "macros/icons.html" import icon_mic, icon_clipboard, icon_check, icon_upload, icon_user, listening_orb %}
 
 {% block title %}Welcome{% endblock %}
 {% block meta_desc %}Clario transforms your meeting recordings into structured summaries and action items instantly.{% endblock %}
 
 {% block content %}
-
-<!-- ── Hero ──────────────────────────────────────────────── -->
 <section class="hero">
-  <div class="hero-glow hero-glow-1"></div>
-  <div class="hero-glow hero-glow-2"></div>
-
-  <div class="container">
-    <div class="hero-content" style="max-width:680px;">
-      <div class="hero-eyebrow">✨ Powered by Whisper &amp; BART</div>
-
+  <div class="container hero-grid">
+    <div class="hero-content">
+      <div class="hero-eyebrow">Powered by Whisper and BART</div>
       <h1 class="hero-title">
         Your meetings,<br>
         <span class="highlight">instantly understood.</span>
       </h1>
-
       <p class="hero-desc">
-        Clario uses state-of-the-art AI to transcribe audio recordings,
-        generate concise summaries, and automatically extract action items —
-        so you can focus on what matters.
+        Clario transcribes live and uploaded audio, builds a concise summary, and extracts
+        action items with assignees — so your team can focus on doing the work.
       </p>
-
       <div class="hero-actions">
-        <a href="{{ url_for('auth.register') }}" class="btn btn-primary">
-          🚀 Get started free
-        </a>
-        <a href="{{ url_for('auth.login') }}" class="btn btn-outline">
-          Log in
-        </a>
+        <a href="{{ url_for('auth.register') }}" class="btn btn-primary">Get started free</a>
+        <a href="{{ url_for('auth.login') }}" class="btn btn-outline">Log in</a>
       </div>
+    </div>
+    <div class="hero-visual">
+      {{ listening_orb() }}
     </div>
   </div>
 </section>
 
-<!-- ── Features ──────────────────────────────────────────── -->
-<section class="features" style="background: var(--bg-dark);">
+<section class="features">
   <div class="container">
-    <div class="text-center" style="max-width:560px; margin:0 auto;">
-      <h2 style="font-size:2.2rem; font-weight:800; margin-bottom:14px;">
-        Everything you need from a meeting
-      </h2>
-      <p class="text-muted" style="font-size:1.05rem;">
-        One upload. Complete intelligence.
-      </p>
+    <div class="text-center stack-lg">
+      <h2 class="cta-title">Everything you need from a meeting</h2>
+      <p class="text-muted">One room or one upload. Complete intelligence.</p>
     </div>
 
-    <div class="features-grid">
-
-      <div class="card feature-card">
-        <div class="feature-icon">🎤</div>
+    <div class="bento-features">
+      <div class="card feature-card card-interactive">
+        <div class="feature-icon">{{ icon_mic(24, 'icon') }}</div>
         <h3 class="feature-title">Auto-transcription</h3>
-        <p class="feature-desc">
-          OpenAI Whisper converts your audio to accurate text in seconds,
-          supporting MP3, WAV, M4A and more.
-        </p>
+        <p class="feature-desc">Whisper turns audio into accurate text — MP3, WAV, M4A, and browser recordings from live rooms.</p>
       </div>
 
-      <div class="card feature-card">
-        <div class="feature-icon">📋</div>
+      <div class="card feature-card card-interactive">
+        <div class="feature-icon">{{ icon_clipboard(24, 'icon') }}</div>
         <h3 class="feature-title">Smart summarisation</h3>
-        <p class="feature-desc">
-          Facebook BART distils long transcripts into crisp, readable
-          summaries that capture every key decision.
-        </p>
+        <p class="feature-desc">Distil long transcripts into readable summaries that keep decisions and context.</p>
       </div>
 
-      <div class="card feature-card">
-        <div class="feature-icon">✅</div>
+      <div class="card feature-card card-interactive">
+        <div class="feature-icon">{{ icon_check(24, 'icon') }}</div>
         <h3 class="feature-title">Action item extraction</h3>
-        <p class="feature-desc">
-          spaCy NER and regex detect who owns what, and when it's due —
-          so nothing falls through the cracks.
-        </p>
+        <p class="feature-desc">Detect who owns what and when it is due, matched to participant emails when available.</p>
       </div>
 
-      <div class="card feature-card">
-        <div class="feature-icon">🕸️</div>
-        <h3 class="feature-title">Knowledge graph</h3>
-        <p class="feature-desc">
-          Visualise relationships between people, tasks, and deadlines in
-          a beautiful interactive graph.
-        </p>
+      <div class="card feature-card feature-card--wide card-interactive">
+        <div class="feature-icon">{{ icon_user(24, 'icon') }}</div>
+        <h3 class="feature-title">Live meetings in Clario</h3>
+        <p class="feature-desc">Start a room, share a join link, and record each speaker under their account email. Tasks and follow-up mail flow from there.</p>
       </div>
 
-      <div class="card feature-card">
-        <div class="feature-icon">💾</div>
-        <h3 class="feature-title">Persistent storage</h3>
-        <p class="feature-desc">
-          Every meeting, summary, and task is saved to a SQLite database
-          and accessible from your dashboard.
-        </p>
+      <div class="card feature-card feature-card--wide card-interactive">
+        <div class="feature-icon">{{ icon_upload(24, 'icon') }}</div>
+        <h3 class="feature-title">Persistent dashboard</h3>
+        <p class="feature-desc">Every meeting, summary, and task lives in your workspace with trends, search, and a shared task board.</p>
       </div>
-
-      <div class="card feature-card">
-        <div class="feature-icon">📊</div>
-        <h3 class="feature-title">ROUGE &amp; F1 evaluation</h3>
-        <p class="feature-desc">
-          Built-in quality metrics let you measure summary accuracy and
-          task-detection performance over time.
-        </p>
-      </div>
-
     </div>
   </div>
 </section>
 
-<!-- ── CTA ────────────────────────────────────────────────── -->
-<section style="padding:100px 0; text-align:center; background: var(--bg-deep);">
+<section class="cta-band">
   <div class="container">
-    <h2 style="font-size:2rem; font-weight:800; margin-bottom:16px;">
-      Ready to transform your meetings?
-    </h2>
-    <p class="text-muted" style="margin-bottom:36px; font-size:1.05rem;">
-      Create a free account and upload your first meeting in minutes.
-    </p>
-    <a href="{{ url_for('auth.register') }}" class="btn btn-primary">
-      Create free account →
-    </a>
+    <h2 class="cta-title">Ready to run your next meeting in Clario?</h2>
+    <p class="text-muted stack-md">Create a free account and invite your team in minutes.</p>
+    <a href="{{ url_for('auth.register') }}" class="btn btn-primary">Create free account</a>
   </div>
 </section>
-
 {% endblock %}

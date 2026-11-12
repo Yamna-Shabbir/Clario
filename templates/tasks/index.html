@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Tasks{% endblock %}
+
+{% block content %}
+<div class="page-body">
+<div class="container">
+
+  <h1 class="page-title">Tasks</h1>
+  <p class="page-lead stack-lg">
+    Update the status of tasks assigned to you. You can also see what everyone else in the meeting still has open.
+  </p>
+
+  {% if confirmations %}
+  <div class="card card-pad stack-lg">
+    <h2 class="section-heading">Shared names</h2>
+    <p class="text-muted stack-md">These names match more than one person. Choose the right email. Mail is sent after the choice is saved.</p>
+    {% for item in confirmations %}
+    <form method="POST" action="{{ url_for('tasks.confirm', task_id=item.task_id) }}" class="stack-sm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <p><strong>{{ item.description }}</strong> <span class="text-muted">({{ item.meeting_title }})</span></p>
+      <div class="form-row">
+        <select name="email" class="form-control">
+          {% for person in item.candidates %}
+          <option value="{{ person.email }}">{{ person.name }} — {{ person.email }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">Confirm</button>
+      </div>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if tasks %}
+  <div class="card card-flush">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Meeting</th>
+            <th>Assigned to</th>
+            <th>Due</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for task in tasks %}
+          <tr>
+            <td class="td-preview">{{ task.description }}</td>
+            <td>{{ task.meeting_title }}</td>
+            <td>
+              {{ task.assigned_to }}
+              {% if task.assigned_email %}
+              <div class="text-muted">{{ task.assigned_email }}</div>
+              {% endif %}
+            </td>
+            <td>{{ task.due_date }}</td>
+            <td>
+              {% if task.assigned_email and task.assigned_email|lower == my_email %}
+              <form method="POST" action="{{ url_for('tasks.update_status', task_id=task.id) }}" class="form-row">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <select name="status" class="form-control">
+                  {% for status in statuses %}
+                  <option value="{{ status }}" {% if task.status == status %}selected{% endif %}>{{ status_labels[status] }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-outline btn-sm">Save</button>
+              </form>
+              {% else %}
+                {{ status_labels.get(task.status, task.status) }}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="card empty-state">
+    <p class="empty-state__title">No tasks yet</p>
+    <p class="empty-state__lead">Start a meeting or upload a transcript, then come back here.</p>
+    <a href="{{ url_for('live.start') }}" class="btn btn-primary btn-sm">Start meeting</a>
+  </div>
+  {% endif %}
+
+</div>
+</div>
+{% endblock %}

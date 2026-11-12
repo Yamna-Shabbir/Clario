@@ -37,6 +37,7 @@ data/graphs/
 data/transcripts/
 data/summaries/
 data/evaluation/
+data/hf-models/
 # Keep the .gitkeep placeholder files so the directories exist after a fresh clone
 !data/**/.gitkeep
 
