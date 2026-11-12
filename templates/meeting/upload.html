@@ -18,6 +18,20 @@
     Clario will do the rest.
   </p>
 
+  {% if session.get('prefill_participants') %}
+  <div style="margin-bottom:24px; padding:16px 20px; background:rgba(99,102,241,0.12); border:1px solid rgba(99,102,241,0.3); border-radius:12px; display:flex; align-items:center; justify-content:space-between;">
+    <div>
+      <span style="font-weight:600; color:#A5B4FC; display:block; margin-bottom:2px;">
+        📹 Google Meet Participants Linked
+      </span>
+      <span style="font-size:0.88rem; color:var(--text-muted);">
+        {{ session.get('prefill_participants')|length }} participant(s) queued for this upload. Action item assignees will be matched against this roster.
+      </span>
+    </div>
+    <span class="badge" style="background:rgba(99,102,241,0.25); color:#C7D2FE;">Ready to Link</span>
+  </div>
+  {% endif %}
+
   <form id="upload-form" method="POST"
         action="{{ url_for('meeting.upload') }}"
         enctype="multipart/form-data"

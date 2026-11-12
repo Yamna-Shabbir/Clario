@@ -201,4 +201,27 @@ To test conference and participant synchronization with real Google accounts:
    - Click **👥 View Participants** next to the meeting record.
    - Verify `Account A` and `Account B` are listed with their respective display names, join/leave times, and types.
 
+---
+
+## 12. Participant Import & Task Assignee Matching
+
+### Importing Participants into a Clario Meeting
+From `/integrations/google/meetings`, clicking **📥 Import** triggers `POST /integrations/google/import`:
+1. **Into an Existing Meeting**:
+   - Selecting a meeting from the dropdown imports participants directly into that meeting's `meeting_participants` table.
+   - Sets `meetings.platform = 'google_meet'` and `meetings.external_meeting_id = 'conferenceRecords/{id}'`.
+   - Idempotent: repeated imports into the same meeting replace existing attendee rows without duplicating data.
+   - Automatically executes `rematch_meeting_tasks(meeting_id, user_id)` to update detected action items with full attendee names.
+2. **Into a New Meeting**:
+   - Selecting `-- New meeting --` stores the fetched attendee roster in the user's session (`prefill_participants`).
+   - Redirects to `/upload`. The upcoming audio upload or transcript paste inherits the participants roster and links the meeting automatically.
+
+### Attendee Matching Hierarchy
+When action items are detected (`services/task_detection.py` and `services/participant_matching.py`):
+1. **Normalised Exact Match**: Strips case, punctuation, and extraneous whitespace to compare extracted names with roster attendees.
+2. **Unique First-Name Match**: Matches single-token names (e.g., "Alice") to attendees with that unique first name (e.g., "Alice Cooper"). If multiple attendees share the first name, returns `None` to prevent misattribution.
+3. **Fuzzy Sequence Match**: Compares names using `difflib.SequenceMatcher`. Accepts candidates with similarity ratio >= 0.8 only when there is a unique best candidate.
+4. **Ignored Non-Person Tokens**: Pronouns ("he", "she", "they", "we", etc.) and generic groups ("Team", "All", "Unknown") are never matched to participants.
+
+
 

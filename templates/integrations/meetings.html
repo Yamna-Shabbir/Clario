@@ -118,11 +118,22 @@
                    class="btn btn-outline btn-sm" style="white-space:nowrap;">
                   👥 View Participants
                 </a>
-                <button class="btn btn-sm" disabled
-                        title="Coming in Part D"
-                        style="opacity:0.4; cursor:not-allowed; white-space:nowrap;">
-                  📥 Import
-                </button>
+
+                <form method="POST" action="{{ url_for('integrations.google_import') }}" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                  <input type="hidden" name="external_meeting_id" value="{{ m.external_id }}"/>
+                  {% if user_meetings %}
+                    <select name="meeting_id" class="input" style="padding:4px 8px; font-size:0.75rem; border-radius:6px; max-width:180px; height:auto; background:rgba(255,255,255,0.05); color:var(--text); border:1px solid var(--border);" title="Select existing meeting or choose New">
+                      <option value="">-- New meeting --</option>
+                      {% for um in user_meetings %}
+                        <option value="{{ um.id }}">{{ um.title[:18] }} ({{ um.meeting_date }})</option>
+                      {% endfor %}
+                    </select>
+                  {% endif %}
+                  <button type="submit" class="btn btn-primary btn-sm" style="white-space:nowrap;">
+                    📥 Import
+                  </button>
+                </form>
               </div>
 
             </div>

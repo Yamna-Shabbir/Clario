@@ -50,9 +50,13 @@
           <span style="font-weight:600; font-size:1.05rem;">
             Total Attendees: {{ participants | length }}
           </span>
-          <button class="btn btn-sm" disabled title="Coming in Part D" style="opacity:0.4; cursor:not-allowed;">
-            📥 Import to Meeting
-          </button>
+          <form method="POST" action="{{ url_for('integrations.google_import') }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <input type="hidden" name="external_meeting_id" value="{{ record }}"/>
+            <button type="submit" class="btn btn-sm btn-primary">
+              📥 Import to Meeting
+            </button>
+          </form>
         </div>
 
         <div style="overflow-x:auto;">

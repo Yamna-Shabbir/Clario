@@ -140,7 +140,8 @@ Clario/
 │   ├── test_summarization.py # Unit tests for map-reduce summarization (FakeModel/FakeTokenizer)
 │   ├── test_integrations_foundations.py # Fernet crypto & OAuth/participants migration tests
 │   ├── test_integrations_google_oauth.py # Google OAuth connect/disconnect flow tests (all HTTP mocked)
-│   └── test_integrations_meet_api.py # Google Meet conference records and participants API tests (all HTTP mocked)
+│   ├── test_integrations_meet_api.py # Google Meet conference records and participants API tests (all HTTP mocked)
+│   └── test_integrations_import_matching.py # Participant matching & Google Meet import tests (all HTTP mocked)
 │
 ├── .github/
 │   └── workflows/ci.yml    # GitHub Actions: Python 3.10, core deps, pytest
@@ -164,7 +165,7 @@ Clario/
 │   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
 │   ├── search.py           # Blueprint: /search
 │   ├── utils.py            # @login_required decorator + current_user()
-│   └── integrations.py     # Blueprint: /integrations, /google/connect|callback|disconnect|meetings|participants
+│   └── integrations.py     # Blueprint: /integrations, /google/connect|callback|disconnect|meetings|participants|import
 │
 ├── services/
 │   ├── __init__.py         # Intentionally empty (no eager ML imports)
@@ -172,6 +173,7 @@ Clario/
 │   ├── transcription.py    # Whisper load/transcribe
 │   ├── summarization.py    # BART load/summarize
 │   ├── task_detection.py   # spaCy + regex task extractor
+│   ├── participant_matching.py # Attendee matching hierarchy & task rematching
 │   ├── evaluation.py       # ROUGE + F1 offline evaluation utilities
 │   └── integrations/           # Platform integrations (Google Meet OAuth & REST API)
 │       ├── __init__.py         # Re-exports all integration symbols
@@ -467,6 +469,20 @@ meeting_participants                  (many-to-1 with meetings)
     in the summary and is called after map-reduce completes. Tests use
     `FakeModel`/`FakeTokenizer` (1 word = 1 token) -- never load real BART weights
     in automated tests.
+
+15. **Participant matching and meeting platform imports.**
+    - `match(assignee_name, participants)` in `services/participant_matching.py`
+      implements a three-tier matching hierarchy: normalised exact match, unique
+      first-name match, and difflib fuzzy match (ratio >= 0.8 with unique best
+      candidate). Pronouns ("he", "she", "they", etc.) and generic group terms
+      ("Team", "all") must NEVER be matched to a participant.
+    - `rematch_meeting_tasks(meeting_id, user_id)` reapplies matching to existing
+      meeting tasks, updating only tasks with matching participants and leaving
+      others untouched.
+    - Importing participants into an existing meeting (`POST /integrations/google/import`)
+      enforces ownership (`m.user_id = ?`, returns 404 if unowned), is idempotent
+      (`replace_meeting_participants`), and updates `meetings.platform` and
+      `meetings.external_meeting_id`.
 
 ---
 

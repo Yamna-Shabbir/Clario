@@ -12,6 +12,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from flask import (
     Blueprint,
+    abort,
     flash,
     redirect,
     render_template,
@@ -24,7 +25,11 @@ from config import DB_PATH
 import config
 from models.database import (
     delete_oauth_connection,
+    get_meeting_detail,
+    get_meetings_by_user,
     get_oauth_connection,
+    replace_meeting_participants,
+    update_meeting_platform,
     upsert_oauth_connection,
 )
 from routes.utils import current_user, login_required
@@ -38,6 +43,7 @@ from services.integrations.google_meet import (
     list_recent_meetings,
     revoke_token,
 )
+from services.participant_matching import rematch_meeting_tasks
 
 integrations_bp = Blueprint("integrations", __name__, url_prefix="/integrations")
 
@@ -234,9 +240,12 @@ def google_meetings():
             entry["duration_minutes"] = None
         meetings_list.append(entry)
 
+    user_meetings = get_meetings_by_user(user_id, db_path=DB_PATH)
+
     return render_template(
         "integrations/meetings.html",
         meetings=meetings_list,
+        user_meetings=user_meetings,
         user=current_user(),
     )
 
@@ -283,4 +292,83 @@ def google_participants():
         record=record,
         user=current_user(),
     )
+
+
+@integrations_bp.route("/google/import", methods=["POST"])
+@login_required
+def google_import():
+    """
+    Import participants from a Google Meet conference into a Clario meeting.
+
+    Form parameters:
+    - external_meeting_id (required): conferenceRecords/{id}
+    - meeting_id (optional): Clario meeting ID to import into.
+
+    Behavior:
+    - If meeting_id is given: verifies user ownership (abort 404 if unowned).
+      Stores participants (idempotently via replace_meeting_participants),
+      sets meetings.platform='google_meet' and meetings.external_meeting_id,
+      and rematches tasks of the meeting.
+    - If no meeting_id is given: pre-fills participant list in session and redirects
+      to the upload page.
+    """
+    user_id = session["user_id"]
+    external_meeting_id = request.form.get("external_meeting_id", "").strip()
+    raw_meeting_id = request.form.get("meeting_id")
+
+    if not external_meeting_id:
+        flash("External meeting record identifier is required.", "error")
+        return redirect(url_for("integrations.google_meetings"))
+
+    try:
+        participants = get_participants(user_id, external_meeting_id, db_path=DB_PATH)
+    except NotConnected:
+        flash("Connect your Google account first.", "warning")
+        return redirect(url_for("integrations.index"))
+    except TokenRevoked:
+        flash("Your Google token has expired. Please reconnect.", "warning")
+        return redirect(url_for("integrations.index"))
+    except RateLimited:
+        flash("Google API rate limit hit. Please try again later.", "warning")
+        return redirect(url_for("integrations.google_meetings"))
+    except ApiError as exc:
+        flash(f"Could not retrieve participants: {str(exc)}", "error")
+        return redirect(url_for("integrations.google_meetings"))
+
+    # Case 1: Import into existing Clario meeting
+    if raw_meeting_id and str(raw_meeting_id).strip():
+        try:
+            meeting_id = int(raw_meeting_id)
+        except (ValueError, TypeError):
+            flash("Invalid meeting ID provided.", "error")
+            return redirect(url_for("integrations.google_meetings"))
+
+        meeting = get_meeting_detail(meeting_id, user_id, db_path=DB_PATH)
+        if not meeting:
+            abort(404)
+
+        # Idempotent storage: replace existing participants without duplicating
+        replace_meeting_participants(meeting_id, participants, db_path=DB_PATH)
+        update_meeting_platform(meeting_id, platform="google_meet", external_meeting_id=external_meeting_id, db_path=DB_PATH)
+
+        # Rematch tasks
+        rematched = rematch_meeting_tasks(meeting_id, user_id, db_path=DB_PATH)
+
+        msg = f"Imported {len(participants)} participant(s) into '{meeting.get('title', 'Meeting')}'."
+        if rematched > 0:
+            msg += f" {rematched} action item(s) updated with participant names."
+        flash(msg, "success")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+
+    # Case 2: No meeting_id -> Prefill session for the next upload
+    session["prefill_participants"] = participants
+    session["prefill_external_meeting_id"] = external_meeting_id
+    session["prefill_platform"] = "google_meet"
+    flash(
+        f"Imported {len(participants)} participant(s) from Google Meet. "
+        "Upload audio or paste a transcript to create and link the meeting.",
+        "info",
+    )
+    return redirect(url_for("meeting.upload"))
+
 

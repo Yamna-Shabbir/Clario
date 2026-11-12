@@ -159,15 +159,27 @@ def upload():
             db_path        = DB_PATH,
         )
 
+        # ── Check for prefilled participants from platform import ──────────────
+        prefill_participants = session.pop("prefill_participants", None)
+        prefill_external_id = session.pop("prefill_external_meeting_id", None)
+        prefill_platform = session.pop("prefill_platform", None)
+
+        if prefill_participants:
+            from models.database import replace_meeting_participants, update_meeting_platform
+            replace_meeting_participants(meeting_id, prefill_participants, DB_PATH)
+            if prefill_platform and prefill_external_id:
+                update_meeting_platform(meeting_id, prefill_platform, prefill_external_id, DB_PATH)
+
         # ── Run AI pipeline ────────────────────────────────────────────────────
         try:
             results = run_clario_pipeline(
-                audio_path  = audio_path,
-                text_input  = text_input or None,
-                meeting_id  = meeting_id,
-                user_id     = user_id,
-                db_path     = DB_PATH,
-                graph_dir   = GRAPH_DIR,
+                audio_path   = audio_path,
+                text_input   = text_input or None,
+                meeting_id   = meeting_id,
+                user_id      = user_id,
+                db_path      = DB_PATH,
+                graph_dir    = GRAPH_DIR,
+                participants = prefill_participants,
             )
         except Exception as exc:
             flash(f"Pipeline error: {exc}", "error")
@@ -197,12 +209,15 @@ def result(meeting_id: int):
         abort(404)
 
     tasks = get_tasks_by_meeting(meeting_id, DB_PATH)
+    from models.database import get_meeting_participants
+    participants = get_meeting_participants(meeting_id, DB_PATH)
 
     return render_template(
         "meeting/result.html",
-        user    = current_user(),
-        meeting = meeting,
-        tasks   = tasks,
+        user         = current_user(),
+        meeting      = meeting,
+        tasks        = tasks,
+        participants = participants,
     )
 
 

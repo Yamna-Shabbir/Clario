@@ -538,3 +538,50 @@ def get_meeting_participants(
             (meeting_id,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def replace_meeting_participants(
+    meeting_id: int,
+    participants: List[Dict[str, Any]],
+    db_path: str = DB_PATH,
+) -> None:
+    """Replace all participants for a meeting with a new list (idempotent import)."""
+    with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM meeting_participants WHERE meeting_id = ?", (meeting_id,))
+        if participants:
+            conn.executemany(
+                """INSERT INTO meeting_participants
+                   (meeting_id, name, email, source, external_id, joined_at, left_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        meeting_id,
+                        p.get("name", "Unknown"),
+                        p.get("email"),
+                        p.get("source", "google_meet"),
+                        p.get("external_id") or p.get("external_user_id"),
+                        p.get("joined_at"),
+                        p.get("left_at"),
+                    )
+                    for p in participants
+                ],
+            )
+        conn.commit()
+
+
+def update_meeting_platform(
+    meeting_id: int,
+    platform: str,
+    external_meeting_id: str,
+    db_path: str = DB_PATH,
+) -> None:
+    """Update platform and external meeting ID for a meeting."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """UPDATE meetings
+               SET platform = ?, external_meeting_id = ?
+               WHERE id = ?""",
+            (platform, external_meeting_id, meeting_id),
+        )
+        conn.commit()
+
