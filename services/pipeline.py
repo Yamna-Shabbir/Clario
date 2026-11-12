@@ -19,7 +19,7 @@ Public API
 import os
 import threading
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from config import (
     DB_PATH, GRAPH_DIR,
@@ -93,6 +93,12 @@ def run_clario_pipeline(
     None if no usable input was provided.
     """
 
+    # Limit OpenBLAS/OpenMP threads to reduce memory pressure on constrained machines
+    import os as _os
+    _os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    _os.environ.setdefault("OMP_NUM_THREADS", "1")
+    _os.environ.setdefault("MKL_NUM_THREADS", "1")
+
     from models.database import (
         insert_transcript, insert_summary,
         insert_tasks,
@@ -153,9 +159,16 @@ def run_clario_pipeline(
             tasks       = tasks,
         )
         summary = smart_merge(raw_summary, tasks)
-    except Exception as exc:
-        print(f"️  Summarisation failed: {exc}")
-        summary = transcript[:500]          # graceful degradation
+    except (Exception, MemoryError) as exc:
+        print(f"⚠️  Summarisation failed: {exc}")
+        try:
+            from services.summarization import extractive_summarize
+            nlp_for_summary = _get_nlp()
+            summary = extractive_summarize(transcript, nlp=nlp_for_summary, tasks=tasks)
+            print(f"   Extractive fallback summary: {len(summary)} chars")
+        except Exception as fallback_exc:
+            print(f"   Extractive fallback also failed: {fallback_exc}")
+            summary = transcript[:1000]
 
     print(f" Summary length: {len(summary)} chars")
 
@@ -212,7 +225,9 @@ def run_clario_pipeline(
             donut_path_abs = static_graph_dir / donut_filename
             status_path_abs = static_graph_dir / status_filename
             
-            tasks_for_graph = [dict(t, id=i+1) for i, t in enumerate(tasks)]
+            # Limit to top 25 tasks (High priority first) to avoid OOM in graph
+            sorted_tasks = sorted(tasks, key=lambda t: (0 if t.get("priority") == "High" else 1 if t.get("priority") == "Medium" else 2))
+            tasks_for_graph = [dict(t, id=i+1) for i, t in enumerate(sorted_tasks[:25])]
             
             # Generate
             build_knowledge_graph(tasks_for_graph, output_path=str(graph_path_abs))
@@ -228,7 +243,7 @@ def run_clario_pipeline(
             
             set_meeting_graphs(meeting_id, graph_path, bar_path, donut_path, status_path, db_path)
             print(f"  Analytics graphs generated for meeting {meeting_id}")
-        except Exception as exc:
+        except BaseException as exc:
             print(f"  Analytics generation failed: {exc}")
 
     return {

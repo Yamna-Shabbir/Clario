@@ -33,28 +33,41 @@ _summarizer_model = None
 _summarizer_tokenizer = None
 _loaded_model_name = None
 
+# Set to True when the BART model failed to load (OOM, disk full, etc.)
+_summarizer_unavailable = False
+
 
 def load_summarizer(model_name: str = BART_MODEL, device: int = -1):
     """
     Load (or return cached) HuggingFace summarizer model and tokenizer.
+    Returns (None, None) if the model cannot be loaded (OOM / disk full).
     """
-    global _summarizer_model, _summarizer_tokenizer, _loaded_model_name
+    global _summarizer_model, _summarizer_tokenizer, _loaded_model_name, _summarizer_unavailable
+    if _summarizer_unavailable:
+        return None, None
     if (
         _summarizer_model is None
         or _summarizer_tokenizer is None
         or _loaded_model_name != model_name
     ):
-        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-        import torch
+        try:
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+            import torch
 
-        print(f"Loading BART tokenizer ('{model_name}') ...")
-        _summarizer_tokenizer = AutoTokenizer.from_pretrained(model_name)
-        print(f"Loading BART model ('{model_name}') ...")
-        _summarizer_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        if device == 0 and torch.cuda.is_available():
-            _summarizer_model = _summarizer_model.cuda()
-        _loaded_model_name = model_name
-        print(f"BART summarizer loaded ({model_name}).")
+            print(f"Loading BART tokenizer ('{model_name}') ...")
+            _summarizer_tokenizer = AutoTokenizer.from_pretrained(model_name)
+            print(f"Loading BART model ('{model_name}') ...")
+            _summarizer_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            if device == 0 and torch.cuda.is_available():
+                _summarizer_model = _summarizer_model.cuda()
+            _loaded_model_name = model_name
+            print(f"BART summarizer loaded ({model_name}).")
+        except (Exception, MemoryError, OSError) as exc:
+            print(f"⚠️  BART model unavailable: {exc}. Will use extractive fallback.")
+            _summarizer_unavailable = True
+            _summarizer_model = None
+            _summarizer_tokenizer = None
+            return None, None
     return _summarizer_model, _summarizer_tokenizer
 
 
@@ -228,6 +241,101 @@ def smart_merge(summary: str, tasks: Optional[List[Dict[str, Any]]] = None) -> s
     return summary
 
 
+def extractive_summarize(
+    text: str,
+    nlp=None,
+    max_sentences: int = 8,
+    *,
+    tasks: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """
+    Extractive summarization fallback using spaCy sentence segmentation + TF-IDF-style scoring.
+    Used when the BART model is unavailable (OOM / disk full).
+
+    Scoring criteria (additive):
+      - Sentence contains task keywords (STRONG_CUES / STRONG_ACTION_VERBS)
+      - Sentence contains named entities (PERSON, ORG, DATE)
+      - Sentence position: first 10% and last 10% of transcript weighted higher
+      - Sentence length: 10-50 words preferred (too short/long penalised)
+
+    Parameters
+    ----------
+    text          : Full transcript text.
+    nlp           : Optional pre-loaded spaCy model; if None, spaCy is imported and loaded.
+    max_sentences : Maximum number of sentences in the output.
+    tasks         : Optional task list for smart_merge after extraction.
+
+    Returns
+    -------
+    Extractive summary string.
+    """
+    if not text or not text.strip():
+        return ""
+
+    # Load spaCy if not provided
+    if nlp is None:
+        try:
+            import spacy
+            nlp = spacy.load("en_core_web_sm")
+        except Exception:
+            # Last-resort: return first 1000 chars
+            return text[:1000]
+
+    doc = nlp(text)
+    sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+    if not sentences:
+        return text[:1000]
+
+    n = len(sentences)
+
+    # Keyword sets for scoring (import from module-level lists)
+    from services.task_detection import STRONG_CUES, STRONG_ACTION_VERBS
+    all_keyword_patterns = STRONG_CUES + STRONG_ACTION_VERBS
+
+    scores = []
+    for i, sent in enumerate(sentences):
+        sl = sent.lower()
+        score = 0.0
+
+        # 1. Task keyword bonus
+        keyword_hits = sum(1 for p in all_keyword_patterns if re.search(p, sl))
+        score += keyword_hits * 0.5
+
+        # 2. Named entity bonus
+        sent_doc = nlp(sent)
+        ne_count = sum(1 for ent in sent_doc.ents if ent.label_ in ("PERSON", "ORG", "DATE", "TIME"))
+        score += ne_count * 0.4
+
+        # 3. Position bonus (first and last 10% of transcript)
+        position_ratio = i / max(n - 1, 1)
+        if position_ratio <= 0.10 or position_ratio >= 0.90:
+            score += 0.5
+
+        # 4. Length preference (10-50 words)
+        word_count = len(sent.split())
+        if 10 <= word_count <= 50:
+            score += 0.3
+        elif word_count < 5:
+            score -= 0.5
+
+        # 5. Penalty for speaker-label-only lines (e.g. "[Nadia]:")
+        if re.match(r"^\[?\w[\w\s]*\]?\s*:", sent) and word_count <= 3:
+            score -= 1.0
+
+        scores.append((score, i, sent))
+
+    # Sort by score descending, pick top max_sentences
+    scores.sort(key=lambda x: -x[0])
+    top = scores[:max_sentences]
+
+    # Restore original order
+    top.sort(key=lambda x: x[1])
+
+    result = " ".join(s for _, _, s in top)
+    result = deduplicate_sentences(result)
+    return smart_merge(result, tasks)
+
+
 def _summarize_chunk(
     chunk_text: str,
     model,
@@ -329,6 +437,11 @@ def summarize_text(
         model, tokenizer = load_summarizer(model_name, device)
     else:
         model, tokenizer = summariser
+
+    # If model unavailable (OOM/disk full), use extractive fallback
+    if model is None or tokenizer is None:
+        print("⚠️  BART model not available — using extractive summarization fallback.")
+        return extractive_summarize(text, tasks=tasks)
 
     # Check for very short inputs (<= 30 tokens) -> return as-is
     initial_tokens = tokenizer.encode(text, add_special_tokens=False)

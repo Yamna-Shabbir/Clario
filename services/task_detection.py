@@ -188,6 +188,13 @@ _RELATIVE_DATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "let's get started / move on / wrap up" are pleasantries, NOT tasks
+_PLEASANTRY_LETS_RE = re.compile(
+    r"\blet['']?s\s+(?:get\s+started|begin\b|start\b|move\s+on|wrap\s+up|"
+    r"jump\s+in|dive\s+in|kick\s+off|go\s+ahead|proceed)\b",
+    re.IGNORECASE,
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -207,6 +214,27 @@ def _has_strong_action_verb(text_lower: str) -> bool:
 
 def _has_weak_verb(text_lower: str) -> bool:
     return _matches_any(WEAK_VERBS, text_lower)
+
+
+def _action_verb_is_verbal(pattern: str, sent_doc) -> bool:
+    """
+    Return True only if the token matching *pattern* is used as a VERB or AUX
+    in the parsed sentence (i.e. not as a noun/adjective).
+    This disambiguates 'build the feature' (VERB) vs 'the build pipeline' (NOUN).
+
+    Note: spaCy POS-tags all-caps text poorly (e.g. SUBMIT → PROPN).
+    The caller should pass a normalised doc when needed; this function also
+    checks for PROPN/NOUN tokens that ARE the root of the sentence (which
+    indicates an all-caps imperative mis-tagged as PROPN).
+    """
+    for token in sent_doc:
+        if re.search(pattern, token.text, re.IGNORECASE):
+            if token.pos_ in ("VERB", "AUX"):
+                return True
+            # Fallback: all-caps imperatives are mis-tagged as PROPN/ROOT by spaCy
+            if token.pos_ in ("PROPN", "NOUN") and token.dep_ == "ROOT":
+                return True
+    return False
 
 
 def _is_negated(text_lower: str) -> bool:
@@ -422,6 +450,10 @@ def detect_tasks(
         if _is_question(sentence) and not _has_strong_cue(sl):
             continue
 
+        # --- Guard: "let's get started / move on" pleasantries ---
+        if _PLEASANTRY_LETS_RE.search(sentence):
+            continue
+
         # --- Keyword matching ---
         matched_keyword = ""
         is_task = False
@@ -435,10 +467,14 @@ def detect_tasks(
                     break
 
         elif _has_strong_action_verb(sl):
-            is_task = True
+            # Verify the matched verb is actually used as a VERB (not a noun)
+            # e.g. "the build pipeline" → build is NOUN → skip
+            # Parse the sentence for POS checking
+            sent_doc_for_pos = loaded_nlp(sentence)
             for p in STRONG_ACTION_VERBS:
-                if re.search(p, sl):
+                if re.search(p, sl) and _action_verb_is_verbal(p, sent_doc_for_pos):
                     matched_keyword = p.replace(r"\b", "").replace("?", "").strip()
+                    is_task = True
                     break
 
         elif _has_weak_verb(sl) and _has_strong_cue(sl):
