@@ -170,14 +170,20 @@ def start():
                 invites, link, title, session.get("username") or "A teammate",
             )
             sent = sum(1 for item in results if item["status"] == "sent")
-            saved = sum(1 for item in results if item["status"] == "saved")
+            failed = next((item for item in results if item["status"] == "failed"), None)
             if sent:
                 flash(f"Join link emailed to {sent} people.", "success")
-            elif saved:
-                flash("SMTP is not sending, so the invites were saved locally. Copy the link from the meeting page.", "info")
-            else:
-                failed = next((item for item in results if item["status"] == "failed"), None)
-                flash((failed or {}).get("detail") or "The invite email could not be sent. Copy the link instead.", "error")
+            if failed:
+                flash(
+                    failed.get("detail")
+                    or "The invite email could not be sent. Copy the link from the meeting page.",
+                    "error",
+                )
+            elif not sent:
+                flash(
+                    "Invite email was not delivered. Copy the join link from the meeting page.",
+                    "info",
+                )
         return redirect(url_for("live.room", token=token))
     return render_template("live/start.html", user=current_user())
 
@@ -248,10 +254,17 @@ def invite(token: str):
         session.get("username") or "A teammate",
     )
     sent = [item["recipient"] for item in results if item["status"] == "sent"]
+    failed = next((item for item in results if item["status"] == "failed"), None)
     if sent:
         flash(f"Link sent to {', '.join(sent)}.", "success")
-    else:
-        flash("The link is on this page to copy. Email could not be delivered.", "info")
+    if failed:
+        flash(
+            failed.get("detail")
+            or "Email could not be delivered. Copy the join link from this page.",
+            "error",
+        )
+    elif not sent:
+        flash("Email could not be delivered. Copy the join link from this page.", "info")
     return redirect(url_for("live.room", token=token))
 
 

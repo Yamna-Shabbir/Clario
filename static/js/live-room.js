@@ -21,7 +21,11 @@
   const copyBtn = document.getElementById("copy-link");
 
   const myUserId = cfg.myUserId;
-  const iceServers = cfg.iceServers || [{ urls: "stun:stun.l.google.com:19302" }];
+  const iceServers = cfg.iceServers || [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+  ];
   let meetingActive = Boolean(cfg.inMeeting || cfg.isHost);
   let inMeetingPollsStarted = false;
   let admissionDenied = cfg.admissionStatus === "denied";
@@ -165,6 +169,7 @@
     setToolState(camBtn, camOn, "Camera on", "Camera");
     updateLocalPreview();
     await bindAllPeers();
+    await renegotiateOutgoing();
     syncPeersFromLastRoster();
     resumePlayback();
   }
@@ -526,9 +531,14 @@
   function startInMeetingPolls() {
     if (inMeetingPollsStarted) return;
     inMeetingPollsStarted = true;
-    primeMeetingMedia();
+    Promise.resolve(primeMeetingMedia())
+      .then(() => renegotiateOutgoing())
+      .catch((err) => console.warn("Meeting media setup failed", err));
     window.setInterval(pollMessages, 2500);
     window.setInterval(pollSignals, 800);
+    window.setInterval(() => {
+      if (meetingActive || cfg.isHost) renegotiateOutgoing().catch(() => {});
+    }, 8000);
     pollMessages();
     pollSignals();
   }
@@ -849,31 +859,73 @@
   }
 
   function findTransceiver(pc, kind) {
-    return pc.getTransceivers().find((transceiver) => {
-      const senderTrack = transceiver.sender && transceiver.sender.track;
-      const receiverTrack = transceiver.receiver && transceiver.receiver.track;
-      return (senderTrack && senderTrack.kind === kind) || (receiverTrack && receiverTrack.kind === kind);
-    });
+    const list = pc.getTransceivers();
+    return (
+      list.find((transceiver) => {
+        const senderTrack = transceiver.sender && transceiver.sender.track;
+        return senderTrack && senderTrack.kind === kind;
+      }) ||
+      list.find((transceiver) => {
+        const receiverTrack = transceiver.receiver && transceiver.receiver.track;
+        return receiverTrack && receiverTrack.kind === kind;
+      }) ||
+      list.find((transceiver) => {
+        return (
+          transceiver.sender &&
+          !transceiver.sender.track &&
+          (!transceiver.receiver || !transceiver.receiver.track) &&
+          (transceiver.mid === null || transceiver.mid === undefined)
+        );
+      })
+    );
   }
 
   async function bindLocalToPeer(pc) {
+    let needsOffer = false;
     for (const kind of ["audio", "video"]) {
-      const transceiver = findTransceiver(pc, kind);
-      if (!transceiver) continue;
       const track = liveTrack(kind);
+      let transceiver = findTransceiver(pc, kind);
+      if (!transceiver && track && localStream) {
+        try {
+          pc.addTrack(track, localStream);
+          needsOffer = true;
+          continue;
+        } catch (err) {
+          console.warn("addTrack", kind, err);
+        }
+      }
+      if (!transceiver) continue;
+      if (transceiver.direction !== "sendrecv") {
+        try {
+          transceiver.direction = "sendrecv";
+        } catch (err) {
+          /* older browsers */
+        }
+      }
       if (transceiver.sender.track === track) continue;
       try {
         await transceiver.sender.replaceTrack(track);
+        needsOffer = true;
       } catch (err) {
         console.warn("replaceTrack", kind, err);
       }
     }
+    return needsOffer;
   }
 
   async function bindAllPeers() {
     const jobs = [];
     peers.forEach((pc) => {
       jobs.push(bindLocalToPeer(pc));
+    });
+    await Promise.all(jobs);
+  }
+
+  async function renegotiateOutgoing() {
+    const jobs = [];
+    peers.forEach((pc, id) => {
+      if (isPolite(id) || !peerReady.has(id)) return;
+      jobs.push(negotiate(pc, id));
     });
     await Promise.all(jobs);
   }
@@ -964,6 +1016,7 @@
       if (pc.connectionState === "failed") maybeRenegotiate(id);
     };
     if (!isPolite(id)) {
+      // Offerer owns the m-lines. Polite peer answers the remote offer instead.
       pc.addTransceiver("audio", { direction: "sendrecv" });
       pc.addTransceiver("video", { direction: "sendrecv" });
       await bindLocalToPeer(pc);
@@ -1039,7 +1092,11 @@
     if (kind === "offer") {
       if (pc.signalingState !== "stable") {
         if (!isPolite(fromId)) return;
-        await pc.setLocalDescription({ type: "rollback" });
+        try {
+          await pc.setLocalDescription({ type: "rollback" });
+        } catch (err) {
+          console.warn("Rollback before answer failed", err);
+        }
       }
       await pc.setRemoteDescription(new RTCSessionDescription(payload));
       await flushCandidates(fromId, pc);
@@ -1050,11 +1107,15 @@
         type: pc.localDescription.type,
         sdp: pc.localDescription.sdp,
       });
+      refreshTileMedia(fromId);
+      resumePlayback();
     } else if (kind === "answer") {
       if (pc.signalingState !== "have-local-offer") return;
       await pc.setRemoteDescription(new RTCSessionDescription(payload));
       await flushCandidates(fromId, pc);
+      await bindLocalToPeer(pc);
       refreshTileMedia(fromId);
+      resumePlayback();
     } else if (kind === "ice") {
       await addCandidate(fromId, pc, payload);
     }

@@ -246,6 +246,36 @@ def send_invite_emails(recipients: List[str], join_url: str, title: str,
     return sent
 
 
+def _smtp_send(message: EmailMessage) -> None:
+    """Send one message, trying STARTTLS then SSL when the first path fails."""
+    last_error: Optional[Exception] = None
+    attempts = []
+    if SMTP_PORT == 465:
+        attempts.append("ssl")
+    else:
+        attempts.extend(["starttls", "ssl"])
+    for mode in attempts:
+        try:
+            if mode == "ssl":
+                with smtplib.SMTP_SSL(SMTP_HOST, 465 if SMTP_PORT == 587 else SMTP_PORT, timeout=20) as client:
+                    if SMTP_USER:
+                        client.login(SMTP_USER, SMTP_PASSWORD)
+                    client.send_message(message)
+            else:
+                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as client:
+                    if SMTP_TLS:
+                        client.starttls()
+                    if SMTP_USER:
+                        client.login(SMTP_USER, SMTP_PASSWORD)
+                    client.send_message(message)
+            return
+        except Exception as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    raise RuntimeError("SMTP send failed.")
+
+
 def _deliver_text(recipient: str, subject: str, body: str, stem: str) -> Tuple[str, str]:
     saved = _save_text_copy(recipient, subject, body, stem)
     if not SMTP_HOST or not SMTP_FROM:
@@ -258,16 +288,16 @@ def _deliver_text(recipient: str, subject: str, body: str, stem: str) -> Tuple[s
         message["From"] = SMTP_FROM or "clario@localhost"
         message["To"] = recipient
         message.set_content(body)
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as client:
-            if SMTP_TLS:
-                client.starttls()
-            if SMTP_USER:
-                client.login(SMTP_USER, SMTP_PASSWORD)
-            client.send_message(message)
+        _smtp_send(message)
     except Exception as exc:
         detail = str(exc) or type(exc).__name__
+        if "Authentication" in detail or "Username and Password" in detail:
+            detail = (
+                "Gmail rejected the SMTP login. Use a Google App Password "
+                "(not the normal account password) in CLARIO_SMTP_PASSWORD."
+            )
         if saved:
-            detail = f"{detail}. A copy was saved at {saved}."
+            detail = f"{detail} A copy was saved at {saved}."
         return "failed", detail
     if saved:
         return "sent", f"Sent. A copy was saved at {saved}."

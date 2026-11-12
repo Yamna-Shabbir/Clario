@@ -12,6 +12,8 @@ on the system PATH (common on Windows), we fall back to the binary bundled with
 module import time, so it is transparent to all callers.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 from typing import Any, Dict, Optional
@@ -155,6 +157,41 @@ def _ensure_local_hf_model(model_id: str) -> str:
     return folder
 
 
+def is_english_only_whisper_model(model_name: str) -> bool:
+    """English-only Whisper checkpoints end with ``.en`` and cannot handle Urdu."""
+    return (model_name or "").strip().lower().endswith(".en")
+
+
+def is_sukhan_model(model_name: str) -> bool:
+    """Urdu Sukhan ASR writes Urdu in Urdu script and English in Latin letters."""
+    return "sukhan" in (model_name or "").lower()
+
+
+class _HuggingFaceAsr:
+    """Whisper-compatible wrapper around a Transformers ASR pipeline."""
+
+    def __init__(self, pipe: Any, model_name: str) -> None:
+        self._pipe = pipe
+        self.name = model_name
+
+    def transcribe(self, audio_path: str, **kwargs: Any) -> Dict[str, str]:
+        generate: Dict[str, Any] = {}
+        task = kwargs.get("task") or "transcribe"
+        if is_sukhan_model(self.name):
+            # Model card: translation is out of scope; detect language unless forced.
+            task = "transcribe"
+        generate["task"] = task
+        language = kwargs.get("language")
+        if language:
+            generate["language"] = language
+        output = self._pipe(str(audio_path), generate_kwargs=generate)
+        if isinstance(output, dict):
+            text = output.get("text") or ""
+        else:
+            text = str(output or "")
+        return {"text": text}
+
+
 def _load_huggingface_asr(model_id: str) -> _HuggingFaceAsr:
     from transformers import pipeline as hf_pipeline
     folder = _ensure_local_hf_model(model_id)
@@ -222,41 +259,6 @@ def load_whisper(model_size: str = "base"):
     except Exception:
         pass
     return _whisper_model
-
-
-def is_english_only_whisper_model(model_name: str) -> bool:
-    """English-only Whisper checkpoints end with ``.en`` and cannot handle Urdu."""
-    return (model_name or "").strip().lower().endswith(".en")
-
-
-def is_sukhan_model(model_name: str) -> bool:
-    """Urdu Sukhan ASR writes Urdu in Urdu script and English in Latin letters."""
-    return "sukhan" in (model_name or "").lower()
-
-
-class _HuggingFaceAsr:
-    """Whisper-compatible wrapper around a Transformers ASR pipeline."""
-
-    def __init__(self, pipe: Any, model_name: str) -> None:
-        self._pipe = pipe
-        self.name = model_name
-
-    def transcribe(self, audio_path: str, **kwargs: Any) -> Dict[str, str]:
-        generate: Dict[str, Any] = {}
-        task = kwargs.get("task") or "transcribe"
-        if is_sukhan_model(self.name):
-            # Model card: translation is out of scope; detect language unless forced.
-            task = "transcribe"
-        generate["task"] = task
-        language = kwargs.get("language")
-        if language:
-            generate["language"] = language
-        output = self._pipe(str(audio_path), generate_kwargs=generate)
-        if isinstance(output, dict):
-            text = output.get("text") or ""
-        else:
-            text = str(output or "")
-        return {"text": text}
 
 
 def whisper_transcribe_options(*, model_name: str = "") -> Dict[str, Any]:

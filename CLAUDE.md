@@ -120,11 +120,12 @@ Clario/
 ├── requirements-dev.txt    # dev/test dependencies (pytest, pytest-cov, jiwer)
 ├── pyproject.toml          # pytest + coverage configuration
 ├── .env.example            # Template — copy to .env and fill in values
-├── render.yaml             # Render Blueprint (Standard plan + persistent disk)
-├── build.sh                # Render build: pip + spaCy model
+├── render.yaml             # Render Blueprint — FREE plan only (default)
+├── render.standard.yaml    # Paid Standard + disk (do not apply without billing)
+├── build.sh                # Render build: core deps on free, full ML when not free
 ├── Procfile                # Gunicorn start command
 ├── runtime.txt             # Python 3.12.8 for Render
-├── docs/deploy-render.md   # Production deploy guide and hosting limits
+├── docs/deploy-render.md   # Free vs Standard deploy guide and hosting limits
 ├── seed.py                 # ⚠️ Destructive demo-data seeder (guarded)
 ├── generate_samples.py     # Generates sample MP3s via gTTS
 │
@@ -716,6 +717,11 @@ landing and live room.
 **Layout helpers:** `page-title`, `page-lead`, `back-link`, `container-narrow`,
 `container-medium`, `container-wide`. Avoid inline styles in templates — extend
 `style.css` instead.
+
+**Mobile:** `@media (max-width: 768px/480px)` stacks forms and dashboard grids,
+makes the live-room toolbar a safe-area scroll strip, and shrinks the video
+stage for phones. Cache-bust `style.css` / `live-room.js` query `v=` when those
+files change.
 
 ---
 

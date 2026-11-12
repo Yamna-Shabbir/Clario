@@ -1,123 +1,122 @@
 # Deploy Clario on Render
 
-This guide prepares a production deploy without changing Clario’s SQLite
-schema or AI pipeline. Models stay lazy-loaded. Local `data/` and `uploads/`
-are not uploaded to Git; a Render disk holds them in production.
+Two Blueprint files are kept in the repo:
 
-## What this does *not* do
+| File | Plan | Disk | Billing |
+|---|---|---|---|
+| **`render.yaml`** (default) | **Free** | None (ephemeral) | No card required for Free compute |
+| **`render.standard.yaml`** | Standard + 20 GB disk | `/var/data` | **Paid — do not apply unless you accept charges** |
 
-- It does **not** migrate SQLite to MongoDB or Postgres.
-- It does **not** claim the app is live until you deploy and smoke-test it.
-- It does **not** commit `.env` or any secrets.
+This guide focuses on the **free** path. It does **not** claim the app is live
+until you have a working public URL. It does not commit `.env` or touch your
+local SQLite database.
 
-## Hosting limits
+## Why Render may ask for a card
 
-The checked-in `render.yaml` targets the **Free** web plan only (no paid
-disk, no Standard/Pro). That avoids charges.
+Render’s Free web plan itself does not require a payment method. A card prompt
+usually means one of these happened in the UI:
 
-| Resource | Free web (this Blueprint) | Paid (optional later) |
-|---|---|---|
-| RAM | 512 MB | ≥ 2 GB for Torch + Whisper + DistilBART |
-| Disk | Ephemeral (data lost on spin-down) | Persistent disk at `/var/data` |
-| Idle | Spins down after ~15 min | Always-on |
-| ML | **Not loaded** (`CLARIO_FREE_TIER=True` → core deps only) | Full `requirements.txt` |
-| What works | Register/login, paste transcript, extractive summary, spaCy tasks, UI | Audio ASR + neural summary |
+1. You selected a **paid** compute plan (Starter / Standard / Pro), or
+2. The Blueprint included a **persistent disk** (paid), or
+3. You opened **Billing** / tried to upgrade the workspace.
 
-Sukhan / Whisper / DistilBART need a paid instance and a disk. Do not add those
-to `render.yaml` without explicitly choosing a paid plan.
+**Fix:** deploy with `render.yaml` only (`plan: free`, no `disk:` block), or
+create a Web Service manually and choose **Free**. Skip any “Add payment
+method” step. If the dashboard still forces a card before you can pick Free,
+that is an account/UI gate on Render’s side — stop there; do not enter a card
+for this project unless you choose to.
 
-There is **no Zoom API** in this repo. Integrations are Google Meet OAuth and
-Clario’s own live rooms.
+Without a card, exceeding free bandwidth/build minutes suspends free services
+for the month instead of charging you.
 
-## One-time local checks
+## What runs on free hosting
 
-1. Confirm `.env` is gitignored and never committed.
-2. Keep a backup of `data/database/clario.db` before any production cutover.
-3. Push the deployment files (`render.yaml`, `build.sh`, `Procfile`, …) to GitHub.
+`build.sh` with `CLARIO_FREE_TIER=True` installs **`requirements-core.txt` only**
+(no Torch / Whisper / transformers). Features stay in the code; they are not
+deleted.
 
-## Deploy with the Blueprint
-
-1. Open [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**.
-2. Connect the GitHub repo that contains this project.
-3. Review `render.yaml`. Confirm:
-   - Plan is **Standard** (or higher), not Free.
-   - Disk mount is `/var/data` (20 GB).
-4. In the service **Environment** tab, set every `sync: false` variable (see below).
-5. Under **Native Environment** / apt packages, add **`ffmpeg`**.
-6. Deploy. Watch the build log for `spacy download` success.
-7. After the service shows Live, open `https://<service>.onrender.com/health`.
-   Expect `{"status":"ok"}`.
-8. Register a user, paste a short English transcript (no audio first), and
-   confirm a meeting result page. Then try a short audio upload.
-
-## Environment variables
-
-### Required
-
-| Variable | Purpose |
+| Feature | Free online |
 |---|---|
-| `CLARIO_SECRET_KEY` | Flask sessions. Blueprint can auto-generate; keep it stable. |
-| `CLARIO_DEBUG` | Must be `False` in production. |
-| `CLARIO_DATA_DIR` | `/var/data` |
-| `CLARIO_DB_PATH` | `/var/data/database/clario.db` |
-| `CLARIO_UPLOAD_DIR` | `/var/data/uploads` |
-| `CLARIO_HF_MODELS_DIR` | `/var/data/hf-models` |
-| `CLARIO_STATIC_GRAPH_DIR` | `/var/data/graphs` (meeting chart PNGs) |
+| Landing, register, login, dashboard, search UI | Yes |
+| Paste / type transcript → meeting pipeline | Yes (lightweight path) |
+| Extractive summary (BART unavailable → fallback) | Yes |
+| spaCy task extraction + verification (English) | Yes (if `en_core_web_sm` build succeeds) |
+| Charts / knowledge graph PNGs | Yes until instance spin-down |
+| `/health` | Yes |
+| Audio upload → Whisper / Sukhan ASR | **No** (needs Torch + RAM + often ffmpeg) |
+| DistilBART / BART neural summarization | **No** |
+| Marian Urdu→English translation | **No** |
+| Durable meetings/uploads across restarts | **No** (ephemeral disk; wiped on spin-down ~15 min idle) |
+| Google Meet OAuth / SMTP | Optional; needs secrets; SMTP ports often blocked on free |
 
-### Strongly recommended
+Full ML + durable storage: use `render.standard.yaml` later on a paid plan.
 
-| Variable | Purpose |
+## Deploy free configuration (exact steps)
+
+### Option A — Blueprint (uses `render.yaml`)
+
+1. Push the latest `dev` branch to GitHub (already contains `render.yaml`).
+2. Open [dashboard.render.com](https://dashboard.render.com) and sign in.
+3. Stay on a **Hobby** workspace. Do **not** add a payment method.
+4. **New → Blueprint**.
+5. Connect `Yamna-Shabbir/Clario`, branch **`dev`**.
+6. Confirm the Blueprint preview shows:
+   - Service name `clario`
+   - Plan **`free`**
+   - **No** disk / storage add-on
+7. Apply the Blueprint. Do not switch the plan to Standard in the review UI.
+8. Wait for the build (`pip install -r requirements-core.txt`, spaCy model).
+9. Open `https://<service-name>.onrender.com/health` — expect `{"status":"ok"}`.
+10. Open the site root, register a user, paste a short English transcript, and
+    confirm a meeting result. Do not expect audio ASR to work on free.
+
+### Option B — Manual Web Service (if Blueprint still nudges billing)
+
+1. **New → Web Service** → select the same GitHub repo / `dev` branch.
+2. Runtime: **Python**.
+3. Build command: `bash build.sh`
+4. Start command:
+   ```text
+   gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 120
+   ```
+5. Instance type: **Free**.
+6. Add env vars from `render.yaml` (`CLARIO_DEBUG=False`, `CLARIO_FREE_TIER=True`,
+   path vars, etc.). Let Render generate `CLARIO_SECRET_KEY`, or set one yourself.
+7. Deploy. Test `/health` as above.
+
+### Do not do (avoids charges)
+
+- Do not apply `render.standard.yaml`.
+- Do not attach a persistent disk.
+- Do not change the instance type away from Free.
+- Do not enter card details for this free demo.
+
+## Environment variables (free)
+
+| Variable | Value |
 |---|---|
-| `CLARIO_WHISPER_FALLBACK` | `small` (public Whisper when Sukhan is blocked) |
-| `CLARIO_BART_MODEL` | `sshleifer/distilbart-cnn-12-6` |
+| `CLARIO_DEBUG` | `False` |
+| `CLARIO_SECRET_KEY` | auto-generate or strong random string |
+| `CLARIO_FREE_TIER` | `True` |
+| `CLARIO_DATA_DIR` | `data` |
+| `CLARIO_DB_PATH` | `data/database/clario.db` |
+| `CLARIO_UPLOAD_DIR` | `uploads` |
+| `CLARIO_HF_MODELS_DIR` | `data/hf-models` |
+| `CLARIO_STATIC_GRAPH_DIR` | `static/graphs` |
 | `CLARIO_PIPELINE_WORKERS` | `1` |
-| `CLARIO_MAX_UPLOAD_MB` | `100` |
-| `HF_HUB_DISABLE_XET` | `1` |
-| `HF_TOKEN` | Hugging Face token (needed for gated Sukhan) |
+| `CLARIO_MAX_UPLOAD_MB` | `25` |
+| `CLARIO_ENABLE_TEXT_TRANSLATION` | `False` |
 
-### Google Meet (optional)
+## Smoke test checklist (after you have a URL)
 
-| Variable | Purpose |
-|---|---|
-| `CLARIO_GOOGLE_CLIENT_ID` | OAuth web client ID |
-| `CLARIO_GOOGLE_CLIENT_SECRET` | OAuth web client secret |
-| `CLARIO_OAUTH_REDIRECT_BASE` | `https://<service>.onrender.com` (must match Google Console) |
-| `CLARIO_TOKEN_ENCRYPTION_KEY` | Fernet key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+- [ ] `/health` returns 200 and `{"status":"ok"}`
+- [ ] Landing page loads over HTTPS
+- [ ] Register / login works
+- [ ] Paste-transcript meeting completes (extractive summary / tasks)
+- [ ] Audio upload fails clearly or is skipped (expected on free)
+- [ ] After ~15 minutes idle, cold start takes ~1 minute (expected)
 
-### Email follow-ups (optional)
+## Paid Standard config (reference only)
 
-| Variable | Purpose |
-|---|---|
-| `CLARIO_SMTP_HOST` | SMTP host |
-| `CLARIO_SMTP_PORT` | Usually `587` |
-| `CLARIO_SMTP_USER` / `CLARIO_SMTP_PASSWORD` | Credentials |
-| `CLARIO_SMTP_FROM` | From address |
-| `CLARIO_EMAIL_DIR` | `/var/data/outbox` when SMTP is unset |
-
-## Local data vs Render
-
-- Git does **not** ship `clario.db`, uploads, or model weights.
-- A fresh Render deploy starts with an **empty** database unless you copy a
-  backup onto the disk (via SSH/one-off job) yourself.
-- Do **not** run `seed.py` on production unless you intentionally wipe data.
-
-## Smoke test checklist
-
-- [ ] `/health` returns 200
-- [ ] Register / login works over HTTPS
-- [ ] Paste-transcript meeting completes
-- [ ] Audio upload either transcribes or fails with a clear model error (not a 500 blank page)
-- [ ] Charts appear under the meeting result
-- [ ] Google OAuth redirect (if configured) uses the `https://…onrender.com` base
-- [ ] After a restart, meetings and uploads on `/var/data` are still present
-
-## Gunicorn notes
-
-Start command:
-
-```bash
-gunicorn "app:create_app()" --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 300
-```
-
-One worker keeps a single copy of lazy ML models and matches the in-process
-`ThreadPoolExecutor` pipeline. Raising `--workers` multiplies RAM use.
+See `render.standard.yaml`. Apply it only when you intentionally accept billing
+for ≥2 GB RAM, a disk at `/var/data`, full `requirements.txt`, and ffmpeg.

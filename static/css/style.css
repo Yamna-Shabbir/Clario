@@ -943,7 +943,7 @@ code {
 }
 @media (max-width: 900px) {
   .meet-body { grid-template-columns: 1fr; }
-  .meet-sidebar { max-height: 360px; }
+  .meet-sidebar { max-height: min(42vh, 360px); }
 }
 
 .meet-stage {
@@ -1423,11 +1423,96 @@ code {
   .bento-features .feature-card,
   .bento-features .feature-card--wide { grid-column: span 12; }
   .auth-card { padding: 32px 22px; }
+
+  .page-title { font-size: 1.55rem; }
+  .page-lead { font-size: 0.95rem; }
+  .card-pad { padding: 18px; }
+  .form-row { flex-direction: column; align-items: stretch; }
+  .form-row .form-control { min-width: 0; width: 100%; }
+  .form-row .btn { width: 100%; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 520px; }
+  .bento-stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-card { padding: 14px; }
+  .integration-row { flex-direction: column; }
+  .result-card__top { flex-direction: column; }
+  .graph-grid { grid-template-columns: 1fr; }
+  .attendee-modal-content { margin: 6vh 12px; padding: 22px 16px; max-width: none; }
+
+  /* Live room — phone layout */
+  .live-meet {
+    padding: 8px 10px calc(96px + env(safe-area-inset-bottom, 0px));
+    min-height: calc(100dvh - 64px);
+  }
+  .live-meet-page .navbar-shell { padding-left: 8px; padding-right: 8px; }
+  .meet-header { gap: 10px; margin-bottom: 10px; }
+  .meet-title { font-size: 1.1rem; }
+  .meet-subtitle { font-size: 0.8rem; }
+  .meet-header__actions { width: 100%; }
+  .meet-link-copy { max-width: none; width: 100%; }
+  .meet-link-input { min-width: 0; font-size: 0.75rem; }
+  .meet-body { gap: 10px; }
+  .meet-stage {
+    min-height: min(52dvh, 420px);
+    padding: 8px;
+    gap: 8px;
+  }
+  .meet-stage__grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: minmax(140px, 1fr);
+    gap: 6px;
+  }
+  .meet-tile { min-height: 140px; border-radius: 10px; }
+  .meet-avatar { width: 56px; height: 56px; font-size: 1.35rem; }
+  .meet-tile__label { font-size: 0.75rem; left: 8px; bottom: 8px; padding: 3px 8px; }
+  .meet-stage-hint { font-size: 0.8rem; padding: 0 4px; }
+  .meet-sidebar { max-height: none; min-height: 240px; }
+  .meet-chat-log { max-height: 36vh; min-height: 120px; }
+  .meet-waiting { margin: 0 0 16px; padding: 18px 14px; }
+  .meet-waiting-list li {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .meet-waiting-actions { width: 100%; }
+  .meet-waiting-actions .btn { flex: 1; }
+  .meet-toolbar {
+    left: 8px;
+    right: 8px;
+    bottom: max(10px, env(safe-area-inset-bottom, 0px));
+    transform: none;
+    width: auto;
+    max-width: none;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: 18px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+  }
+  .meet-tool {
+    min-width: 52px;
+    min-height: var(--tap-min);
+    padding: 8px 10px;
+    flex: 0 0 auto;
+  }
+  .meet-tool__label { font-size: 0.65rem; }
+  .meet-chat-form { flex-wrap: nowrap; }
+  .meet-chat-form .form-control { min-width: 0; flex: 1; }
+  .meet-chat-form .btn { flex: 0 0 auto; }
 }
 
 @media (max-width: 480px) {
   .container { padding: 0 16px; }
   .page-body { padding-top: 100px; }
+  .bento-stats { grid-template-columns: 1fr; }
+  .hero h1, .hero-copy h1 { font-size: clamp(1.75rem, 8vw, 2.2rem); }
+  .btn { width: 100%; }
+  .btn-sm { width: auto; }
+  .meet-header__actions .btn { width: auto; }
+  .meet-link-copy .btn { width: auto; flex-shrink: 0; }
+  .flash-container { padding-left: 12px; padding-right: 12px; }
+  .data-table th, .data-table td { padding: 10px 8px; font-size: 0.82rem; }
 }
 
 /* ── Print ────────────────────────────────────────────────── */
