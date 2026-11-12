@@ -1,35 +1,12 @@
 # =============================================================================
-# Clario – AI Meeting Assistant  |  requirements.txt
+# Clario – requirements.txt  (core + ML combined for normal installs)
 # =============================================================================
 # Install:  pip install -r requirements.txt
 # Then:     python -m spacy download en_core_web_sm
+#
+# For CI / lightweight installs use requirements-core.txt only.
+# For the full pipeline add requirements-ml.txt on top.
 # =============================================================================
 
-# ── Web framework ─────────────────────────────────────────────────────────────
-Flask>=2.3.0
-Werkzeug>=2.3.0
-flask-cors
-python-dotenv
-
-# ── AI / ML core ──────────────────────────────────────────────────────────────
-openai-whisper
-textblob
-transformers>=4.30.0
-torch>=2.0.0
-torchaudio>=2.0.0
-spacy>=3.5.0
-# Run after install: python -m spacy download en_core_web_sm
-
-# ── Audio decoding (Whisper needs ffmpeg) ─────────────────────────────────────
-ffmpeg-python
-
-# ── Evaluation metrics ────────────────────────────────────────────────────────
-rouge-score
-
-# ── Visualisation ─────────────────────────────────────────────────────────────
-networkx>=3.0
-matplotlib>=3.7.0
-
-# ── Utilities ─────────────────────────────────────────────────────────────────
-numpy>=1.24.0
-tqdm
+-r requirements-core.txt
+-r requirements-ml.txt

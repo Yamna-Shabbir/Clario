@@ -1,0 +1,11 @@
+{
+  "john_budget": ["john", "budget", "cloud", "operating budget", "expenditures"],
+  "dave_database": ["dave", "database", "locking", "connection pooling", "migration"],
+  "sarah_frontend": ["sarah", "frontend", "dashboard", "pull requests", "user management"],
+  "alice_compliance": ["alice", "soc", "compliance", "security compliance", "acme"],
+  "bob_architecture": ["bob", "architectural", "diagrams", "integration", "technical review"],
+  "emma_social_media": ["emma", "social media", "promotional", "video", "announcement"],
+  "liam_influencers": ["liam", "influencer", "influencers", "preview access"],
+  "mark_billing": ["mark", "stripe", "webhooks", "tax calculation", "billing"]
+}
+

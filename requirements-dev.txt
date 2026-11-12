@@ -1,0 +1,16 @@
+# =============================================================================
+# Clario – AI Meeting Assistant  |  requirements-dev.txt
+# =============================================================================
+# Development-only dependencies (testing, coverage, evaluation metrics).
+# Install alongside the main requirements:
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+# =============================================================================
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# ── Speech recognition evaluation (Word Error Rate for Whisper benchmarking) ──
+jiwer>=3.0.0
+

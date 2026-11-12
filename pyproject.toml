@@ -1,0 +1,25 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore:.*pkg_resources is deprecated.*:DeprecationWarning",
+    "ignore:.*builtin type (SwigPyPacked|SwigPyObject|swigvarlink).*has no __module__.*:DeprecationWarning",
+    "ignore:.*urllib3.*:DeprecationWarning",
+    "ignore:.*torch.*:UserWarning",
+    "ignore:.*Glyph .* missing from font.*:UserWarning",
+]
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "*/site-packages/*",
+    "seed.py",
+    "generate_samples.py",
+    "scripts/*",
+    "tests/*",
+    ".github/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered  = false

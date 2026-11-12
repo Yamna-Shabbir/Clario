@@ -1,0 +1,23 @@
+# =============================================================================
+# Clario – requirements-ml.txt
+# =============================================================================
+# Heavy ML dependencies: Whisper, BART (transformers), and audio I/O.
+# Install on top of requirements-core.txt for full pipeline functionality.
+#
+# Install:
+#   pip install -r requirements-core.txt -r requirements-ml.txt
+# =============================================================================
+
+# ── Speech recognition ────────────────────────────────────────────────────────
+openai-whisper
+
+# ── Summarisation ─────────────────────────────────────────────────────────────
+transformers>=4.30.0
+
+# ── PyTorch (CPU build; use appropriate index-url for GPU) ────────────────────
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# ── Audio decoding (Whisper needs ffmpeg-python for some formats) ─────────────
+ffmpeg-python
+

@@ -17,6 +17,7 @@ Public API
 """
 
 import os
+import threading
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -30,6 +31,7 @@ import pathlib
 
 # ── Lazy model cache ───────────────────────────────────────────────────────────
 _whisper_model    = None
+_whisper_lock     = threading.Lock()
 _summariser       = None
 _nlp              = None
 
@@ -37,8 +39,10 @@ _nlp              = None
 def _get_whisper():
     global _whisper_model
     if _whisper_model is None:
-        from services.transcription import load_whisper
-        _whisper_model = load_whisper(WHISPER_MODEL)
+        with _whisper_lock:
+            if _whisper_model is None:
+                from services.transcription import load_whisper
+                _whisper_model = load_whisper(WHISPER_MODEL)
     return _whisper_model
 
 
@@ -100,8 +104,18 @@ def run_clario_pipeline(
         try:
             transcript = transcribe_audio(audio_path, model=_get_whisper())
         except Exception as exc:
-            print(f"️  Whisper failed: {exc}. Falling back to text_input.")
-            transcript = text_input or ""
+            if text_input and text_input.strip():
+                # Text was also supplied — use it and warn
+                print(f"⚠️  Whisper failed: {exc}. Using supplied text_input instead.")
+                transcript = text_input
+            else:
+                # No fallback text — surface the error so the route can tell the user
+                print(f"❌ Whisper failed and no text_input fallback: {exc}")
+                raise RuntimeError(
+                    f"Audio transcription failed: {exc}\n"
+                    "Make sure FFmpeg is installed and on your PATH, or paste the "
+                    "transcript text directly."
+                ) from exc
     elif text_input:
         transcript = text_input
     else:
@@ -127,38 +141,15 @@ def run_clario_pipeline(
     # ── 3. Summarisation ───────────────────────────────────────────────────────
     print(" Summarising …")
     try:
+        from services.summarization import smart_merge
         raw_summary = summarize_text(
             transcript,
             summariser  = _get_summariser(),
             max_length  = SUMMARY_MAX_LENGTH,
             min_length  = SUMMARY_MIN_LENGTH,
+            tasks       = tasks,
         )
-        
-        # Smart Merging: Append only "missing" tasks naturally to avoid redundancy
-        summary_lower = raw_summary.lower()
-        to_add = []
-        for t in tasks:
-            d = t.get('description', '')
-            if not d: continue
-            
-            # If person is already mentioned, we assume BART covered their main task
-            p = t.get('assigned_to', 'unknown').lower()
-            if p != 'unknown' and p != '' and p in summary_lower:
-                continue
-            
-            # If specific unique words are already there, skip
-            if d.lower() in summary_lower:
-                continue
-                
-            to_add.append(d)
-            
-        if to_add:
-            combined = raw_summary.strip()
-            if not combined.endswith('.'): combined += "."
-            summary = combined + " Furthermore, " + " ".join(to_add)
-        else:
-            summary = raw_summary
-            
+        summary = smart_merge(raw_summary, tasks)
     except Exception as exc:
         print(f"️  Summarisation failed: {exc}")
         summary = transcript[:500]          # graceful degradation

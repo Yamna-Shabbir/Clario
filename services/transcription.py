@@ -3,12 +3,55 @@ services/transcription.py
 --------------------------
 Whisper-based audio-to-text transcription service.
 Extracted from Clario Project notebook (cells 105, 107, 113-114).
+
+FFmpeg note
+-----------
+Whisper requires FFmpeg to decode MP3/M4A/etc.  On systems where FFmpeg is not
+on the system PATH (common on Windows), we fall back to the binary bundled with
+``imageio-ffmpeg``.  The helper ``_ensure_ffmpeg_on_path()`` is called once at
+module import time, so it is transparent to all callers.
 """
 
 import os
+import sys
 
 # Module-level model cache (loaded once per process)
 _whisper_model = None
+
+
+def _ensure_ffmpeg_on_path() -> None:
+    """
+    Make sure an ffmpeg executable is reachable on PATH.
+
+    Strategy (in order):
+    1. If 'ffmpeg' is already on PATH, do nothing.
+    2. Try the binary bundled with imageio-ffmpeg (already installed as a
+       transitive dep).  Prepend its containing directory to PATH.
+    3. If neither is available, log a warning — Whisper will raise a
+       descriptive error at transcription time.
+    """
+    import shutil
+
+    if shutil.which("ffmpeg"):
+        return  # already available
+
+    try:
+        import imageio_ffmpeg  # type: ignore
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        ffmpeg_dir = os.path.dirname(ffmpeg_exe)
+        os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+        print(f"[transcription] FFmpeg resolved via imageio-ffmpeg: {ffmpeg_exe}")
+    except Exception as exc:
+        print(
+            f"[transcription] WARNING: FFmpeg not found on PATH and imageio-ffmpeg "
+            f"fallback failed ({exc}).  Audio transcription will likely fail.\n"
+            "  Fix: install FFmpeg (https://ffmpeg.org/download.html) and add it to PATH.",
+            file=sys.stderr,
+        )
+
+
+# Run once at import time so every call to transcribe_audio benefits.
+_ensure_ffmpeg_on_path()
 
 
 def load_whisper(model_size: str = "base"):

@@ -22,15 +22,29 @@ from config import DB_PATH
 
 # ── Connection ─────────────────────────────────────────────────────────────────
 
+class ClosingConnection(sqlite3.Connection):
+    """
+    sqlite3.Connection subclass that automatically closes the connection
+    when exiting a `with` context manager block (in addition to the default
+    commit/rollback behavior).
+    """
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+
 def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
     """
     Return a configured SQLite connection with:
       - Row factory so results are dict-like
       - Foreign-key enforcement
       - WAL journal mode for concurrent reads
+      - Auto-closing upon context-manager exit
     """
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, factory=ClosingConnection)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")

@@ -1,23 +1,59 @@
-# Environments
+# .gitignore — Clario AI Meeting Assistant
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
 .env
-.venv
-env/
+# Keep the example template
+!.env.example
+
+# ── Python virtual environments ───────────────────────────────────────────────
 venv/
+.venv/
+env/
 ENV/
 env.bak/
 venv.bak/
 
-# Byte-compiled / optimized / DLL files
+# ── Compiled Python ───────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
 
-# Data & Uploads
-data/database/*.db
+# ── Uploaded audio files ──────────────────────────────────────────────────────
 uploads/
-static/graphs/
 
-# VSCode / IDE
+# ── SQLite databases ──────────────────────────────────────────────────────────
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+data/database/
+
+# ── Generated graph / chart PNGs ─────────────────────────────────────────────
+static/graphs/
+data/graphs/
+
+# ── Other runtime data directories ───────────────────────────────────────────
+data/transcripts/
+data/summaries/
+data/evaluation/
+# Keep the .gitkeep placeholder files so the directories exist after a fresh clone
+!data/**/.gitkeep
+
+# ── ML model weights (large binary files) ────────────────────────────────────
+*.pt
+*.bin
+*.safetensors
+
+# ── IDE / editor ─────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Pytest / coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/

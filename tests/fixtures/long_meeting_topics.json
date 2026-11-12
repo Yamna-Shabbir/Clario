@@ -1,0 +1,119 @@
+{
+  "sam_financial_runway": [
+    "sam",
+    "financial",
+    "runway",
+    "model",
+    "capital allocation",
+    "burn rate"
+  ],
+  "rachel_workspace_onboarding": [
+    "rachel",
+    "prd",
+    "onboarding",
+    "workspace",
+    "self-serve",
+    "invite"
+  ],
+  "kevin_mobile_figma": [
+    "kevin",
+    "mobile",
+    "navigation",
+    "figma",
+    "prototypes",
+    "mockups"
+  ],
+  "kevin_wcag_accessibility": [
+    "kevin",
+    "wcag",
+    "accessibility",
+    "audit",
+    "section 508",
+    "vpat"
+  ],
+  "david_database_pooling": [
+    "david",
+    "database",
+    "connection",
+    "pooling",
+    "pgbouncer",
+    "bottlenecks"
+  ],
+  "priya_redis_migration": [
+    "priya",
+    "redis",
+    "migrate",
+    "migration",
+    "cluster",
+    "cache"
+  ],
+  "elena_security_questionnaire": [
+    "elena",
+    "security",
+    "questionnaire",
+    "orion",
+    "vendor",
+    "assessment"
+  ],
+  "priya_credential_rotation": [
+    "priya",
+    "rotate",
+    "credentials",
+    "api keys",
+    "staging",
+    "soc 2"
+  ],
+  "david_apex_postmortem": [
+    "david",
+    "apex",
+    "post-mortem",
+    "webhook",
+    "timeout",
+    "incident"
+  ],
+  "chloe_interactive_demo": [
+    "chloe",
+    "demo",
+    "interactive",
+    "product release",
+    "launch"
+  ],
+  "chloe_google_ads_pixel": [
+    "chloe",
+    "google ads",
+    "conversion",
+    "pixel",
+    "discrepancies",
+    "tracking"
+  ],
+  "sam_stripe_billing_webhooks": [
+    "sam",
+    "stripe",
+    "webhook",
+    "failed payment",
+    "retry",
+    "dunning"
+  ],
+  "david_github_ci_caching": [
+    "david",
+    "github actions",
+    "ci",
+    "build caching",
+    "test suite",
+    "run times"
+  ],
+  "rachel_frontend_interviews": [
+    "rachel",
+    "interview",
+    "senior frontend",
+    "candidates",
+    "engineering"
+  ],
+  "marcus_board_briefing": [
+    "marcus",
+    "briefing",
+    "deck",
+    "board meeting",
+    "executive"
+  ]
+}

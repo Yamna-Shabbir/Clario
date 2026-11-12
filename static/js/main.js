@@ -1,6 +1,50 @@
 /* static/css/style.css is the primary stylesheet.
    This file holds minor JS-driven interactions. */
 
+// ── Global CSRF Header for Fetch & XHR ──────────────────────────────────────────
+(function setupCSRF() {
+  const getCsrfToken = () => document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+  // Intercept window.fetch
+  if (window.fetch) {
+    const originalFetch = window.fetch;
+    window.fetch = function(url, options = {}) {
+      const token = getCsrfToken();
+      if (token) {
+        options.headers = options.headers || {};
+        if (options.headers instanceof Headers) {
+          if (!options.headers.has('X-CSRFToken')) {
+            options.headers.set('X-CSRFToken', token);
+          }
+        } else if (Array.isArray(options.headers)) {
+          if (!options.headers.some(([k]) => k.toLowerCase() === 'x-csrftoken')) {
+            options.headers.push(['X-CSRFToken', token]);
+          }
+        } else {
+          if (!options.headers['X-CSRFToken'] && !options.headers['x-csrftoken']) {
+            options.headers['X-CSRFToken'] = token;
+          }
+        }
+      }
+      return originalFetch.call(this, url, options);
+    };
+  }
+
+  // Intercept XMLHttpRequest
+  if (window.XMLHttpRequest) {
+    const originalSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function() {
+      const token = getCsrfToken();
+      if (token) {
+        try {
+          this.setRequestHeader('X-CSRFToken', token);
+        } catch (_) {}
+      }
+      return originalSend.apply(this, arguments);
+    };
+  }
+})();
+
 // ── Upload drag-and-drop ───────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   const zone = document.querySelector('.upload-zone');

@@ -132,18 +132,13 @@
 
   <!-- ── Interactive Attendee Script ────────────────────────────── -->
   <script>
-    const tasksData = [
-      {% for t in all_tasks %}
-      {
-        id: "{{ t.id }}",
-        description: {{ t.description|tojson }},
-        assigned_to: "{{ t.assigned_to }}",
-        due_date: "{{ t.due_date }}",
-        priority: "{{ t.priority }}",
-        status: "{{ t.status }}"
-      }{% if not loop.last %},{% endif %}
-      {% endfor %}
-    ];
+    const tasksData = {{ all_tasks|tojson }};
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str || '';
+      return div.innerHTML;
+    }
 
     document.addEventListener("DOMContentLoaded", () => {
       const modal = document.getElementById("attendee-modal");
@@ -157,7 +152,7 @@
           const person = tag.getAttribute("data-name");
           const personTasks = tasksData.filter(t => t.assigned_to === person);
           
-          modalTitle.innerHTML = `👤 Overall tasks for <span class="text-purple">${person}</span>`;
+          modalTitle.innerHTML = `👤 Overall tasks for <span class="text-purple">${escapeHtml(person)}</span>`;
           modalBody.innerHTML = "";
           
           if (personTasks.length === 0) {
@@ -169,10 +164,10 @@
                const statusIcon = pt.status === 'completed' ? '✅' : '🔄';
                listHtml += `
                  <li style="padding:18px; border:1px solid var(--border); margin-bottom:12px; background:rgba(255,255,255,0.02); border-radius:12px; transition:all 0.2s ease;">
-                   <div style="font-weight:600; margin-bottom:10px; font-size:1.05rem; line-height:1.5;">${pt.description}</div>
+                   <div style="font-weight:600; margin-bottom:10px; font-size:1.05rem; line-height:1.5;">${escapeHtml(pt.description)}</div>
                    <div style="font-size:0.85rem; color:var(--muted); display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-                     <span style="display:flex; align-items:center; gap:6px;"><span style="color:#D9B384">📅</span> ${pt.due_date}</span>
-                     <span style="display:flex; align-items:center; gap:6px; color:${priorityColor};">● ${pt.priority} Priority</span>
+                     <span style="display:flex; align-items:center; gap:6px;"><span style="color:#D9B384">📅</span> ${escapeHtml(pt.due_date)}</span>
+                     <span style="display:flex; align-items:center; gap:6px; color:${priorityColor};">● ${escapeHtml(pt.priority)} Priority</span>
                      <span style="display:flex; align-items:center; gap:6px;">${statusIcon} ${pt.status === 'completed' ? 'Done' : 'Pending'}</span>
                    </div>
                  </li>

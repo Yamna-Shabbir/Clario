@@ -137,7 +137,7 @@ def generate_assignee_bar_chart(
         by_person[person] = by_person.get(person, 0) + 1
 
     if not by_person:
-        return ""
+        by_person["No tasks"] = 0
 
     names = list(by_person.keys())
     counts = list(by_person.values())
@@ -214,8 +214,9 @@ def generate_priority_donut_chart(
     # Filter out zero counts
     filtered_priority = {k: v for k, v in by_priority.items() if v > 0}
 
+    color_map = {"High": "#A64444", "Medium": "#C48B47", "Low": "#4A7C59", "No tasks": "#7A7A85"}
     if not filtered_priority:
-        return ""
+        filtered_priority = {"No tasks": 1}
 
     labels = list(filtered_priority.keys())
     sizes = list(filtered_priority.values())
@@ -223,8 +224,7 @@ def generate_priority_donut_chart(
     fig, ax = plt.subplots(figsize=(7, 5))
     
     # Priority semantic colors
-    color_map = {"High": "#A64444", "Medium": "#C48B47", "Low": "#4A7C59"}
-    pie_colors = [color_map[l] for l in labels]
+    pie_colors = [color_map.get(l, "#7A7A85") for l in labels]
     
     wedges, texts, autotexts = ax.pie(
         sizes, labels=labels, autopct='%1.1f%%',
@@ -280,16 +280,17 @@ def generate_status_pie_chart(
 
     filtered_status = {k: v for k, v in by_status.items() if v > 0}
     if not filtered_status:
-        return ""
-
-    labels = ["Completed" if k == "completed" else "Pending" for k in filtered_status.keys()]
-    sizes = list(filtered_status.values())
+        labels = ["No tasks"]
+        sizes = [1]
+        pie_colors = ["#7A7A85"]
+    else:
+        labels = ["Completed" if k == "completed" else "Pending" for k in filtered_status.keys()]
+        sizes = list(filtered_status.values())
+        # Semantic colors for status
+        color_map = {"Completed": "#4A7C59", "Pending": "#C48B47"}
+        pie_colors = [color_map.get(l, "#7A7A85") for l in labels]
 
     fig, ax = plt.subplots(figsize=(7, 5))
-    
-    # Semantic colors for status
-    color_map = {"Completed": "#4A7C59", "Pending": "#C48B47"}
-    pie_colors = [color_map.get(l, "#7A7A85") for l in labels]
     
     wedges, texts, autotexts = ax.pie(
         sizes, labels=labels, autopct='%1.1f%%',

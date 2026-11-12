@@ -1,0 +1,1 @@
+Good morning team. Let's do a quick standup. Sarah, please review the pull requests for the frontend dashboard today. John will deploy the new database schema by tomorrow afternoon. We also have a minor bug in the login flow. Dave needs to check the authentication logs when he has some free time. That's all for today.

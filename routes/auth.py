@@ -105,8 +105,15 @@ def login():
         session["email"]    = user["email"]
 
         flash(f"Welcome back, {user['username']}! 👋", "success")
-        next_url = request.args.get("next")
-        return redirect(next_url or url_for("dashboard.index"))
+        from urllib.parse import urlparse
+        raw_next = request.args.get("next", "").strip()
+        target_url = None
+        if raw_next and raw_next.startswith("/") and not raw_next.startswith("//"):
+            parsed = urlparse(raw_next)
+            if not parsed.scheme and not parsed.netloc:
+                target_url = raw_next
+
+        return redirect(target_url or url_for("dashboard.index"))
 
     return render_template("auth/login.html")
 

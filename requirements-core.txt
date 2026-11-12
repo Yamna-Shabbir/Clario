@@ -1,0 +1,42 @@
+# =============================================================================
+# Clario – requirements-core.txt
+# =============================================================================
+# Fast-to-install dependencies: web framework, NLP (spaCy), visualisation,
+# evaluation, and test tooling.  Used by CI and local dev without heavy ML.
+#
+# Install:
+#   pip install -r requirements-core.txt
+#   python -m spacy download en_core_web_sm
+# =============================================================================
+
+# ── Web framework ─────────────────────────────────────────────────────────────
+Flask>=2.3.0
+Werkzeug>=2.3.0
+Flask-WTF>=1.2.0
+flask-cors
+python-dotenv
+
+# ── NLP (lightweight) ─────────────────────────────────────────────────────────
+spacy>=3.5.0
+# Run after install: python -m spacy download en_core_web_sm
+textblob
+
+# ── Visualisation ─────────────────────────────────────────────────────────────
+networkx>=3.0
+matplotlib>=3.7.0
+
+# ── Evaluation metrics ────────────────────────────────────────────────────────
+rouge-score
+
+# ── Sample audio generation (generate_samples.py) ────────────────────────────
+gTTS
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+numpy>=1.24.0
+tqdm
+
+# ── Dev / test ────────────────────────────────────────────────────────────────
+pytest>=7.4.0
+pytest-cov>=4.1.0
+jiwer>=3.0.0
+

@@ -17,8 +17,10 @@ GET /result/<meeting_id>
 """
 
 import os
+from uuid import uuid4
+from werkzeug.utils import secure_filename
 from flask import (
-    Blueprint, flash, redirect, render_template,
+    Blueprint, abort, flash, redirect, render_template,
     request, session, url_for,
 )
 
@@ -56,8 +58,10 @@ def upload():
 
         # ── Save audio file ────────────────────────────────────────────────────
         if audio_file and audio_file.filename:
-            ext = os.path.splitext(audio_file.filename)[1].lower()
-            if ext not in ALLOWED_AUDIO:
+            raw_filename = audio_file.filename
+            safe_name = secure_filename(raw_filename)
+            ext = os.path.splitext(safe_name)[1].lower()
+            if not ext or ext not in ALLOWED_AUDIO:
                 flash(
                     f"Unsupported format '{ext}'. "
                     f"Allowed: {', '.join(sorted(ALLOWED_AUDIO))}",
@@ -66,10 +70,12 @@ def upload():
                 return render_template("meeting/upload.html", user=current_user())
 
             os.makedirs(UPLOAD_DIR, exist_ok=True)
-            # Prefix with user_id to avoid collisions
-            audio_name = f"u{user_id}_{audio_file.filename}"
-            audio_path = os.path.join(UPLOAD_DIR, audio_name)
+            # Save as u{user_id}_{uuid4().hex}{ext} so uploads never overwrite each other
+            disk_filename = f"u{user_id}_{uuid4().hex}{ext}"
+            audio_path = os.path.join(UPLOAD_DIR, disk_filename)
             audio_file.save(audio_path)
+            # Keep original filename in meetings.audio_filename for display
+            audio_name = raw_filename
 
         if not audio_path and not text_input:
             flash(
@@ -119,11 +125,10 @@ def result(meeting_id: int):
 
     init_db(DB_PATH)
 
-    # Ownership-enforced fetch
+    # Ownership-enforced fetch: abort(404) prevents meeting ID enumeration
     meeting = get_meeting_detail(meeting_id, user_id, DB_PATH)
     if not meeting:
-        flash("Meeting not found or access denied.", "error")
-        return redirect(url_for("dashboard.index"))
+        abort(404)
 
     tasks = get_tasks_by_meeting(meeting_id, DB_PATH)
 

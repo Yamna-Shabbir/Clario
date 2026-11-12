@@ -1,3 +1,13 @@
+"""
+scripts/check_routes.py
+-----------------------
+Manual HTTP smoke-tester for Clario routes.
+Requires a live server running on port 5000: python app.py
+
+Run from the project root:
+    python scripts/check_routes.py
+"""
+
 import urllib.request
 import urllib.error
 
