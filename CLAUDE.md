@@ -141,7 +141,8 @@ Clario/
 │   ├── test_integrations_foundations.py # Fernet crypto & OAuth/participants migration tests
 │   ├── test_integrations_google_oauth.py # Google OAuth connect/disconnect flow tests (all HTTP mocked)
 │   ├── test_integrations_meet_api.py # Google Meet conference records and participants API tests (all HTTP mocked)
-│   └── test_integrations_import_matching.py # Participant matching & Google Meet import tests (all HTTP mocked)
+│   ├── test_integrations_import_matching.py # Participant matching & Google Meet import tests (all HTTP mocked)
+│   └── test_integrations_calendar.py # Google Calendar attendee email enrichment tests (all HTTP mocked)
 │
 ├── .github/
 │   └── workflows/ci.yml    # GitHub Actions: Python 3.10, core deps, pytest
@@ -180,7 +181,7 @@ Clario/
 │       ├── base.py             # Exception classes (IntegrationError, NotConnected,
 │       │                       #   TokenRevoked, RateLimited, ApiError)
 │       ├── crypto.py           # Fernet token encryption/decryption at rest
-│       └── google_meet.py      # Google OAuth 2.0 flow, token refresh/revoke, list_recent_meetings, get_participants
+│       └── google_meet.py      # Google OAuth 2.0 flow, token refresh/revoke, list_recent_meetings, get_participants, find_calendar_attendees
 │
 ├── utils/
 │   ├── __init__.py         # Re-exports helpers + visualization functions

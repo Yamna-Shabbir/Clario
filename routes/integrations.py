@@ -36,14 +36,17 @@ from routes.utils import current_user, login_required
 from services.integrations.base import ApiError, NotConnected, RateLimited, TokenRevoked
 from services.integrations.crypto import decrypt_token, encrypt_token
 from services.integrations.google_meet import (
+    MEET_API_BASE,
     PROVIDER_SLUG,
+    _make_authed_get,
     exchange_code_for_tokens,
+    find_calendar_attendees,
     get_authorization_url,
     get_participants,
     list_recent_meetings,
     revoke_token,
 )
-from services.participant_matching import rematch_meeting_tasks
+from services.participant_matching import match, rematch_meeting_tasks
 
 integrations_bp = Blueprint("integrations", __name__, url_prefix="/integrations")
 
@@ -334,6 +337,49 @@ def google_import():
     except ApiError as exc:
         flash(f"Could not retrieve participants: {str(exc)}", "error")
         return redirect(url_for("integrations.google_meetings"))
+
+    # Part E: Attempt to enrich participant emails via Google Calendar event attendees
+    meeting_code = request.form.get("meeting_code", "").strip()
+    start_time = request.form.get("start_time", "").strip()
+    try:
+        if not meeting_code:
+            try:
+                rec = _make_authed_get(f"{MEET_API_BASE}/{external_meeting_id}", {}, user_id, db_path=DB_PATH)
+                start_time = start_time or rec.get("startTime", "")
+                space_name = rec.get("space", "")
+                if space_name:
+                    space_data = _make_authed_get(f"{MEET_API_BASE}/{space_name}", {}, user_id, db_path=DB_PATH)
+                    meeting_code = space_data.get("meetingCode", "")
+            except Exception:
+                pass
+
+        cal_attendees = find_calendar_attendees(
+            user_id,
+            meeting_code=meeting_code,
+            start_time=start_time,
+            db_path=DB_PATH,
+        )
+        if cal_attendees:
+            for p in participants:
+                if not p.get("email") and p.get("name"):
+                    matched_cal = match(p["name"], cal_attendees)
+                    if not matched_cal:
+                        # Fallback: check exact email username or full email address
+                        p_norm = p["name"].strip().lower()
+                        email_matches = [
+                            ca for ca in cal_attendees
+                            if ca.get("email") and (
+                                p_norm == ca["email"].strip().lower()
+                                or p_norm == ca["email"].strip().lower().split("@")[0]
+                            )
+                        ]
+                        if len(email_matches) == 1:
+                            matched_cal = email_matches[0]
+                    if matched_cal and matched_cal.get("email"):
+                        p["email"] = matched_cal["email"]
+    except Exception:
+        # Graceful degradation: never fail the import if calendar lookup fails
+        pass
 
     # Case 1: Import into existing Clario meeting
     if raw_meeting_id and str(raw_meeting_id).strip():

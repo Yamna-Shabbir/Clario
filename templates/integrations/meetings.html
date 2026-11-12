@@ -122,6 +122,8 @@
                 <form method="POST" action="{{ url_for('integrations.google_import') }}" style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                   <input type="hidden" name="external_meeting_id" value="{{ m.external_id }}"/>
+                  <input type="hidden" name="meeting_code" value="{{ m.meeting_code or '' }}"/>
+                  <input type="hidden" name="start_time" value="{{ m.start_time or '' }}"/>
                   {% if user_meetings %}
                     <select name="meeting_id" class="input" style="padding:4px 8px; font-size:0.75rem; border-radius:6px; max-width:180px; height:auto; background:rgba(255,255,255,0.05); color:var(--text); border:1px solid var(--border);" title="Select existing meeting or choose New">
                       <option value="">-- New meeting --</option>

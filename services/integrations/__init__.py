@@ -19,6 +19,7 @@ from services.integrations.google_meet import (
     DEFAULT_SCOPES,
     PROVIDER_SLUG,
     exchange_code_for_tokens,
+    find_calendar_attendees,
     get_authorization_url,
     get_participants,
     get_valid_access_token,
@@ -47,4 +48,5 @@ __all__ = [
     "get_valid_access_token",
     "list_recent_meetings",
     "get_participants",
+    "find_calendar_attendees",
 ]

@@ -53,13 +53,17 @@ TOKEN_URI = "https://oauth2.googleapis.com/token"
 REVOKE_URI = "https://oauth2.googleapis.com/revoke"
 
 # Scopes authorized on the user's consent screen
+CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+
 DEFAULT_SCOPES: List[str] = [
     "https://www.googleapis.com/auth/meetings.space.readonly",
+    CALENDAR_READONLY_SCOPE,
 ]
 
 REQUEST_TIMEOUT_SECONDS = 15
 
 MEET_API_BASE = "https://meet.googleapis.com/v2"
+CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
 
 
 def _get_client_id() -> str:
@@ -707,4 +711,217 @@ def get_participants(
     # Sort by joined_at ascending (None last)
     deduped.sort(key=lambda p: (p["joined_at"] is None, p["joined_at"] or ""))
     return deduped
+
+
+def find_calendar_attendees(
+    user_id: int,
+    meeting_code_or_start_time_window: Any = None,
+    *,
+    meeting_code: Optional[str] = None,
+    start_time: Optional[str] = None,
+    time_window_minutes: int = 60,
+    db_path: str = DB_PATH,
+) -> List[Dict[str, Optional[str]]]:
+    """
+    Find Google Calendar attendees for an imported Google Meet meeting.
+
+    Queries the Google Calendar API v3 events.list endpoint using the authorized
+    'https://www.googleapis.com/auth/calendar.readonly' scope, matches the calendar
+    event corresponding to the Meet conference (by meeting code or start time window),
+    and returns normalized attendee records.
+
+    Official Google Calendar API Documentation:
+    - Events list: https://developers.google.com/calendar/api/v3/reference/events/list
+    - Events resource: https://developers.google.com/calendar/api/v3/reference/events#resource
+
+    Parameters
+    ----------
+    user_id : int
+        Authenticated user ID.
+    meeting_code_or_start_time_window : Any
+        Flexible parameter accepting a meeting code string (e.g. 'abc-mnop-xyz'),
+        an ISO start time string, a datetime object, or a dict with meeting metadata.
+    meeting_code : Optional[str]
+        Explicit Google Meet code (e.g. 'abc-mnop-xyz').
+    start_time : Optional[str]
+        Explicit start time (ISO 8601 string or datetime).
+    time_window_minutes : int
+        Search tolerance window around the meeting start time (default 60 min).
+    db_path : str
+        SQLite database path.
+
+    Returns
+    -------
+    List[Dict[str, Optional[str]]]
+        List of dicts: {'display_name': str or None, 'email': str, 'name': str}.
+        Returns empty list if no matching event is found, or on any API/permission error.
+    """
+    import re
+
+    target_code = meeting_code
+    target_start = start_time
+
+    if meeting_code_or_start_time_window is not None:
+        if isinstance(meeting_code_or_start_time_window, dict):
+            target_code = (
+                target_code
+                or meeting_code_or_start_time_window.get("meeting_code")
+                or meeting_code_or_start_time_window.get("code")
+            )
+            target_start = (
+                target_start
+                or meeting_code_or_start_time_window.get("start_time")
+                or meeting_code_or_start_time_window.get("start")
+            )
+        elif isinstance(meeting_code_or_start_time_window, datetime):
+            if not target_start:
+                target_start = meeting_code_or_start_time_window.isoformat()
+        elif isinstance(meeting_code_or_start_time_window, str):
+            val = meeting_code_or_start_time_window.strip()
+            if "T" in val or (":" in val and "-" in val and len(val) >= 16):
+                if not target_start:
+                    target_start = val
+            else:
+                if not target_code:
+                    target_code = val
+
+    norm_code = ""
+    if target_code:
+        clean_code = str(target_code).split("/")[-1].split("?")[0]
+        norm_code = re.sub(r"[^a-zA-Z0-9]", "", clean_code).lower()
+
+    ref_dt = None
+    if target_start:
+        if isinstance(target_start, datetime):
+            ref_dt = target_start
+        elif isinstance(target_start, str):
+            try:
+                clean_ts = target_start.replace("Z", "+00:00")
+                ref_dt = datetime.fromisoformat(clean_ts)
+            except Exception:
+                ref_dt = None
+
+    if ref_dt:
+        if ref_dt.tzinfo is None:
+            ref_dt = ref_dt.replace(tzinfo=timezone.utc)
+        # Search +/- 7 days around the meeting
+        t_min = (ref_dt - timedelta(days=7)).isoformat().replace("+00:00", "Z")
+        t_max = (ref_dt + timedelta(days=7)).isoformat().replace("+00:00", "Z")
+    else:
+        # Default: last 30 days to 2 days ahead
+        now = datetime.now(timezone.utc)
+        t_min = (now - timedelta(days=30)).isoformat().replace("+00:00", "Z")
+        t_max = (now + timedelta(days=2)).isoformat().replace("+00:00", "Z")
+
+    params = {
+        "singleEvents": "true",
+        "orderBy": "startTime",
+        "timeMin": t_min,
+        "timeMax": t_max,
+        "maxResults": "50",
+    }
+
+    try:
+        data = _make_authed_get(
+            f"{CALENDAR_API_BASE}/calendars/primary/events",
+            params=params,
+            user_id=user_id,
+            db_path=db_path,
+        )
+    except (NotConnected, TokenRevoked, RateLimited, ApiError, Exception):
+        return []
+
+    items = data.get("items", []) if isinstance(data, dict) else []
+    if not items:
+        return []
+
+    matched_event = None
+
+    # 1. Match by Meet conference code
+    if norm_code:
+        for event in items:
+            hangout = event.get("hangoutLink") or ""
+            if norm_code in re.sub(r"[^a-zA-Z0-9]", "", hangout).lower():
+                matched_event = event
+                break
+            conf_data = event.get("conferenceData") or {}
+            conf_id = conf_data.get("conferenceId") or ""
+            if norm_code in re.sub(r"[^a-zA-Z0-9]", "", conf_id).lower():
+                matched_event = event
+                break
+            for ep in conf_data.get("entryPoints", []):
+                ep_uri = ep.get("uri") or ""
+                if norm_code in re.sub(r"[^a-zA-Z0-9]", "", ep_uri).lower():
+                    matched_event = event
+                    break
+            if matched_event:
+                break
+            loc = event.get("location") or ""
+            if norm_code in re.sub(r"[^a-zA-Z0-9]", "", loc).lower():
+                matched_event = event
+                break
+
+    # 2. Fallback: match by start time proximity if not matched by code
+    if not matched_event and ref_dt:
+        best_diff = None
+        best_event = None
+        tolerance_seconds = max(time_window_minutes * 60, 900)  # at least 15 min
+
+        for event in items:
+            evt_start = event.get("start", {})
+            dt_str = evt_start.get("dateTime") or evt_start.get("date")
+            if not dt_str:
+                continue
+            try:
+                evt_dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                if evt_dt.tzinfo is None:
+                    evt_dt = evt_dt.replace(tzinfo=timezone.utc)
+                diff = abs((evt_dt - ref_dt).total_seconds())
+                if diff <= tolerance_seconds:
+                    if best_diff is None or diff < best_diff:
+                        best_diff = diff
+                        best_event = event
+            except Exception:
+                continue
+        matched_event = best_event
+
+    if not matched_event:
+        return []
+
+    # Extract attendees & organizer
+    attendees_out: List[Dict[str, Optional[str]]] = []
+    seen_emails = set()
+
+    for att in matched_event.get("attendees", []):
+        email = att.get("email")
+        if not email or not email.strip():
+            continue
+        email_clean = email.strip()
+        email_key = email_clean.lower()
+        if email_key in seen_emails:
+            continue
+        seen_emails.add(email_key)
+
+        disp = (att.get("displayName") or "").strip() or None
+        attendees_out.append({
+            "display_name": disp,
+            "email": email_clean,
+            "name": disp or email_clean.split("@")[0].replace(".", " ").title(),
+        })
+
+    organizer = matched_event.get("organizer", {})
+    org_email = organizer.get("email")
+    if org_email and org_email.strip():
+        org_email_clean = org_email.strip()
+        org_key = org_email_clean.lower()
+        if org_key not in seen_emails:
+            seen_emails.add(org_key)
+            org_disp = (organizer.get("displayName") or "").strip() or None
+            attendees_out.append({
+                "display_name": org_disp,
+                "email": org_email_clean,
+                "name": org_disp or org_email_clean.split("@")[0].replace(".", " ").title(),
+            })
+
+    return attendees_out
 

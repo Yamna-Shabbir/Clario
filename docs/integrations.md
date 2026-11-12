@@ -223,5 +223,30 @@ When action items are detected (`services/task_detection.py` and `services/parti
 3. **Fuzzy Sequence Match**: Compares names using `difflib.SequenceMatcher`. Accepts candidates with similarity ratio >= 0.8 only when there is a unique best candidate.
 4. **Ignored Non-Person Tokens**: Pronouns ("he", "she", "they", "we", etc.) and generic groups ("Team", "All", "Unknown") are never matched to participants.
 
+---
+
+## 13. Google Calendar Attendee Email Enrichment (Part E)
+
+### Rationale & Architecture
+The Google Meet REST API (`conferenceRecords.participants`) does not return attendee email addresses by design. However, Google Calendar events contain the full guest list with email addresses (`event.attendees[].email` and `event.organizer.email`).
+
+Clario bridges this gap by cross-referencing imported Meet meetings with Google Calendar:
+1. **Calendar Lookup** (`services.integrations.google_meet.find_calendar_attendees`):
+   - Authorized Scope: `https://www.googleapis.com/auth/calendar.readonly` (configured on OAuth consent screen).
+   - Endpoint: `GET https://www.googleapis.com/calendar/v3/calendars/primary/events`
+   - Event Matching: Queries primary calendar events within a window around the meeting date. Matches the conference by normalized Meet code (`abc-mnop-xyz`) in `hangoutLink`, `conferenceData.conferenceId`, `conferenceData.entryPoints[].uri`, or `location`. Falls back to start time proximity ($\pm 15$ min) if meeting code is not present.
+2. **Attendee Email Resolution**:
+   - During import (`POST /integrations/google/import`), each Meet participant without an email is matched against the Calendar attendee list using the Part D matcher (`services.participant_matching.match`).
+   - If a unique, high-confidence match is found, `meeting_participants.email` is populated with the attendee's email address.
+   - If ambiguous or no match is found, email remains `NULL`.
+   - When `rematch_meeting_tasks` runs, `tasks.assigned_email` is automatically populated and displayed next to assignees in `result.html`.
+3. **Graceful Degradation**:
+   - If the user has not granted calendar permissions, or if the Calendar API returns 403/404, or if no matching calendar event exists, `find_calendar_attendees` safely returns `[]`.
+   - The import completes normally with `email=None`.
+
+### Official Google Calendar API Documentation
+- Events: list: https://developers.google.com/calendar/api/v3/reference/events/list
+- Events resource: https://developers.google.com/calendar/api/v3/reference/events#resource
+
 
 
