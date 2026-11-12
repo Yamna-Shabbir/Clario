@@ -15,7 +15,7 @@ transcripts) into structured intelligence:
 |---|---|
 | Audio → text | OpenAI Whisper (`tiny.en`) |
 | Text → summary | HuggingFace DistilBART (`sshleifer/distilbart-cnn-12-6`) |
-| Task / action-item extraction | spaCy NER + regex keyword matching |
+| Task / action-item extraction | spaCy NER + regex keyword matching + dependency parse + dateparser |
 | Sentiment analysis | TextBlob polarity score |
 | Knowledge graph | NetworkX + Matplotlib (directed graph PNG) |
 | Charts | Matplotlib (bar, donut, pie, bubble) |
@@ -173,7 +173,7 @@ Clario/
 │   ├── pipeline.py         # run_clario_pipeline() — orchestrates all steps
 │   ├── transcription.py    # Whisper load/transcribe
 │   ├── summarization.py    # BART load/summarize
-│   ├── task_detection.py   # spaCy + regex task extractor
+│   ├── task_detection.py   # spaCy NER + regex + dep-parse + dateparser task extractor
 │   ├── participant_matching.py # Attendee matching hierarchy & task rematching
 │   ├── evaluation.py       # ROUGE + F1 offline evaluation utilities
 │   └── integrations/           # Platform integrations (Google Meet OAuth & REST API)
@@ -484,6 +484,38 @@ meeting_participants                  (many-to-1 with meetings)
       enforces ownership (`m.user_id = ?`, returns 404 if unowned), is idempotent
       (`replace_meeting_participants`), and updates `meetings.platform` and
       `meetings.external_meeting_id`.
+
+16. **Task detection algorithm (`services/task_detection.py`).**
+    The detector runs five stages on each sentence in order:
+    1. **Negation guard** — skip sentences containing `will not / won't / nobody /
+       no one / doesn't / didn't / never / cannot`.
+    2. **Hypothetical guard** — skip sentences starting with `if / whether` or
+       containing `would / could / might / may` without an obligation cue.
+       Exception: polite-indirect requests (`"It would be great if [Name] could…"`)
+       are explicitly exempted by `_POLITE_REQUEST_RE`.
+    3. **Question guard** — skip bare questions (ends `?` or auxiliary-led) unless
+       a strong obligation cue (`can you`, `make sure`, etc.) is also present.
+    4. **Keyword matching** — `STRONG_CUES` (will, needs to, must, has to, please,
+       deadline, responsible for, can you, let's, make sure, follow up, ensure…)
+       or `STRONG_ACTION_VERBS` (submit, fix, deliver, deploy, etc.). Weak verbs
+       (review, check, discuss) only count when a strong cue is also present.
+    5. **Dep-parse fallback** — uses `token.dep_` to detect imperatives (ROOT VERB
+       with no subject and not past tense) or future/modal patterns (ROOT VERB +
+       modal aux `will/must/shall` + named nsubj). Past-tense ROOT verbs (tag
+       `VBD/VBN`) are excluded.
+
+    Relative date phrases (`tomorrow`, `next Friday`, day names) are resolved to
+    ISO `YYYY-MM-DD` via `dateparser` when a `meeting_date` is passed. The original
+    phrase is kept in `due_date`; the ISO form goes into `due_date_iso`.
+
+    **Public signatures are locked** — `detect_tasks(text, nlp=None, nlp_model=None,
+    *, participants=None, meeting_date=None)` and `get_task_summary(tasks)`. Add
+    new behaviour only via keyword-only parameters with defaults. Never copy fixture
+    sentences into rules; tune only on the dev split of `tests/fixtures/task_labels.json`.
+
+    **Eval script:** `python scripts/eval_tasks.py` prints precision/recall/F1 on
+    dev (20) and held-out (10) splits and appends a dated section to
+    `docs/task-detection-eval.md`. Always record baseline before changing the detector.
 
 ---
 

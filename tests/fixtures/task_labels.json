@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "description": "30 labelled sentences for task-detection evaluation.",
+    "label_1": "task",
+    "label_0": "non-task",
+    "splits": {"dev": 20, "held_out": 10}
+  },
+  "dev": [
+    {"id": 1,  "text": "John will complete the API documentation by Friday.", "label": 1, "note": "explicit future obligation"},
+    {"id": 2,  "text": "Sara needs to review the design mockups before the demo.", "label": 1, "note": "needs to + action verb"},
+    {"id": 3,  "text": "Please send the meeting notes to everyone.", "label": 1, "note": "please imperative"},
+    {"id": 4,  "text": "Mike has to present the Q3 results next Monday.", "label": 1, "note": "has to + deadline"},
+    {"id": 5,  "text": "The team must submit the report by end of day.", "label": 1, "note": "must + deadline"},
+    {"id": 6,  "text": "It would be great if Sara could handle the slides.", "label": 1, "note": "indirect/polite request"},
+    {"id": 7,  "text": "Can you schedule a call with the client tomorrow?", "label": 1, "note": "can you request + relative date"},
+    {"id": 8,  "text": "Let's fix the login bug before the release.", "label": 1, "note": "let's directive"},
+    {"id": 9,  "text": "I'll prepare the budget spreadsheet tonight.", "label": 1, "note": "first-person future commitment"},
+    {"id": 10, "text": "Ahmed is responsible for the backend deployment this week.", "label": 1, "note": "responsible for + deadline"},
+    {"id": 11, "text": "We discussed the marketing strategy at length.", "label": 0, "note": "past discussion, no action"},
+    {"id": 12, "text": "Did anyone check the error logs?", "label": 0, "note": "plain question, not an assignment"},
+    {"id": 13, "text": "We might consider revising the roadmap if things change.", "label": 0, "note": "hypothetical/conditional"},
+    {"id": 14, "text": "Nobody should have to stay late because of this.", "label": 0, "note": "negation with should"},
+    {"id": 15, "text": "The meeting covered topics like budget and hiring.", "label": 0, "note": "summary sentence, no task"},
+    {"id": 16, "text": "Should we review the policy again?", "label": 0, "note": "question form of should, not assignment"},
+    {"id": 17, "text": "Everyone reviewed the slides during the session.", "label": 0, "note": "past tense review, done already"},
+    {"id": 18, "text": "Lisa will not be attending the next sprint review.", "label": 0, "note": "negation with will"},
+    {"id": 19, "text": "Zara should deliver the prototype to QA by next Thursday.", "label": 1, "note": "should + deliver + deadline"},
+    {"id": 20, "text": "If we had more time, we could finish the testing.", "label": 0, "note": "hypothetical past conditional"}
+  ],
+  "held_out": [
+    {"id": 21, "text": "Carlos must coordinate with the design team by Wednesday.", "label": 1, "note": "must + coordinate + deadline"},
+    {"id": 22, "text": "Please ensure the servers are backed up before midnight.", "label": 1, "note": "please + ensure imperative"},
+    {"id": 23, "text": "We talked about improving documentation last quarter.", "label": 0, "note": "past discussion"},
+    {"id": 24, "text": "Is there anything we should check before going live?", "label": 0, "note": "question, no specific assignee or action"},
+    {"id": 25, "text": "Nadia will update the changelog and tag the release.", "label": 1, "note": "explicit future, two actions"},
+    {"id": 26, "text": "We should probably think about hiring another developer.", "label": 0, "note": "vague deliberation, no assignment"},
+    {"id": 27, "text": "Tom needs to follow up with the vendor about the invoice.", "label": 1, "note": "needs to + follow up"},
+    {"id": 28, "text": "The deadline for the proposal is next Friday.", "label": 1, "note": "deadline mentioned with relative date"},
+    {"id": 29, "text": "It was mentioned that the tests might fail occasionally.", "label": 0, "note": "observation, no task"},
+    {"id": 30, "text": "Can you make sure the CI pipeline passes before merging?", "label": 1, "note": "can you + ensure + action"}
+  ]
+}
+

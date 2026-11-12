@@ -31,6 +31,9 @@ rouge-score
 # ── Sample audio generation (generate_samples.py) ────────────────────────────
 gTTS
 
+# ── Date parsing ─────────────────────────────────────────────────────────────
+dateparser>=1.1.0          # relative date resolution in task_detection.py
+
 # ── Utilities ─────────────────────────────────────────────────────────────────
 numpy>=1.24.0
 tqdm
