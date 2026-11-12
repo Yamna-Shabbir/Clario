@@ -17,6 +17,7 @@ Security & Privacy:
 """
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -57,6 +58,8 @@ DEFAULT_SCOPES: List[str] = [
 ]
 
 REQUEST_TIMEOUT_SECONDS = 15
+
+MEET_API_BASE = "https://meet.googleapis.com/v2"
 
 
 def _get_client_id() -> str:
@@ -361,4 +364,347 @@ def get_valid_access_token(
     )
 
     return new_access_token
+
+
+# ---------------------------------------------------------------------------
+# Meet API helpers
+# ---------------------------------------------------------------------------
+
+def _make_authed_get(
+    url: str,
+    params: Dict,
+    user_id: int,
+    db_path: str,
+    *,
+    _retry: bool = True,
+) -> Dict:
+    """
+    Make an authenticated GET request to the Google Meet API.
+
+    Handles 401 (auto-refresh once), 403, 404, 429 (bounded backoff),
+    and other non-200 responses. Never logs tokens.
+
+    Parameters
+    ----------
+    url      : Full URL to request.
+    params   : Query parameters dict.
+    user_id  : Authenticated user id.
+    db_path  : SQLite database path.
+    _retry   : Internal flag; set False to disable the 401-refresh retry.
+
+    Returns
+    -------
+    dict : Parsed JSON response body.
+
+    Raises
+    ------
+    NotConnected : No OAuth connection found.
+    TokenRevoked : Google rejected the refresh token.
+    RateLimited  : HTTP 429 after bounded backoff.
+    ApiError     : Any other non-200 response.
+    """
+    token = get_valid_access_token(user_id, db_path)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    except requests.RequestException:
+        raise ApiError("Failed to reach Google Meet API.") from None
+
+    # --- 401: try to refresh and retry once ---
+    if response.status_code == 401 and _retry:
+        conn = get_oauth_connection(user_id, PROVIDER_SLUG, db_path=db_path)
+        if not conn or not conn.get("refresh_token_enc"):
+            raise NotConnected("No refresh token available.")
+        plain_refresh = decrypt_token(conn["refresh_token_enc"])
+        new_data = refresh_access_token(plain_refresh)
+        new_at = new_data["access_token"]
+        new_at_enc = encrypt_token(new_at)
+        expires_in = int(new_data.get("expires_in", 3600))
+        new_expires = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+        upsert_oauth_connection(
+            user_id=user_id,
+            provider=PROVIDER_SLUG,
+            access_token_enc=new_at_enc,
+            refresh_token_enc=conn.get("refresh_token_enc"),
+            expires_at=new_expires,
+            scope=conn.get("scope"),
+            db_path=db_path,
+        )
+        # Retry with the new token directly (don't go through get_valid_access_token)
+        retry_headers = {
+            "Authorization": f"Bearer {new_at}",
+            "Accept": "application/json",
+        }
+        try:
+            response = requests.get(url, params=params, headers=retry_headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        except requests.RequestException:
+            raise ApiError("Failed to reach Google Meet API on retry.") from None
+        if response.status_code == 401:
+            raise ApiError("Authentication failed after token refresh. Please reconnect your Google account.")
+
+    # --- 403 ---
+    if response.status_code == 403:
+        raise ApiError("Access forbidden: check Google Meet API is enabled and scopes are correct.")
+
+    # --- 404 ---
+    if response.status_code == 404:
+        raise ApiError("Resource not found.")
+
+    # --- 429: bounded exponential backoff (max 2 retries) ---
+    if response.status_code == 429:
+        for sleep_secs in (1, 2):
+            time.sleep(sleep_secs)
+            try:
+                response = requests.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+            except requests.RequestException:
+                raise ApiError("Failed to reach Google Meet API.") from None
+            if response.status_code != 429:
+                break
+        else:
+            raise RateLimited("Google Meet API rate limit exceeded. Please try again later.")
+        if response.status_code == 429:
+            raise RateLimited("Google Meet API rate limit exceeded. Please try again later.")
+
+    # --- Other non-200 ---
+    if response.status_code != 200:
+        try:
+            err_body = response.json()
+            err_msg = (
+                err_body.get("error", {}).get("message", "")
+                or err_body.get("message", "")
+                or response.reason
+                or "Unknown error"
+            )
+        except Exception:
+            err_msg = response.reason or "Unknown error"
+        raise ApiError(f"Meet API error {response.status_code}: {err_msg}")
+
+    try:
+        return response.json()
+    except Exception:
+        raise ApiError(f"Invalid JSON response from Google Meet API (HTTP {response.status_code}).") from None
+
+
+def list_recent_meetings(
+    user_id: int,
+    days: int = 30,
+    db_path: str = DB_PATH,
+) -> List[Dict]:
+    """
+    List recent Google Meet conference records where the user is the organizer.
+
+    Parameters
+    ----------
+    user_id : Authenticated user id.
+    days    : Number of days back to query (default 30).
+    db_path : SQLite database path.
+
+    Returns
+    -------
+    List of meeting dicts sorted by start_time descending:
+        external_id, start_time, end_time, meeting_code, space_name, participant_count
+
+    Raises
+    ------
+    NotConnected : User has no Google OAuth connection.
+    TokenRevoked : Google rejected the refresh token.
+    RateLimited  : Google API rate limit hit.
+    ApiError     : Unexpected API error.
+    """
+    since_dt = datetime.now(timezone.utc) - timedelta(days=days)
+    # RFC3339 format with Z suffix
+    since_str = since_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    filter_str = f'start_time>="{since_str}"'
+
+    meetings: List[Dict] = []
+    page_token: Optional[str] = None
+    max_pages = 10
+    page_count = 0
+
+    while page_count < max_pages:
+        params: Dict[str, Any] = {"filter": filter_str, "pageSize": 100}
+        if page_token:
+            params["pageToken"] = page_token
+
+        data = _make_authed_get(
+            f"{MEET_API_BASE}/conferenceRecords",
+            params,
+            user_id,
+            db_path,
+        )
+
+        records = data.get("conferenceRecords", [])
+        for record in records:
+            # Fetch space details for meetingCode
+            space_name = record.get("space", "")
+            meeting_code = None
+            if space_name:
+                try:
+                    space_data = _make_authed_get(
+                        f"{MEET_API_BASE}/{space_name}",
+                        {},
+                        user_id,
+                        db_path,
+                    )
+                    meeting_code = space_data.get("meetingCode")
+                except ApiError:
+                    meeting_code = None
+
+            meetings.append({
+                "external_id": record["name"],
+                "start_time": record["startTime"],
+                "end_time": record.get("endTime"),
+                "meeting_code": meeting_code,
+                "space_name": space_name,
+                "participant_count": None,
+            })
+
+        page_token = data.get("nextPageToken")
+        page_count += 1
+        if not page_token:
+            break
+
+    # Sort newest first by start_time
+    meetings.sort(key=lambda m: m["start_time"], reverse=True)
+    return meetings
+
+
+def get_participants(
+    user_id: int,
+    external_id: str,
+    db_path: str = DB_PATH,
+) -> List[Dict]:
+    """
+    Fetch participants for a Google Meet conference record.
+
+    Parameters
+    ----------
+    user_id     : Authenticated user id.
+    external_id : Conference record name (e.g. "conferenceRecords/abc123").
+    db_path     : SQLite database path.
+
+    Returns
+    -------
+    List of participant dicts sorted by joined_at ascending:
+        name, email, external_user_id, is_anonymous, joined_at, left_at, participant_type
+
+    Raises
+    ------
+    NotConnected : User has no Google OAuth connection.
+    TokenRevoked : Google rejected the refresh token.
+    RateLimited  : Google API rate limit hit.
+    ApiError     : Unexpected API error.
+    """
+    all_participants: List[Dict] = []
+    page_token: Optional[str] = None
+    max_pages = 10
+    page_count = 0
+
+    while page_count < max_pages:
+        params: Dict[str, Any] = {"pageSize": 250}
+        if page_token:
+            params["pageToken"] = page_token
+
+        data = _make_authed_get(
+            f"{MEET_API_BASE}/{external_id}/participants",
+            params,
+            user_id,
+            db_path,
+        )
+
+        for p in data.get("participants", []):
+            if "signedinUser" in p:
+                su = p["signedinUser"]
+                normalized = {
+                    "name": su.get("displayName", ""),
+                    "email": None,
+                    "external_user_id": su.get("user"),
+                    "is_anonymous": False,
+                    "joined_at": p.get("earliestStartTime"),
+                    "left_at": p.get("latestEndTime"),
+                    "participant_type": "signed_in",
+                }
+            elif "anonymousUser" in p:
+                au = p["anonymousUser"]
+                normalized = {
+                    "name": au.get("displayName", ""),
+                    "email": None,
+                    "external_user_id": None,
+                    "is_anonymous": True,
+                    "joined_at": p.get("earliestStartTime"),
+                    "left_at": p.get("latestEndTime"),
+                    "participant_type": "anonymous",
+                }
+            elif "phoneUser" in p:
+                pu = p["phoneUser"]
+                normalized = {
+                    "name": pu.get("displayName", ""),
+                    "email": None,
+                    "external_user_id": None,
+                    "is_anonymous": True,
+                    "joined_at": p.get("earliestStartTime"),
+                    "left_at": p.get("latestEndTime"),
+                    "participant_type": "phone",
+                }
+            else:
+                # Unknown participant type; skip
+                continue
+
+            # Merge nested participantSessions if present
+            sessions = p.get("participantSessions") or p.get("sessions") or []
+            if sessions:
+                s_starts = [s.get("startTime") for s in sessions if s.get("startTime")]
+                s_ends = [s.get("endTime") for s in sessions if s.get("endTime")]
+                has_active = any(s.get("endTime") is None for s in sessions)
+                if s_starts:
+                    earliest_s = min(s_starts)
+                    if not normalized["joined_at"] or earliest_s < normalized["joined_at"]:
+                        normalized["joined_at"] = earliest_s
+                if has_active:
+                    normalized["left_at"] = None
+                elif s_ends:
+                    latest_e = max(s_ends)
+                    if not normalized["left_at"] or latest_e > normalized["left_at"]:
+                        normalized["left_at"] = latest_e
+
+            all_participants.append(normalized)
+
+        page_token = data.get("nextPageToken")
+        page_count += 1
+        if not page_token:
+            break
+
+    # De-duplicate signed-in users by external_user_id
+    # Keep earliest joined_at and latest left_at
+    deduped: List[Dict] = []
+    seen_signed_in: Dict[str, Dict] = {}
+
+    for p in all_participants:
+        if p["participant_type"] == "signed_in" and p["external_user_id"]:
+            uid = p["external_user_id"]
+            if uid in seen_signed_in:
+                existing = seen_signed_in[uid]
+                # Keep earliest joined_at
+                if p["joined_at"] and (not existing["joined_at"] or p["joined_at"] < existing["joined_at"]):
+                    existing["joined_at"] = p["joined_at"]
+                # Keep latest left_at; if any session is active (None), overall left_at is None (active)
+                if existing["left_at"] is None or p["left_at"] is None:
+                    existing["left_at"] = None
+                elif p["left_at"] > existing["left_at"]:
+                    existing["left_at"] = p["left_at"]
+            else:
+                seen_signed_in[uid] = dict(p)
+        else:
+            # Anonymous / phone users cannot be de-duped
+            deduped.append(p)
+
+    deduped.extend(seen_signed_in.values())
+
+    # Sort by joined_at ascending (None last)
+    deduped.sort(key=lambda p: (p["joined_at"] is None, p["joined_at"] or ""))
+    return deduped
 

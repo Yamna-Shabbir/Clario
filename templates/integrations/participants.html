@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}Google Meet — Participants{% endblock %}
+
+{% block content %}
+<div class="page-body">
+  <div class="container" style="max-width:960px;">
+
+    <!-- ── Header ────────────────────────────────────────────── -->
+    <div style="margin-bottom:32px;">
+      <a href="{{ url_for('integrations.google_meetings') }}" class="text-muted" style="font-size:0.9rem;">
+        ← Back to Meetings
+      </a>
+      <h1 style="font-size:2.2rem; font-weight:800; margin-top:12px; margin-bottom:6px;">
+        👥 Meeting Participants
+      </h1>
+      <p class="text-muted">
+        Conference Record: <code style="color:var(--muted);">{{ record }}</code>
+      </p>
+    </div>
+
+    <!-- ── Flash messages ───────────────────────────────────── -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}" style="margin-bottom:16px; padding:12px 16px; border-radius:8px;
+            background:{% if category == 'error' %}rgba(239,68,68,0.12){% elif category == 'warning' %}rgba(234,179,8,0.12){% else %}rgba(34,197,94,0.12){% endif %};
+            border:1px solid {% if category == 'error' %}rgba(239,68,68,0.3){% elif category == 'warning' %}rgba(234,179,8,0.3){% else %}rgba(34,197,94,0.3){% endif %};
+            color:{% if category == 'error' %}#f87171{% elif category == 'warning' %}#facc15{% else %}#86efac{% endif %};">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- ── Empty state ───────────────────────────────────────── -->
+    {% if not participants %}
+      <div class="card" style="padding:48px; text-align:center;">
+        <div style="font-size:3rem; margin-bottom:16px;">👤</div>
+        <h2 style="font-size:1.3rem; font-weight:600; margin-bottom:8px;">No participants found</h2>
+        <p class="text-muted" style="max-width:480px; margin:0 auto;">
+          No participant records were returned for this meeting instance.
+        </p>
+      </div>
+
+    {% else %}
+      <!-- ── Participants Table ─────────────────────────────── -->
+      <div class="card" style="padding:0; overflow:hidden;">
+        <div style="padding:16px 20px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-weight:600; font-size:1.05rem;">
+            Total Attendees: {{ participants | length }}
+          </span>
+          <button class="btn btn-sm" disabled title="Coming in Part D" style="opacity:0.4; cursor:not-allowed;">
+            📥 Import to Meeting
+          </button>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table class="table" style="width:100%; margin:0; border-collapse:collapse;">
+            <thead>
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.08); text-align:left; font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
+                <th style="padding:14px 20px;">Name</th>
+                <th style="padding:14px 20px;">Type</th>
+                <th style="padding:14px 20px;">Joined</th>
+                <th style="padding:14px 20px;">Left</th>
+                <th style="padding:14px 20px;">External ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in participants %}
+                <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                  <td style="padding:14px 20px; font-weight:600;">
+                    {{ p.name or 'Unknown Participant' }}
+                  </td>
+                  <td style="padding:14px 20px;">
+                    {% if p.is_anonymous %}
+                      <span class="badge" style="background:rgba(234,179,8,0.15); color:#facc15; font-size:0.75rem; padding:3px 8px; border-radius:9999px;">
+                        {% if p.participant_type == 'phone' %}📞 Phone{% else %}👤 Anonymous{% endif %}
+                      </span>
+                    {% else %}
+                      <span class="badge" style="background:rgba(34,197,94,0.15); color:#86efac; font-size:0.75rem; padding:3px 8px; border-radius:9999px;">
+                        ✅ Signed In
+                      </span>
+                    {% endif %}
+                  </td>
+                  <td style="padding:14px 20px; font-size:0.88rem; color:var(--muted);">
+                    {% if p.joined_at %}
+                      {{ p.joined_at[:19] | replace("T", " ") }} UTC
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td style="padding:14px 20px; font-size:0.88rem; color:var(--muted);">
+                    {% if p.left_at %}
+                      {{ p.left_at[:19] | replace("T", " ") }} UTC
+                    {% else %}
+                      <span style="color:#86efac;">Active</span>
+                    {% endif %}
+                  </td>
+                  <td style="padding:14px 20px; font-size:0.85rem;">
+                    {% if p.external_user_id %}
+                      <code style="background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:#A5B4FC;">{{ p.external_user_id }}</code>
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

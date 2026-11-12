@@ -47,8 +47,11 @@
           </div>
 
           <!-- Action Button -->
-          <div>
+          <div style="display:flex; gap:10px; align-items:center;">
             {% if google_conn %}
+              <a href="{{ url_for('integrations.google_meetings') }}" class="btn btn-primary btn-sm" style="display:inline-flex; align-items:center; gap:6px;">
+                View Recent Meetings →
+              </a>
               <form method="POST" action="{{ url_for('integrations.google_disconnect') }}" style="display:inline;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <button type="submit" class="btn btn-outline btn-sm"

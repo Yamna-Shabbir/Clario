@@ -158,3 +158,47 @@ Located in `services/integrations/google_meet.py`. Used by any code that needs t
 > [!NOTE]
 > Refresh tokens expire after ~7 days in Testing publishing status. If `get_valid_access_token` raises `TokenRevoked`, the user will need to reconnect.
 
+---
+
+## 10. Google Meet Conference Records & Participants API
+
+### Meeting Read Visibility & Limitations
+According to the official [Google Meet REST API v2 documentation](https://developers.google.com/meet/api/reference/rest/v2/conferenceRecords/list):
+- **Organizer Restriction**: The `conferenceRecords.list` endpoint returns **only meetings where the authenticated user is the meeting organizer**. Meetings that the user attended as a guest or participant (but did not organize) will not appear in the conference records list.
+- **Scope**: Under `https://www.googleapis.com/auth/meetings.space.readonly`, the user can view all conference records across meeting spaces where they are the organizer.
+- **Retention / Expiration**: Google automatically purges conference record resources approximately **30 days** after the meeting ends (reflected in the `expireTime` field).
+- **Meeting Code Resolution**: The meeting code (e.g., `abc-mnop-xyz`) is stored on the parent `Space` resource (`spaces/{space}`), requiring a secondary `spaces.get` lookup for each conference record.
+
+### Participant Information & Email Limitations
+- **No Email Addresses**: The Google Meet `conferenceRecords.participants` resource **does NOT provide attendee email addresses** (the `email` field is always `None`).
+- **Participant Types**:
+  - `signedinUser`: Authenticated Google Workspace / Google Account user. Contains `user` (unique user identifier formatted as `users/{user_id}`) and `displayName`.
+  - `anonymousUser`: Unauthenticated user joining via web link. Contains only `displayName` (as entered in the meeting lobby).
+  - `phoneUser`: Dial-in participant. Contains `displayName` (partially redacted phone number).
+- **Session Merging**: Participants who leave and rejoin or join from multiple devices are de-duplicated by `external_user_id` for signed-in attendees, preserving the earliest join timestamp and latest departure timestamp.
+
+---
+
+## 11. Manual Testing with a Second Google Account
+
+To test conference and participant synchronization with real Google accounts:
+
+1. **Host a Meeting with the Connected Account**:
+   - Log into Google Meet with the Google account connected in Clario (`Account A`).
+   - Start an instant meeting or schedule one at [meet.google.com](https://meet.google.com).
+   - Copy the meeting link / code.
+2. **Join with a Second Account (`Account B`)**:
+   - Open an incognito/private browser window or a different browser.
+   - Join the meeting using your second Google account (or enter as a guest with a custom name).
+   - Stay in the meeting for at least 1–2 minutes, then leave.
+3. **End the Meeting as Host (`Account A`)**:
+   - In `Account A`, click "End call for everyone" so the conference record is finalized.
+   - *(Note: Google Meet REST API takes 1–5 minutes after a conference ends to generate and publish the `conferenceRecords` resource).*
+4. **View Conferences in Clario**:
+   - Open Clario, navigate to **Integrations** → click **View Recent Meetings →** (or go to `http://127.0.0.1:5000/integrations/google/meetings`).
+   - Verify your meeting appears with start time, duration, and meeting code.
+5. **Inspect Participants**:
+   - Click **👥 View Participants** next to the meeting record.
+   - Verify `Account A` and `Account B` are listed with their respective display names, join/leave times, and types.
+
+

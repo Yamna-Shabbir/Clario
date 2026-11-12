@@ -20,7 +20,9 @@ from services.integrations.google_meet import (
     PROVIDER_SLUG,
     exchange_code_for_tokens,
     get_authorization_url,
+    get_participants,
     get_valid_access_token,
+    list_recent_meetings,
     refresh_access_token,
     revoke_token,
 )
@@ -35,7 +37,7 @@ __all__ = [
     # Crypto
     "encrypt_token",
     "decrypt_token",
-    # Google Meet OAuth
+    # Google Meet OAuth & API
     "PROVIDER_SLUG",
     "DEFAULT_SCOPES",
     "get_authorization_url",
@@ -43,4 +45,6 @@ __all__ = [
     "refresh_access_token",
     "revoke_token",
     "get_valid_access_token",
+    "list_recent_meetings",
+    "get_participants",
 ]

@@ -28,12 +28,14 @@ from models.database import (
     upsert_oauth_connection,
 )
 from routes.utils import current_user, login_required
-from services.integrations.base import ApiError, RateLimited
+from services.integrations.base import ApiError, NotConnected, RateLimited, TokenRevoked
 from services.integrations.crypto import decrypt_token, encrypt_token
 from services.integrations.google_meet import (
     PROVIDER_SLUG,
     exchange_code_for_tokens,
     get_authorization_url,
+    get_participants,
+    list_recent_meetings,
     revoke_token,
 )
 
@@ -186,4 +188,99 @@ def google_disconnect():
     delete_oauth_connection(user_id, PROVIDER_SLUG, db_path=DB_PATH)
     flash("Google Meet disconnected successfully.", "info")
     return redirect(url_for("integrations.index"))
+
+
+@integrations_bp.route("/google/meetings", methods=["GET"])
+@login_required
+def google_meetings():
+    """List recent Google Meet conference records for the logged-in user."""
+    user_id = session["user_id"]
+
+    try:
+        meetings = list_recent_meetings(user_id, days=30, db_path=DB_PATH)
+    except NotConnected:
+        flash("Connect your Google account first.", "warning")
+        return redirect(url_for("integrations.index"))
+    except TokenRevoked:
+        flash("Your Google token has expired. Please reconnect.", "warning")
+        return redirect(url_for("integrations.index"))
+    except RateLimited:
+        flash("Google API rate limit hit. Please try again later.", "warning")
+        return render_template(
+            "integrations/meetings.html",
+            meetings=[],
+            user=current_user(),
+        )
+    except ApiError as exc:
+        flash(str(exc), "error")
+        return render_template(
+            "integrations/meetings.html",
+            meetings=[],
+            user=current_user(),
+        )
+
+    # Compute duration_minutes for each meeting
+    meetings_list = []
+    for m in meetings:
+        entry = dict(m)
+        if m.get("start_time") and m.get("end_time"):
+            try:
+                start = datetime.fromisoformat(m["start_time"].replace("Z", "+00:00"))
+                end = datetime.fromisoformat(m["end_time"].replace("Z", "+00:00"))
+                entry["duration_minutes"] = int((end - start).total_seconds() / 60)
+            except Exception:
+                entry["duration_minutes"] = None
+        else:
+            entry["duration_minutes"] = None
+        meetings_list.append(entry)
+
+    return render_template(
+        "integrations/meetings.html",
+        meetings=meetings_list,
+        user=current_user(),
+    )
+
+
+@integrations_bp.route("/google/participants", methods=["GET"])
+@login_required
+def google_participants():
+    """Show participants for a specific Google Meet conference record."""
+    user_id = session["user_id"]
+    record = request.args.get("record", "")
+
+    if not record.startswith("conferenceRecords/"):
+        flash("Invalid meeting record identifier.", "error")
+        return redirect(url_for("integrations.google_meetings"))
+
+    try:
+        participants = get_participants(user_id, record, db_path=DB_PATH)
+    except NotConnected:
+        flash("Connect your Google account first.", "warning")
+        return redirect(url_for("integrations.index"))
+    except TokenRevoked:
+        flash("Your Google token has expired. Please reconnect.", "warning")
+        return redirect(url_for("integrations.index"))
+    except RateLimited:
+        flash("Google API rate limit hit. Please try again later.", "warning")
+        return render_template(
+            "integrations/participants.html",
+            participants=[],
+            record=record,
+            user=current_user(),
+        )
+    except ApiError as exc:
+        flash(str(exc), "error")
+        return render_template(
+            "integrations/participants.html",
+            participants=[],
+            record=record,
+            user=current_user(),
+        )
+
+    return render_template(
+        "integrations/participants.html",
+        participants=participants,
+        record=record,
+        user=current_user(),
+    )
 

@@ -138,8 +138,9 @@ Clario/
 │   ├── test_visualization.py # Unit tests for charts, knowledge graph, and concurrency
 │   ├── test_security.py    # Security tests: open redirect, 413, UUID files, CSRF, IDOR, XSS
 │   ├── test_summarization.py # Unit tests for map-reduce summarization (FakeModel/FakeTokenizer)
-│   └── test_integrations_foundations.py # Fernet crypto & OAuth/participants migration tests
-│   └── test_integrations_google_oauth.py # Google OAuth connect/disconnect flow tests (all HTTP mocked)
+│   ├── test_integrations_foundations.py # Fernet crypto & OAuth/participants migration tests
+│   ├── test_integrations_google_oauth.py # Google OAuth connect/disconnect flow tests (all HTTP mocked)
+│   └── test_integrations_meet_api.py # Google Meet conference records and participants API tests (all HTTP mocked)
 │
 ├── .github/
 │   └── workflows/ci.yml    # GitHub Actions: Python 3.10, core deps, pytest
@@ -162,8 +163,8 @@ Clario/
 │   ├── dashboard.py        # Blueprint: /dashboard, /comparison
 │   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
 │   ├── search.py           # Blueprint: /search
-│   └── utils.py            # @login_required decorator + current_user()
-│   └── integrations.py     # Blueprint: /integrations, /integrations/google/connect|callback|disconnect
+│   ├── utils.py            # @login_required decorator + current_user()
+│   └── integrations.py     # Blueprint: /integrations, /google/connect|callback|disconnect|meetings|participants
 │
 ├── services/
 │   ├── __init__.py         # Intentionally empty (no eager ML imports)
@@ -172,12 +173,12 @@ Clario/
 │   ├── summarization.py    # BART load/summarize
 │   ├── task_detection.py   # spaCy + regex task extractor
 │   ├── evaluation.py       # ROUGE + F1 offline evaluation utilities
-│   └── integrations/           # Platform integrations (Google Meet OAuth, etc.)
+│   └── integrations/           # Platform integrations (Google Meet OAuth & REST API)
 │       ├── __init__.py         # Re-exports all integration symbols
 │       ├── base.py             # Exception classes (IntegrationError, NotConnected,
 │       │                       #   TokenRevoked, RateLimited, ApiError)
 │       ├── crypto.py           # Fernet token encryption/decryption at rest
-│       └── google_meet.py      # Google OAuth 2.0 auth flow + get_valid_access_token
+│       └── google_meet.py      # Google OAuth 2.0 flow, token refresh/revoke, list_recent_meetings, get_participants
 │
 ├── utils/
 │   ├── __init__.py         # Re-exports helpers + visualization functions
@@ -205,7 +206,9 @@ Clario/
         ├── upload.html     # Upload form (audio file or pasted transcript)
         └── result.html     # Meeting detail: transcript, summary, tasks, graphs
     └── integrations/
-        └── index.html      # Integration status page (Connect/Disconnect Google Meet)
+        ├── index.html      # Integration status page (Connect/Disconnect Google Meet)
+        ├── meetings.html   # Recent Google Meet conferences list
+        └── participants.html # Meeting participants detail list
 ```
 
 ---
