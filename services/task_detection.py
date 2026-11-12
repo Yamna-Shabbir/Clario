@@ -64,6 +64,11 @@ STRONG_CUES: List[str] = [
     r"\bfollow[\s-]up\b",
     r"\btake\s+care\s+of\b",
     r"\bensure\b",
+    r"\bit\s+is\s+important\s+that\b",   # "it is important that John submits"
+    r"\bit['']?s\s+important\s+that\b",  # "it's important that"
+    r"\bit\s+would\s+be\s+(?:great|nice|helpful|good|ideal|best|wonderful|appreciated)\s+if\b",
+    r"\bi\s+was\s+hoping\s+(?:you|someone)\s+could\b",
+    r"\bwould\s+(?:you|someone)\s+(?:mind|be\s+able\s+to)\b",
 ]
 
 # Verbs that imply a concrete action even without a strong cue
@@ -90,6 +95,13 @@ STRONG_ACTION_VERBS: List[str] = [
     r"\bimplement\b",
     r"\btrack\b",
     r"\bmonitor\b",
+    r"\bfinaliz[es]\b",
+    r"\brefactor\b",
+    r"\bmigrate\b",
+    r"\bprototype\b",
+    r"\bdocument\b",
+    r"\bset\s*up\b",
+    r"\bresolve\b",
 ]
 
 # Weak verbs that only trigger a task if an obligation cue is ALSO present
@@ -109,7 +121,8 @@ TASK_KEYWORDS: List[str] = STRONG_CUES + STRONG_ACTION_VERBS
 
 PRIORITY_KEYWORDS = {
     "High":   [r"\burgent\b", r"\basap\b", r"\bimmediately\b",
-               r"\bcritical\b", r"\bmust\b", r"\bimportant\b"],
+               r"\bcritical\b", r"\bmust\b", r"\bimportant\b",
+               r"\bit\s+is\s+important\b", r"\bit['']?s\s+important\b"],
     "Medium": [r"\bsoon\b", r"\bby this week\b", r"\bshould\b",
                r"\bneeds?\s+to\b"],
 }
@@ -134,10 +147,23 @@ _HYPOTHETICAL_CUES = re.compile(
     re.IGNORECASE,
 )
 
+# WH-words that always make a sentence a question (even if it has obligation cues)
+_WH_QUESTION_RE = re.compile(
+    r"^\s*(what|who|where|when|why|how|which|whom|whose)\b",
+    re.IGNORECASE,
+)
+
 # Question: ends with '?' or starts with a WH/aux word
 _QUESTION_RE = re.compile(
     r"^\s*(is|are|was|were|do|does|did|has|have|had|will|would|should|"
     r"could|can|may|might|shall|what|who|where|when|why|how)\b",
+    re.IGNORECASE,
+)
+
+# "yesterday" or "last [day]" signals a past-tense/completed event
+_PAST_CONTEXT_RE = re.compile(
+    r"\b(yesterday|last\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month|year)|"
+    r"ago|earlier\s+today|this\s+morning\s+already)\b",
     re.IGNORECASE,
 )
 
@@ -148,7 +174,7 @@ _WEAK_SHOULD_RE = re.compile(r"^\s*\bshould\b", re.IGNORECASE)
 # Polite-indirect patterns that ARE tasks despite containing "would/could"
 # e.g. "It would be great if Sara could handle the slides"
 _POLITE_REQUEST_RE = re.compile(
-    r"\bit\s+would\s+be\s+(?:great|nice|helpful|good|ideal|best)\s+if\b"
+    r"\bit\s+would\s+be\s+(?:great|nice|helpful|good|ideal|best|wonderful|appreciated)\s+if\b"
     r"|\bi\s+was\s+hoping\s+(?:you|someone)\s+could\b"
     r"|\bwould\s+(?:you|someone)\s+(?:mind|be\s+able\s+to)\b",
     re.IGNORECASE,
@@ -206,6 +232,18 @@ def _is_question(sentence: str) -> bool:
     if _QUESTION_RE.match(sentence):
         return True
     return False
+
+
+def _is_wh_question(sentence: str) -> bool:
+    """WH-questions are ALWAYS filtered, even when they contain obligation cues."""
+    if sentence.rstrip().endswith("?") and _WH_QUESTION_RE.match(sentence):
+        return True
+    return False
+
+
+def _has_past_context(text_lower: str) -> bool:
+    """Returns True if the sentence contains temporal markers signalling a past event."""
+    return bool(_PAST_CONTEXT_RE.search(text_lower))
 
 
 def _dep_parse_is_task(sent_doc) -> bool:
@@ -368,8 +406,16 @@ def detect_tasks(
         if _is_negated(sl):
             continue
 
+        # --- Guard: past temporal context (yesterday, last week, etc.) ---
+        if _has_past_context(sl):
+            continue
+
         # --- Guard: hypothetical ---
         if _is_hypothetical(sentence, sl):
+            continue
+
+        # --- Guard: WH-questions (always filtered, even with cues) ---
+        if _is_wh_question(sentence):
             continue
 
         # --- Guard: plain question (no strong cue) ---
