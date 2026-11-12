@@ -289,10 +289,17 @@ def google_participants():
             user=current_user(),
         )
 
+    user_meetings = get_meetings_by_user(user_id, db_path=DB_PATH)
+    meeting_code = request.args.get("meeting_code", "").strip()
+    start_time = request.args.get("start_time", "").strip()
+
     return render_template(
         "integrations/participants.html",
         participants=participants,
         record=record,
+        user_meetings=user_meetings,
+        meeting_code=meeting_code,
+        start_time=start_time,
         user=current_user(),
     )
 
