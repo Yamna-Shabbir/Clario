@@ -69,6 +69,12 @@ SUMMARY_MAX_INPUT_CHARS = int(_env("CLARIO_SUMMARY_MAX_INPUT_CHARS", "1000"))
 DEBUG = _env("CLARIO_DEBUG", "False").lower() in ("1", "true", "yes")
 PORT  = int(_env("CLARIO_PORT", "5000"))
 
+# ── Google Integration / OAuth settings ───────────────────────────────────────
+GOOGLE_CLIENT_ID        = _env("CLARIO_GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET    = _env("CLARIO_GOOGLE_CLIENT_SECRET", "")
+OAUTH_REDIRECT_BASE     = _env("CLARIO_OAUTH_REDIRECT_BASE", "http://127.0.0.1:5000")
+TOKEN_ENCRYPTION_KEY    = _env("CLARIO_TOKEN_ENCRYPTION_KEY", "")
+
 # ── Secret key — must come from the environment ────────────────────────────────
 # Production (DEBUG=False): CLARIO_SECRET_KEY must be set; a RuntimeError is
 #   raised if it is missing so the app never starts with an insecure key.

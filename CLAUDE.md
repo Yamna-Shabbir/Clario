@@ -73,6 +73,10 @@ Override any default via environment variable (or `.env` file):
 | `CLARIO_SUMMARY_CHUNK_TOKENS` | `700` | Max BART tokens per map-reduce chunk |
 | `CLARIO_SUMMARY_MAX_INPUT_CHARS` | *(deprecated)* | Formerly hard-capped transcript chars; now ignored — full transcript is processed |
 | `CLARIO_MAX_UPLOAD_MB` | `200` | Maximum upload size in megabytes |
+| `CLARIO_GOOGLE_CLIENT_ID` | `""` | Google Cloud OAuth 2.0 Web Client ID for Google Meet integration |
+| `CLARIO_GOOGLE_CLIENT_SECRET` | `""` | Google Cloud OAuth 2.0 Web Client Secret |
+| `CLARIO_OAUTH_REDIRECT_BASE` | `http://127.0.0.1:5000` | Base URL for OAuth redirect callback |
+| `CLARIO_TOKEN_ENCRYPTION_KEY` | `""` | 32-byte URL-safe base64 Fernet key to encrypt OAuth tokens at rest |
 
 ### Seed demo data
 
@@ -111,6 +115,9 @@ Clario/
 ├── seed.py                 # ⚠️ Destructive demo-data seeder (guarded)
 ├── generate_samples.py     # Generates sample MP3s via gTTS
 │
+├── docs/
+│   └── integrations.md     # Google Meet / external integrations setup & OAuth guide
+│
 ├── scripts/
 │   ├── check_routes.py     # HTTP smoke-tester (needs live server)
 │   ├── fix_unicode.py      # One-shot script: strips cp1252-breaking emoji
@@ -127,9 +134,11 @@ Clario/
 │   ├── test_routes.py      # Route-level tests (public + authenticated flows)
 │   ├── test_database.py    # DB CRUD, ownership, cascade delete tests
 │   ├── test_helpers.py     # Unit tests for text, json, date, and directory utilities
+│   ├── test_meeting_deletion.py # Meeting deletion & asset cleanup unit tests
 │   ├── test_visualization.py # Unit tests for charts, knowledge graph, and concurrency
 │   ├── test_security.py    # Security tests: open redirect, 413, UUID files, CSRF, IDOR, XSS
-│   └── test_summarization.py # Unit tests for map-reduce summarization (FakeModel/FakeTokenizer)
+│   ├── test_summarization.py # Unit tests for map-reduce summarization (FakeModel/FakeTokenizer)
+│   └── test_integrations_foundations.py # Fernet crypto & OAuth/participants migration tests
 │
 ├── .github/
 │   └── workflows/ci.yml    # GitHub Actions: Python 3.10, core deps, pytest
@@ -143,13 +152,14 @@ Clario/
 │
 ├── models/
 │   ├── __init__.py         # Re-exports all DB functions
-│   └── database.py         # Full schema + all data-access functions (raw sqlite3)
+│   ├── database.py         # Full schema + all data-access functions (raw sqlite3)
+│   └── custom_summarizer/  # Dataset and preprocessing for domain-specific summarizer
 │
 ├── routes/
 │   ├── __init__.py         # Empty
 │   ├── auth.py             # Blueprint: landing, register, login, logout
 │   ├── dashboard.py        # Blueprint: /dashboard, /comparison
-│   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete
+│   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
 │   ├── search.py           # Blueprint: /search
 │   └── utils.py            # @login_required decorator + current_user()
 │
@@ -159,7 +169,10 @@ Clario/
 │   ├── transcription.py    # Whisper load/transcribe
 │   ├── summarization.py    # BART load/summarize
 │   ├── task_detection.py   # spaCy + regex task extractor
-│   └── evaluation.py       # ROUGE + F1 offline evaluation utilities
+│   ├── evaluation.py       # ROUGE + F1 offline evaluation utilities
+│   └── integrations/       # Platform integrations
+│       ├── __init__.py     # Re-exports integration crypto helpers
+│       └── crypto.py       # Fernet token encryption/decryption at rest
 │
 ├── utils/
 │   ├── __init__.py         # Re-exports helpers + visualization functions
@@ -277,17 +290,19 @@ users
   created_at    TEXT DEFAULT datetime('now')
 
 meetings
-  id               INTEGER PK AUTOINCREMENT
-  user_id          INTEGER NOT NULL → users.id ON DELETE CASCADE
-  title            TEXT DEFAULT 'Untitled Meeting'
-  sentiment        TEXT DEFAULT 'Neutral'
-  meeting_date     TEXT DEFAULT date('now')
-  audio_filename   TEXT
-  graph_path       TEXT   (relative: "graphs/graph_m{id}.png")
-  bar_chart_path   TEXT
-  donut_chart_path TEXT
-  status_chart_path TEXT
-  created_at       TEXT DEFAULT datetime('now')
+  id                  INTEGER PK AUTOINCREMENT
+  user_id             INTEGER NOT NULL → users.id ON DELETE CASCADE
+  title               TEXT DEFAULT 'Untitled Meeting'
+  sentiment           TEXT DEFAULT 'Neutral'
+  meeting_date        TEXT DEFAULT date('now')
+  audio_filename      TEXT
+  graph_path          TEXT   (relative: "graphs/graph_m{id}.png")
+  bar_chart_path      TEXT
+  donut_chart_path    TEXT
+  status_chart_path   TEXT
+  platform            TEXT   (nullable, e.g. 'google')
+  external_meeting_id TEXT   (nullable)
+  created_at          TEXT DEFAULT datetime('now')
 
 transcripts                           (1-to-1 with meetings)
   id         INTEGER PK AUTOINCREMENT
@@ -300,14 +315,37 @@ summaries                             (1-to-1 with meetings)
   content    TEXT
 
 tasks                                 (many-to-1 with meetings)
+  id             INTEGER PK AUTOINCREMENT
+  meeting_id     INTEGER NOT NULL → meetings.id ON DELETE CASCADE
+  description    TEXT
+  assigned_to    TEXT DEFAULT 'Team'
+  due_date       TEXT DEFAULT 'Not specified'
+  status         TEXT DEFAULT 'pending'
+  keyword        TEXT
+  priority       TEXT DEFAULT 'Low'
+  assigned_email TEXT (nullable)
+
+oauth_connections                     (many-to-1 with users)
+  id                INTEGER PK AUTOINCREMENT
+  user_id           INTEGER NOT NULL → users.id ON DELETE CASCADE
+  provider          TEXT NOT NULL
+  access_token_enc  TEXT NOT NULL
+  refresh_token_enc TEXT (nullable)
+  expires_at        TEXT (nullable)
+  scope             TEXT (nullable)
+  created_at        TEXT DEFAULT datetime('now')
+  updated_at        TEXT DEFAULT datetime('now')
+  UNIQUE(user_id, provider)
+
+meeting_participants                  (many-to-1 with meetings)
   id          INTEGER PK AUTOINCREMENT
   meeting_id  INTEGER NOT NULL → meetings.id ON DELETE CASCADE
-  description TEXT
-  assigned_to TEXT DEFAULT 'Team'
-  due_date    TEXT DEFAULT 'Not specified'
-  status      TEXT DEFAULT 'pending'
-  keyword     TEXT
-  priority    TEXT DEFAULT 'Low'
+  name        TEXT NOT NULL
+  email       TEXT (nullable)
+  source      TEXT DEFAULT 'manual'
+  external_id TEXT (nullable)
+  joined_at   TEXT (nullable)
+  left_at     TEXT (nullable)
 ```
 
 ---

@@ -68,17 +68,19 @@ def init_db(db_path: str = DB_PATH) -> None:
 
             -- ── Meetings ───────────────────────────────────────────────────
             CREATE TABLE IF NOT EXISTS meetings (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id          INTEGER NOT NULL,
-                title            TEXT    DEFAULT 'Untitled Meeting',
-                sentiment        TEXT    DEFAULT 'Neutral',
-                meeting_date     TEXT    DEFAULT (date('now')),
-                audio_filename   TEXT,
-                graph_path       TEXT,
-                bar_chart_path   TEXT,
-                donut_chart_path TEXT,
-                status_chart_path TEXT,
-                created_at       TEXT    DEFAULT (datetime('now')),
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id             INTEGER NOT NULL,
+                title               TEXT    DEFAULT 'Untitled Meeting',
+                sentiment           TEXT    DEFAULT 'Neutral',
+                meeting_date        TEXT    DEFAULT (date('now')),
+                audio_filename      TEXT,
+                graph_path          TEXT,
+                bar_chart_path      TEXT,
+                donut_chart_path    TEXT,
+                status_chart_path   TEXT,
+                platform            TEXT,
+                external_meeting_id TEXT,
+                created_at          TEXT    DEFAULT (datetime('now')),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
             -- ── Transcripts (1-to-1 with meetings) ────────────────────────
@@ -99,29 +101,66 @@ def init_db(db_path: str = DB_PATH) -> None:
 
             -- ── Tasks (many-to-1 with meetings) ───────────────────────────
             CREATE TABLE IF NOT EXISTS tasks (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id     INTEGER NOT NULL,
+                description    TEXT,
+                assigned_to    TEXT    DEFAULT 'Team',
+                due_date       TEXT    DEFAULT 'Not specified',
+                status         TEXT    DEFAULT 'pending',
+                keyword        TEXT,
+                priority       TEXT    DEFAULT 'Low',
+                assigned_email TEXT,
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+            );
+
+            -- ── OAuth Connections ─────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS oauth_connections (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id           INTEGER NOT NULL,
+                provider          TEXT    NOT NULL,
+                access_token_enc  TEXT    NOT NULL,
+                refresh_token_enc TEXT,
+                expires_at        TEXT,
+                scope             TEXT,
+                created_at        TEXT    DEFAULT (datetime('now')),
+                updated_at        TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(user_id, provider)
+            );
+
+            -- ── Meeting Participants ──────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS meeting_participants (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 meeting_id  INTEGER NOT NULL,
-                description TEXT,
-                assigned_to TEXT    DEFAULT 'Team',
-                due_date    TEXT    DEFAULT 'Not specified',
-                status      TEXT    DEFAULT 'pending',
-                keyword     TEXT,
-                priority    TEXT    DEFAULT 'Low',
+                name        TEXT    NOT NULL,
+                email       TEXT,
+                source      TEXT    NOT NULL DEFAULT 'manual',
+                external_id TEXT,
+                joined_at   TEXT,
+                left_at     TEXT,
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
             );
         """)
         conn.commit()
         
-        # Safe migration for existing DBs
-        try:
+        # Safe migration for existing DBs (guarded by PRAGMA table_info)
+        def _get_columns(table_name: str) -> set:
+            cur = conn.execute(f"PRAGMA table_info({table_name})")
+            return {row["name"] for row in cur.fetchall()}
+
+        meeting_cols = _get_columns("meetings")
+        if "title" not in meeting_cols:
             conn.execute("ALTER TABLE meetings ADD COLUMN title TEXT DEFAULT 'Untitled Meeting'")
-        except Exception:
-            pass
-            
-        try:
+        if "sentiment" not in meeting_cols:
             conn.execute("ALTER TABLE meetings ADD COLUMN sentiment TEXT DEFAULT 'Neutral'")
-        except Exception:
-            pass
+        if "platform" not in meeting_cols:
+            conn.execute("ALTER TABLE meetings ADD COLUMN platform TEXT")
+        if "external_meeting_id" not in meeting_cols:
+            conn.execute("ALTER TABLE meetings ADD COLUMN external_meeting_id TEXT")
+
+        task_cols = _get_columns("tasks")
+        if "assigned_email" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN assigned_email TEXT")
             
         conn.commit()
     print(f" DB ready: {db_path}")
@@ -178,14 +217,19 @@ def insert_meeting(user_id: int,
                    sentiment: str = "Neutral",
                    meeting_date: Optional[str] = None,
                    audio_filename: Optional[str] = None,
-                   db_path: str = DB_PATH) -> int:
+                   db_path: str = DB_PATH,
+                   *,
+                   platform: Optional[str] = None,
+                   external_meeting_id: Optional[str] = None) -> int:
     """Insert a meeting row and return its id."""
     if not meeting_date:
         meeting_date = datetime.now().strftime("%Y-%m-%d")
     with get_connection(db_path) as conn:
         cur = conn.execute(
-            "INSERT INTO meetings (user_id, title, sentiment, meeting_date, audio_filename) VALUES (?,?,?,?,?)",
-            (user_id, title, sentiment, meeting_date, audio_filename),
+            """INSERT INTO meetings 
+               (user_id, title, sentiment, meeting_date, audio_filename, platform, external_meeting_id) 
+               VALUES (?,?,?,?,?,?,?)""",
+            (user_id, title, sentiment, meeting_date, audio_filename, platform, external_meeting_id),
         )
         conn.commit()
         return cur.lastrowid
@@ -286,8 +330,8 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
     with get_connection(db_path) as conn:
         conn.executemany(
             """INSERT INTO tasks
-               (meeting_id, description, assigned_to, due_date, status, keyword, priority)
-               VALUES (?,?,?,?,?,?,?)""",
+               (meeting_id, description, assigned_to, due_date, status, keyword, priority, assigned_email)
+               VALUES (?,?,?,?,?,?,?,?)""",
             [
                 (
                     meeting_id,
@@ -297,6 +341,7 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
                     t.get("status",       "pending"),
                     t.get("keyword",      ""),
                     t.get("priority",     "Low"),
+                    t.get("assigned_email"),
                 )
                 for t in tasks
             ],
@@ -387,3 +432,109 @@ def mark_task_complete(task_id: int, db_path: str = DB_PATH) -> None:
             "UPDATE tasks SET status = 'completed' WHERE id = ?", (task_id,)
         )
         conn.commit()
+
+
+# ── OAuth Connections ─────────────────────────────────────────────────────────
+
+def upsert_oauth_connection(
+    user_id: int,
+    provider: str,
+    access_token_enc: str,
+    refresh_token_enc: Optional[str] = None,
+    expires_at: Optional[str] = None,
+    scope: Optional[str] = None,
+    db_path: str = DB_PATH,
+) -> int:
+    """Insert or update an OAuth connection for a user and provider."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """INSERT INTO oauth_connections
+               (user_id, provider, access_token_enc, refresh_token_enc, expires_at, scope, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id, provider) DO UPDATE SET
+                   access_token_enc = excluded.access_token_enc,
+                   refresh_token_enc = COALESCE(excluded.refresh_token_enc, oauth_connections.refresh_token_enc),
+                   expires_at = excluded.expires_at,
+                   scope = excluded.scope,
+                   updated_at = datetime('now')""",
+            (user_id, provider.strip().lower(), access_token_enc, refresh_token_enc, expires_at, scope),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT id FROM oauth_connections WHERE user_id = ? AND provider = ?",
+            (user_id, provider.strip().lower()),
+        ).fetchone()
+        return row["id"]
+
+
+def get_oauth_connection(
+    user_id: int,
+    provider: str,
+    db_path: str = DB_PATH,
+) -> Optional[Dict[str, Any]]:
+    """Return an OAuth connection for a user and provider, or None."""
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM oauth_connections WHERE user_id = ? AND provider = ?",
+            (user_id, provider.strip().lower()),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def delete_oauth_connection(
+    user_id: int,
+    provider: str,
+    db_path: str = DB_PATH,
+) -> bool:
+    """Delete an OAuth connection for a user and provider. Returns True if deleted."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            "DELETE FROM oauth_connections WHERE user_id = ? AND provider = ?",
+            (user_id, provider.strip().lower()),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+# ── Meeting Participants ───────────────────────────────────────────────────────
+
+def insert_participants(
+    meeting_id: int,
+    participants: List[Dict[str, Any]],
+    db_path: str = DB_PATH,
+) -> None:
+    """Bulk-insert participants for a meeting."""
+    if not participants:
+        return
+    with get_connection(db_path) as conn:
+        conn.executemany(
+            """INSERT INTO meeting_participants
+               (meeting_id, name, email, source, external_id, joined_at, left_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    meeting_id,
+                    p.get("name", "Unknown"),
+                    p.get("email"),
+                    p.get("source", "manual"),
+                    p.get("external_id"),
+                    p.get("joined_at"),
+                    p.get("left_at"),
+                )
+                for p in participants
+            ],
+        )
+        conn.commit()
+
+
+def get_meeting_participants(
+    meeting_id: int,
+    db_path: str = DB_PATH,
+) -> List[Dict[str, Any]]:
+    """Return all participants for a meeting ordered by id."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM meeting_participants WHERE meeting_id = ? ORDER BY id",
+            (meeting_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]

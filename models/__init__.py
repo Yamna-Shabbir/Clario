@@ -31,6 +31,15 @@ from models.database import (
     get_pending_tasks,
     get_people_stats,
     mark_task_complete,
+
+    # OAuth Connections
+    upsert_oauth_connection,
+    get_oauth_connection,
+    delete_oauth_connection,
+
+    # Participants
+    insert_participants,
+    get_meeting_participants,
 )
 
 __all__ = [
@@ -43,4 +52,6 @@ __all__ = [
     "insert_summary",
     "insert_tasks", "get_tasks_by_meeting",
     "get_pending_tasks", "get_people_stats", "mark_task_complete",
+    "upsert_oauth_connection", "get_oauth_connection", "delete_oauth_connection",
+    "insert_participants", "get_meeting_participants",
 ]
