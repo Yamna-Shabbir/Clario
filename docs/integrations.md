@@ -1,0 +1,252 @@
+# External Integrations Guide
+
+This document outlines the setup, architecture, and security configuration for integrating Clario with external meeting platforms.
+
+---
+
+## Google Meet Integration Setup
+
+Clario connects to Google Meet via Google Cloud OAuth 2.0 to import meeting spaces, metadata, and participant details.
+
+### 1. Google Cloud Project & API Enablement
+
+1. Open the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project (e.g., `Clario Meeting Assistant`) or select your existing project.
+3. Navigate to **APIs & Services > Library**.
+4. Search for and enable:
+   - **Google Meet REST API** (`meetings.googleapis.com`)
+   - *(Optional for calendar event lookups)* **Google Calendar API** (`calendar-json.googleapis.com`)
+
+### 2. Configure OAuth Consent Screen
+
+1. In Google Cloud Console, navigate to **APIs & Services > OAuth consent screen**.
+2. Select **External** user type and click **Create**.
+3. Fill in the required application branding details:
+   - **App name**: `Clario`
+   - **User support email**: Your developer email
+   - **Developer contact information**: Your developer email
+4. **Publishing Status**: Keep in **Testing** status during development.
+5. **Test Users**:
+   - Under the **Test users** tab, click **Add Users**.
+   - Add every Google account (email address) that will authorize or test Google Meet connections with Clario.
+   > ⚠️ **Important:** In **Testing** status, only explicitly added test users can authorize through the OAuth consent screen.
+6. **Scopes**:
+   - Click **Add or Remove Scopes**.
+   - Select the approved scopes:
+     - `https://www.googleapis.com/auth/meetings.space.readonly`
+     - `https://www.googleapis.com/auth/calendar.readonly` *(if calendar meeting sync is enabled)*
+   > ⚠️ **Scope Restriction:** Do not request any scopes beyond this approved list without prior consent screen updates.
+
+### 3. Create OAuth 2.0 Client Credentials
+
+1. Navigate to **APIs & Services > Credentials**.
+2. Click **Create Credentials > OAuth client ID**.
+3. Select **Web application** as the application type.
+4. Set **Name** to `Clario Web Client`.
+5. Under **Authorized redirect URIs**, add:
+   ```
+   http://127.0.0.1:5000/integrations/google/callback
+   ```
+   *(Ensure the host, port, and path match your local development environment exact URL).*
+6. Click **Create** and securely copy the generated **Client ID** and **Client Secret**.
+
+---
+
+## 4. Token Expiration Warning (Testing Status)
+
+> [!WARNING]
+> When a Google OAuth App is in **Testing** publishing status, all generated **refresh tokens expire after approximately 7 days**.
+>
+> Users will need to re-authenticate / reconnect their Google account periodically in local development. When moving to production with non-expiring refresh tokens, the OAuth consent screen must undergo Google verification or be published to **In Production** with an Internal Google Workspace organization audience.
+
+---
+
+## 5. Environment Configuration
+
+Add the following variables to your local `.env` file (see `.env.example`):
+
+```bash
+# Google OAuth 2.0 Web Client credentials
+CLARIO_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+CLARIO_GOOGLE_CLIENT_SECRET=your-client-secret
+
+# Base URL for OAuth redirect callback
+CLARIO_OAUTH_REDIRECT_BASE=http://127.0.0.1:5000
+
+# 32-byte URL-safe base64 Fernet key for encrypting OAuth tokens in SQLite
+CLARIO_TOKEN_ENCRYPTION_KEY=
+```
+
+### Generating the Token Encryption Key
+
+Generate a valid 32-byte URL-safe base64 Fernet key using Python:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Paste the resulting output string into `CLARIO_TOKEN_ENCRYPTION_KEY` in `.env`.
+
+---
+
+## 6. Security Architecture & Data Storage
+
+- **Database Persistence**:
+  - `oauth_connections`: Stores per-user OAuth tokens.
+  - `meeting_participants`: Stores meeting attendees linked to meetings.
+- **At-Rest Token Encryption**:
+  - OAuth `access_token` and `refresh_token` are symmetrically encrypted with Fernet (`AES-128-CBC` with `HMAC-SHA256`) using `services/integrations/crypto.py` before insertion into SQLite (`access_token_enc`, `refresh_token_enc`).
+  - Raw tokens, keys, and ciphertexts are never logged.
+  - If `CLARIO_TOKEN_ENCRYPTION_KEY` is missing or invalid, cryptographic operations fail safely with generic, secret-free error messages.
+
+---
+
+## 7. OAuth Flow Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `GET`  | `/integrations` | Required | Status page — shows connected/disconnected badge, scope list, Connect/Disconnect buttons |
+| `GET`  | `/integrations/google/connect` | Required | Generates a random `state` token (stored in session), redirects to Google's authorization server |
+| `GET`  | `/integrations/google/callback` | Required | Validates `state` (constant-time), handles `error=access_denied` and other Google errors, exchanges `code` for tokens, encrypts and stores them |
+| `POST` | `/integrations/google/disconnect` | Required + CSRF | Best-effort token revocation at Google, then deletes the `oauth_connections` row |
+
+### Anti-forgery State
+
+`state` is a `secrets.token_urlsafe(32)` value stored in `session["google_oauth_state"]`. The callback compares received vs. stored with `secrets.compare_digest` and rejects any mismatch or missing state to prevent CSRF in the OAuth flow.
+
+### Error handling in callback
+
+| Condition | Action |
+|-----------|--------|
+| `error=access_denied` | Flash "cancelled or denied", redirect to `/integrations` |
+| Any other `error` | Flash message includes the error code |
+| State missing/mismatch | Flash "Invalid or expired OAuth state" |
+| No `code` param | Flash "Authorization code missing" |
+| Google returns 400 on token exchange | Flash "Could not complete Google authorization" |
+| `invalid_grant` on refresh | Delete connection row, raise `TokenRevoked` |
+
+---
+
+## 8. `get_valid_access_token(user_id, db_path)` Helper
+
+Located in `services/integrations/google_meet.py`. Used by any code that needs to call a Google API on behalf of a user.
+
+- Returns a **valid, decrypted** access token (automatically refreshes if expired within 5 minutes).
+- Raises `NotConnected` if the user has no stored connection.
+- Raises `TokenRevoked` on `invalid_grant` (also deletes the stale row — user must reconnect).
+- Raises `RateLimited` or `ApiError` for HTTP 429 or other network/API failures.
+
+---
+
+## 9. Manual Test Steps (Real Google Account)
+
+1. Set in `.env`:
+   ```
+   CLARIO_GOOGLE_CLIENT_ID=<your-client-id>
+   CLARIO_GOOGLE_CLIENT_SECRET=<your-client-secret>
+   CLARIO_OAUTH_REDIRECT_BASE=http://127.0.0.1:5000
+   CLARIO_TOKEN_ENCRYPTION_KEY=<generated Fernet key>
+   ```
+2. Add your Google account email as a **Test User** in GCP console → OAuth consent screen → Test users.
+3. Run: `python app.py`
+4. Register/log in to Clario, navigate to **Integrations** (navbar).
+5. Click **Connect Google Meet →** — you are redirected to Google's consent screen.
+6. Grant permissions — you are redirected back to `/integrations` with a flash "Google Meet connected successfully! 🎉"
+7. Verify the page shows a **Connected** badge, your connection timestamp, and the granted scope list.
+8. Click **Disconnect** and confirm — flash "Google Meet disconnected successfully." and status returns to Not Connected.
+
+> [!NOTE]
+> Refresh tokens expire after ~7 days in Testing publishing status. If `get_valid_access_token` raises `TokenRevoked`, the user will need to reconnect.
+
+---
+
+## 10. Google Meet Conference Records & Participants API
+
+### Meeting Read Visibility & Limitations
+According to the official [Google Meet REST API v2 documentation](https://developers.google.com/meet/api/reference/rest/v2/conferenceRecords/list):
+- **Organizer Restriction**: The `conferenceRecords.list` endpoint returns **only meetings where the authenticated user is the meeting organizer**. Meetings that the user attended as a guest or participant (but did not organize) will not appear in the conference records list.
+- **Scope**: Under `https://www.googleapis.com/auth/meetings.space.readonly`, the user can view all conference records across meeting spaces where they are the organizer.
+- **Retention / Expiration**: Google automatically purges conference record resources approximately **30 days** after the meeting ends (reflected in the `expireTime` field).
+- **Meeting Code Resolution**: The meeting code (e.g., `abc-mnop-xyz`) is stored on the parent `Space` resource (`spaces/{space}`), requiring a secondary `spaces.get` lookup for each conference record.
+
+### Participant Information & Email Limitations
+- **No Email Addresses**: The Google Meet `conferenceRecords.participants` resource **does NOT provide attendee email addresses** (the `email` field is always `None`).
+- **Participant Types**:
+  - `signedinUser`: Authenticated Google Workspace / Google Account user. Contains `user` (unique user identifier formatted as `users/{user_id}`) and `displayName`.
+  - `anonymousUser`: Unauthenticated user joining via web link. Contains only `displayName` (as entered in the meeting lobby).
+  - `phoneUser`: Dial-in participant. Contains `displayName` (partially redacted phone number).
+- **Session Merging**: Participants who leave and rejoin or join from multiple devices are de-duplicated by `external_user_id` for signed-in attendees, preserving the earliest join timestamp and latest departure timestamp.
+
+---
+
+## 11. Manual Testing with a Second Google Account
+
+To test conference and participant synchronization with real Google accounts:
+
+1. **Host a Meeting with the Connected Account**:
+   - Log into Google Meet with the Google account connected in Clario (`Account A`).
+   - Start an instant meeting or schedule one at [meet.google.com](https://meet.google.com).
+   - Copy the meeting link / code.
+2. **Join with a Second Account (`Account B`)**:
+   - Open an incognito/private browser window or a different browser.
+   - Join the meeting using your second Google account (or enter as a guest with a custom name).
+   - Stay in the meeting for at least 1–2 minutes, then leave.
+3. **End the Meeting as Host (`Account A`)**:
+   - In `Account A`, click "End call for everyone" so the conference record is finalized.
+   - *(Note: Google Meet REST API takes 1–5 minutes after a conference ends to generate and publish the `conferenceRecords` resource).*
+4. **View Conferences in Clario**:
+   - Open Clario, navigate to **Integrations** → click **View Recent Meetings →** (or go to `http://127.0.0.1:5000/integrations/google/meetings`).
+   - Verify your meeting appears with start time, duration, and meeting code.
+5. **Inspect Participants**:
+   - Click **👥 View Participants** next to the meeting record.
+   - Verify `Account A` and `Account B` are listed with their respective display names, join/leave times, and types.
+
+---
+
+## 12. Participant Import & Task Assignee Matching
+
+### Importing Participants into a Clario Meeting
+From `/integrations/google/meetings`, clicking **📥 Import** triggers `POST /integrations/google/import`:
+1. **Into an Existing Meeting**:
+   - Selecting a meeting from the dropdown imports participants directly into that meeting's `meeting_participants` table.
+   - Sets `meetings.platform = 'google_meet'` and `meetings.external_meeting_id = 'conferenceRecords/{id}'`.
+   - Idempotent: repeated imports into the same meeting replace existing attendee rows without duplicating data.
+   - Automatically executes `rematch_meeting_tasks(meeting_id, user_id)` to update detected action items with full attendee names.
+2. **Into a New Meeting**:
+   - Selecting `-- New meeting --` stores the fetched attendee roster in the user's session (`prefill_participants`).
+   - Redirects to `/upload`. The upcoming audio upload or transcript paste inherits the participants roster and links the meeting automatically.
+
+### Attendee Matching Hierarchy
+When action items are detected (`services/task_detection.py` and `services/participant_matching.py`):
+1. **Normalised Exact Match**: Strips case, punctuation, and extraneous whitespace to compare extracted names with roster attendees.
+2. **Unique First-Name Match**: Matches single-token names (e.g., "Alice") to attendees with that unique first name (e.g., "Alice Cooper"). If multiple attendees share the first name, returns `None` to prevent misattribution.
+3. **Fuzzy Sequence Match**: Compares names using `difflib.SequenceMatcher`. Accepts candidates with similarity ratio >= 0.8 only when there is a unique best candidate.
+4. **Ignored Non-Person Tokens**: Pronouns ("he", "she", "they", "we", etc.) and generic groups ("Team", "All", "Unknown") are never matched to participants.
+
+---
+
+## 13. Google Calendar Attendee Email Enrichment (Part E)
+
+### Rationale & Architecture
+The Google Meet REST API (`conferenceRecords.participants`) does not return attendee email addresses by design. However, Google Calendar events contain the full guest list with email addresses (`event.attendees[].email` and `event.organizer.email`).
+
+Clario bridges this gap by cross-referencing imported Meet meetings with Google Calendar:
+1. **Calendar Lookup** (`services.integrations.google_meet.find_calendar_attendees`):
+   - Authorized Scope: `https://www.googleapis.com/auth/calendar.readonly` (configured on OAuth consent screen).
+   - Endpoint: `GET https://www.googleapis.com/calendar/v3/calendars/primary/events`
+   - Event Matching: Queries primary calendar events within a window around the meeting date. Matches the conference by normalized Meet code (`abc-mnop-xyz`) in `hangoutLink`, `conferenceData.conferenceId`, `conferenceData.entryPoints[].uri`, or `location`. Falls back to start time proximity ($\pm 15$ min) if meeting code is not present.
+2. **Attendee Email Resolution**:
+   - During import (`POST /integrations/google/import`), each Meet participant without an email is matched against the Calendar attendee list using the Part D matcher (`services.participant_matching.match`).
+   - If a unique, high-confidence match is found, `meeting_participants.email` is populated with the attendee's email address.
+   - If ambiguous or no match is found, email remains `NULL`.
+   - When `rematch_meeting_tasks` runs, `tasks.assigned_email` is automatically populated and displayed next to assignees in `result.html`.
+3. **Graceful Degradation**:
+   - If the user has not granted calendar permissions, or if the Calendar API returns 403/404, or if no matching calendar event exists, `find_calendar_attendees` safely returns `[]`.
+   - The import completes normally with `email=None`.
+
+### Official Google Calendar API Documentation
+- Events: list: https://developers.google.com/calendar/api/v3/reference/events/list
+- Events resource: https://developers.google.com/calendar/api/v3/reference/events#resource
+
+
+

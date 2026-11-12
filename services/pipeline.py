@@ -71,18 +71,21 @@ def run_clario_pipeline(
     user_id:    Optional[int]  = None,
     db_path:    str            = DB_PATH,
     graph_dir:  str            = GRAPH_DIR,
+    *,
+    participants: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Run the full Clario AI pipeline and persist results.
 
     Parameters
     ----------
-    audio_path  : Path to an audio file (if provided, Whisper is used).
-    text_input  : Raw transcript text (used if no audio_path or as fallback).
-    meeting_id  : Pre-created meeting row id in the DB.
-    user_id     : Authenticated user id (stored for graph naming).
-    db_path     : SQLite database path.
-    graph_dir   : Directory where the knowledge graph PNG will be saved.
+    audio_path   : Path to an audio file (if provided, Whisper is used).
+    text_input   : Raw transcript text (used if no audio_path or as fallback).
+    meeting_id   : Pre-created meeting row id in the DB.
+    user_id      : Authenticated user id (stored for graph naming).
+    db_path      : SQLite database path.
+    graph_dir    : Directory where the knowledge graph PNG will be saved.
+    participants : Optional list of participant dicts for attendee matching.
 
     Returns
     -------
@@ -131,7 +134,7 @@ def run_clario_pipeline(
     # ── 2. Task detection ──────────────────────────────────────────────────────
     print(" Detecting tasks …")
     try:
-        tasks = detect_tasks(transcript, nlp_model=_get_nlp())
+        tasks = detect_tasks(transcript, nlp_model=_get_nlp(), participants=participants)
     except Exception as exc:
         print(f"️  Task detection failed: {exc}")
         tasks = []

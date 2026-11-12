@@ -66,7 +66,9 @@ def load_nlp(model: str = "en_core_web_sm"):
 
 def detect_tasks(text: str,
                  nlp=None,
-                 nlp_model=None) -> List[Dict[str, Any]]:
+                 nlp_model=None,
+                 *,
+                 participants: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """
     Detect action items / tasks in *text* using regex + spaCy NER.
 
@@ -77,17 +79,19 @@ def detect_tasks(text: str,
     3. If matched, extract:
        - assigned_to  : first PERSON entity (or "Unknown")
        - due_date     : first DATE / TIME entity (or "Not specified")
-    4. Return list of task dicts.
+    4. If participants provided, match assigned_to to participant roster.
+    5. Return list of task dicts.
 
     Parameters
     ----------
-    text      : Plain-text meeting transcript or any multi-sentence string.
-    nlp       : Pre-loaded spaCy model (preferred kwarg name).
-    nlp_model : Alias for nlp (for backwards compatibility).
+    text         : Plain-text meeting transcript or any multi-sentence string.
+    nlp          : Pre-loaded spaCy model (preferred kwarg name).
+    nlp_model    : Alias for nlp (for backwards compatibility).
+    participants : Optional list of participant dicts for attendee matching.
 
     Returns
     -------
-    List of dicts with keys: id, description, assigned_to, due_date, keyword, status
+    List of dicts with keys: id, description, assigned_to, due_date, keyword, status, priority
     """
     # Accept both `nlp` and `nlp_model` kwarg names
     loaded_nlp = nlp or nlp_model
@@ -121,6 +125,14 @@ def detect_tasks(text: str,
             if ent.label_ == "PERSON":
                 assigned_to = ent.text
                 break
+
+        assigned_email = None
+        if participants is not None:
+            from services.participant_matching import match
+            matched_p = match(assigned_to, participants)
+            if matched_p:
+                assigned_to = matched_p.get("name", assigned_to)
+                assigned_email = matched_p.get("email")
 
         # Due date: first DATE or TIME entity
         due_date = "Not specified"
@@ -165,17 +177,18 @@ def detect_tasks(text: str,
                     priority = "Medium"
                     break
 
-        tasks.append(
-            {
-                "id":          len(tasks) + 1,
-                "description": sentence,
-                "assigned_to": assigned_to,
-                "due_date":    due_date,
-                "keyword":     matched_keyword,
-                "priority":    priority,
-                "status":      "pending",
-            }
-        )
+        task_data = {
+            "id":          len(tasks) + 1,
+            "description": sentence,
+            "assigned_to": assigned_to,
+            "due_date":    due_date,
+            "keyword":     matched_keyword,
+            "priority":    priority,
+            "status":      "pending",
+        }
+        if participants is not None:
+            task_data["assigned_email"] = assigned_email
+        tasks.append(task_data)
 
     return tasks
 

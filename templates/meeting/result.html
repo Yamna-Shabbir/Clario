@@ -81,6 +81,61 @@
   </div>
   {% endif %}
 
+  <!-- ── Meeting Participants (Platform Integration) ─────────── -->
+  {% if participants %}
+  <div style="margin-bottom:32px;">
+    <h2 class="section-heading">👥 Meeting Participants ({{ participants|length }})</h2>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Joined</th>
+              <th>Left</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in participants %}
+            <tr>
+              <td style="font-weight:600;">{{ p.name or 'Unknown' }}</td>
+              <td>
+                {% if p.email %}
+                  <code style="color:#A5B4FC;">{{ p.email }}</code>
+                {% else %}
+                  <span class="text-muted" style="font-size:0.8rem;">email unavailable</span>
+                {% endif %}
+              </td>
+              <td class="text-muted" style="font-size:0.85rem;">
+                {% if p.joined_at %}
+                  {{ p.joined_at[:19] | replace("T", " ") }} UTC
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td class="text-muted" style="font-size:0.85rem;">
+                {% if p.left_at %}
+                  {{ p.left_at[:19] | replace("T", " ") }} UTC
+                {% else %}
+                  <span style="color:#86efac;">Active</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge" style="background:rgba(255,255,255,0.06); font-size:0.75rem;">
+                  {{ p.source | default('google_meet') }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- ── Tasks ────────────────────────────────────────────── -->
   <h2 class="section-heading">✅ Action items ({{ tasks|length }})</h2>
 
@@ -107,6 +162,9 @@
               <td>
                 {% if t.assigned_to != 'Unknown' and t.assigned_to != 'Team' %}
                   <span class="badge badge-green attendee-tag" data-name="{{ t.assigned_to }}" style="cursor:pointer;" title="View tasks for {{ t.assigned_to }}">👤 {{ t.assigned_to }}</span>
+                  {% if t.assigned_email %}
+                    <span class="text-muted" style="font-size:0.75rem; display:block; margin-top:3px;" title="{{ t.assigned_email }}">✉️ {{ t.assigned_email }}</span>
+                  {% endif %}
                 {% else %}
                   <span class="badge badge-blue">{{ t.assigned_to }}</span>
                 {% endif %}

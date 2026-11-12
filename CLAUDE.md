@@ -73,6 +73,10 @@ Override any default via environment variable (or `.env` file):
 | `CLARIO_SUMMARY_CHUNK_TOKENS` | `700` | Max BART tokens per map-reduce chunk |
 | `CLARIO_SUMMARY_MAX_INPUT_CHARS` | *(deprecated)* | Formerly hard-capped transcript chars; now ignored — full transcript is processed |
 | `CLARIO_MAX_UPLOAD_MB` | `200` | Maximum upload size in megabytes |
+| `CLARIO_GOOGLE_CLIENT_ID` | `""` | Google Cloud OAuth 2.0 Web Client ID for Google Meet integration |
+| `CLARIO_GOOGLE_CLIENT_SECRET` | `""` | Google Cloud OAuth 2.0 Web Client Secret |
+| `CLARIO_OAUTH_REDIRECT_BASE` | `http://127.0.0.1:5000` | Base URL for OAuth redirect callback |
+| `CLARIO_TOKEN_ENCRYPTION_KEY` | `""` | 32-byte URL-safe base64 Fernet key to encrypt OAuth tokens at rest |
 
 ### Seed demo data
 
@@ -111,6 +115,9 @@ Clario/
 ├── seed.py                 # ⚠️ Destructive demo-data seeder (guarded)
 ├── generate_samples.py     # Generates sample MP3s via gTTS
 │
+├── docs/
+│   └── integrations.md     # Google Meet / external integrations setup & OAuth guide
+│
 ├── scripts/
 │   ├── check_routes.py     # HTTP smoke-tester (needs live server)
 │   ├── fix_unicode.py      # One-shot script: strips cp1252-breaking emoji
@@ -127,9 +134,15 @@ Clario/
 │   ├── test_routes.py      # Route-level tests (public + authenticated flows)
 │   ├── test_database.py    # DB CRUD, ownership, cascade delete tests
 │   ├── test_helpers.py     # Unit tests for text, json, date, and directory utilities
+│   ├── test_meeting_deletion.py # Meeting deletion & asset cleanup unit tests
 │   ├── test_visualization.py # Unit tests for charts, knowledge graph, and concurrency
 │   ├── test_security.py    # Security tests: open redirect, 413, UUID files, CSRF, IDOR, XSS
-│   └── test_summarization.py # Unit tests for map-reduce summarization (FakeModel/FakeTokenizer)
+│   ├── test_summarization.py # Unit tests for map-reduce summarization (FakeModel/FakeTokenizer)
+│   ├── test_integrations_foundations.py # Fernet crypto & OAuth/participants migration tests
+│   ├── test_integrations_google_oauth.py # Google OAuth connect/disconnect flow tests (all HTTP mocked)
+│   ├── test_integrations_meet_api.py # Google Meet conference records and participants API tests (all HTTP mocked)
+│   ├── test_integrations_import_matching.py # Participant matching & Google Meet import tests (all HTTP mocked)
+│   └── test_integrations_calendar.py # Google Calendar attendee email enrichment tests (all HTTP mocked)
 │
 ├── .github/
 │   └── workflows/ci.yml    # GitHub Actions: Python 3.10, core deps, pytest
@@ -143,15 +156,17 @@ Clario/
 │
 ├── models/
 │   ├── __init__.py         # Re-exports all DB functions
-│   └── database.py         # Full schema + all data-access functions (raw sqlite3)
+│   ├── database.py         # Full schema + all data-access functions (raw sqlite3)
+│   └── custom_summarizer/  # Dataset and preprocessing for domain-specific summarizer
 │
 ├── routes/
 │   ├── __init__.py         # Empty
 │   ├── auth.py             # Blueprint: landing, register, login, logout
 │   ├── dashboard.py        # Blueprint: /dashboard, /comparison
-│   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete
+│   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
 │   ├── search.py           # Blueprint: /search
-│   └── utils.py            # @login_required decorator + current_user()
+│   ├── utils.py            # @login_required decorator + current_user()
+│   └── integrations.py     # Blueprint: /integrations, /google/connect|callback|disconnect|meetings|participants|import
 │
 ├── services/
 │   ├── __init__.py         # Intentionally empty (no eager ML imports)
@@ -159,7 +174,14 @@ Clario/
 │   ├── transcription.py    # Whisper load/transcribe
 │   ├── summarization.py    # BART load/summarize
 │   ├── task_detection.py   # spaCy + regex task extractor
-│   └── evaluation.py       # ROUGE + F1 offline evaluation utilities
+│   ├── participant_matching.py # Attendee matching hierarchy & task rematching
+│   ├── evaluation.py       # ROUGE + F1 offline evaluation utilities
+│   └── integrations/           # Platform integrations (Google Meet OAuth & REST API)
+│       ├── __init__.py         # Re-exports all integration symbols
+│       ├── base.py             # Exception classes (IntegrationError, NotConnected,
+│       │                       #   TokenRevoked, RateLimited, ApiError)
+│       ├── crypto.py           # Fernet token encryption/decryption at rest
+│       └── google_meet.py      # Google OAuth 2.0 flow, token refresh/revoke, list_recent_meetings, get_participants, find_calendar_attendees
 │
 ├── utils/
 │   ├── __init__.py         # Re-exports helpers + visualization functions
@@ -186,6 +208,10 @@ Clario/
     └── meeting/
         ├── upload.html     # Upload form (audio file or pasted transcript)
         └── result.html     # Meeting detail: transcript, summary, tasks, graphs
+    └── integrations/
+        ├── index.html      # Integration status page (Connect/Disconnect Google Meet)
+        ├── meetings.html   # Recent Google Meet conferences list
+        └── participants.html # Meeting participants detail list
 ```
 
 ---
@@ -277,17 +303,19 @@ users
   created_at    TEXT DEFAULT datetime('now')
 
 meetings
-  id               INTEGER PK AUTOINCREMENT
-  user_id          INTEGER NOT NULL → users.id ON DELETE CASCADE
-  title            TEXT DEFAULT 'Untitled Meeting'
-  sentiment        TEXT DEFAULT 'Neutral'
-  meeting_date     TEXT DEFAULT date('now')
-  audio_filename   TEXT
-  graph_path       TEXT   (relative: "graphs/graph_m{id}.png")
-  bar_chart_path   TEXT
-  donut_chart_path TEXT
-  status_chart_path TEXT
-  created_at       TEXT DEFAULT datetime('now')
+  id                  INTEGER PK AUTOINCREMENT
+  user_id             INTEGER NOT NULL → users.id ON DELETE CASCADE
+  title               TEXT DEFAULT 'Untitled Meeting'
+  sentiment           TEXT DEFAULT 'Neutral'
+  meeting_date        TEXT DEFAULT date('now')
+  audio_filename      TEXT
+  graph_path          TEXT   (relative: "graphs/graph_m{id}.png")
+  bar_chart_path      TEXT
+  donut_chart_path    TEXT
+  status_chart_path   TEXT
+  platform            TEXT   (nullable, e.g. 'google')
+  external_meeting_id TEXT   (nullable)
+  created_at          TEXT DEFAULT datetime('now')
 
 transcripts                           (1-to-1 with meetings)
   id         INTEGER PK AUTOINCREMENT
@@ -300,14 +328,37 @@ summaries                             (1-to-1 with meetings)
   content    TEXT
 
 tasks                                 (many-to-1 with meetings)
+  id             INTEGER PK AUTOINCREMENT
+  meeting_id     INTEGER NOT NULL → meetings.id ON DELETE CASCADE
+  description    TEXT
+  assigned_to    TEXT DEFAULT 'Team'
+  due_date       TEXT DEFAULT 'Not specified'
+  status         TEXT DEFAULT 'pending'
+  keyword        TEXT
+  priority       TEXT DEFAULT 'Low'
+  assigned_email TEXT (nullable)
+
+oauth_connections                     (many-to-1 with users)
+  id                INTEGER PK AUTOINCREMENT
+  user_id           INTEGER NOT NULL → users.id ON DELETE CASCADE
+  provider          TEXT NOT NULL
+  access_token_enc  TEXT NOT NULL
+  refresh_token_enc TEXT (nullable)
+  expires_at        TEXT (nullable)
+  scope             TEXT (nullable)
+  created_at        TEXT DEFAULT datetime('now')
+  updated_at        TEXT DEFAULT datetime('now')
+  UNIQUE(user_id, provider)
+
+meeting_participants                  (many-to-1 with meetings)
   id          INTEGER PK AUTOINCREMENT
   meeting_id  INTEGER NOT NULL → meetings.id ON DELETE CASCADE
-  description TEXT
-  assigned_to TEXT DEFAULT 'Team'
-  due_date    TEXT DEFAULT 'Not specified'
-  status      TEXT DEFAULT 'pending'
-  keyword     TEXT
-  priority    TEXT DEFAULT 'Low'
+  name        TEXT NOT NULL
+  email       TEXT (nullable)
+  source      TEXT DEFAULT 'manual'
+  external_id TEXT (nullable)
+  joined_at   TEXT (nullable)
+  left_at     TEXT (nullable)
 ```
 
 ---
@@ -327,8 +378,10 @@ tasks                                 (many-to-1 with meetings)
   the context-manager style.
 - **Ownership enforcement** — every query that fetches meeting-scoped data
   includes `AND m.user_id = ?` with the session user ID.
-- **Blueprint-per-concern** — `auth`, `dashboard`, `meeting`, `search` each
+- **Blueprint-per-concern** — `auth`, `dashboard`, `meeting`, `search`, `integrations` each
   live in their own file and register on the Flask app in `create_app()`.
+  When adding a new blueprint with a manual test app (as in `test_meeting_deletion.py`),
+  register `integrations_bp` in that app too so `base.html`'s `url_for('integrations.index')` resolves.
 - **Config via `config.py`** — all paths, model names, and tunable constants
   live in one file; each can be overridden via an environment variable.
   `config.py` calls `load_dotenv()` at import time so `.env` is always loaded.
@@ -417,6 +470,20 @@ tasks                                 (many-to-1 with meetings)
     in the summary and is called after map-reduce completes. Tests use
     `FakeModel`/`FakeTokenizer` (1 word = 1 token) -- never load real BART weights
     in automated tests.
+
+15. **Participant matching and meeting platform imports.**
+    - `match(assignee_name, participants)` in `services/participant_matching.py`
+      implements a three-tier matching hierarchy: normalised exact match, unique
+      first-name match, and difflib fuzzy match (ratio >= 0.8 with unique best
+      candidate). Pronouns ("he", "she", "they", etc.) and generic group terms
+      ("Team", "all") must NEVER be matched to a participant.
+    - `rematch_meeting_tasks(meeting_id, user_id)` reapplies matching to existing
+      meeting tasks, updating only tasks with matching participants and leaving
+      others untouched.
+    - Importing participants into an existing meeting (`POST /integrations/google/import`)
+      enforces ownership (`m.user_id = ?`, returns 404 if unowned), is idempotent
+      (`replace_meeting_participants`), and updates `meetings.platform` and
+      `meetings.external_meeting_id`.
 
 ---
 

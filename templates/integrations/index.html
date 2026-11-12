@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Platform Integrations{% endblock %}
+
+{% block content %}
+<div class="page-body">
+  <div class="container" style="max-width:880px;">
+
+    <!-- ── Header ────────────────────────────────────────────── -->
+    <div style="margin-bottom:32px;">
+      <a href="{{ url_for('dashboard.index') }}" class="text-muted" style="font-size:0.9rem;">
+        ← Back to dashboard
+      </a>
+      <h1 style="font-size:2.2rem; font-weight:800; margin-top:12px; margin-bottom:6px;">
+        Platform Integrations
+      </h1>
+      <p class="text-muted">
+        Connect your meeting platforms to automatically sync meeting spaces, transcripts, and attendee information.
+      </p>
+    </div>
+
+    <!-- ── Integrations Grid ─────────────────────────────────── -->
+    <div style="display:flex; flex-direction:column; gap:20px;">
+
+      <!-- Google Meet Integration Card -->
+      <div class="card" style="padding:28px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
+          
+          <!-- Provider Info -->
+          <div style="display:flex; gap:16px; align-items:flex-start;">
+            <div style="font-size:2.2rem; line-height:1; padding:10px; background:rgba(255,255,255,0.04); border-radius:12px; border:1px solid var(--border);">
+              📹
+            </div>
+            <div>
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">
+                <h2 style="font-size:1.3rem; font-weight:700; margin:0;">Google Meet</h2>
+                {% if google_conn %}
+                  <span class="badge badge-green" style="font-size:0.8rem; padding:3px 10px;">Connected</span>
+                {% else %}
+                  <span class="badge" style="background:rgba(255,255,255,0.08); color:var(--muted); font-size:0.8rem; padding:3px 10px;">Not Connected</span>
+                {% endif %}
+              </div>
+              <p class="text-muted" style="font-size:0.9rem; margin-bottom:0; max-width:540px;">
+                Sync Google Meet spaces, retrieve participant lists, and match action-item assignees directly from Google Workspace.
+              </p>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            {% if google_conn %}
+              <a href="{{ url_for('integrations.google_meetings') }}" class="btn btn-primary btn-sm" style="display:inline-flex; align-items:center; gap:6px;">
+                View Recent Meetings →
+              </a>
+              <a href="{{ url_for('integrations.google_connect') }}" class="btn btn-outline btn-sm" title="Re-authenticate to refresh granted scopes">
+                🔄 Reconnect
+              </a>
+              <form method="POST" action="{{ url_for('integrations.google_disconnect') }}" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-outline btn-sm" style="color:#f87171;"
+                        onclick="return confirm('Are you sure you want to disconnect Google Meet? You will need to re-authenticate to sync meetings.')">
+                  Disconnect
+                </button>
+              </form>
+            {% else %}
+              {% if google_configured %}
+                <a href="{{ url_for('integrations.google_connect') }}" class="btn btn-primary btn-sm" style="display:inline-flex; align-items:center; gap:6px;">
+                  Connect Google Meet →
+                </a>
+              {% else %}
+                <button class="btn btn-outline btn-sm" disabled title="Set CLARIO_GOOGLE_CLIENT_ID and CLARIO_GOOGLE_CLIENT_SECRET in .env">
+                  Not Configured
+                </button>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Connection Details (When Connected) -->
+        {% if google_conn %}
+          <div style="margin-top:24px; padding-top:20px; border-top:1px solid var(--border);">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:20px;">
+              <div>
+                <span class="text-muted" style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:4px;">
+                  Connected On
+                </span>
+                <span style="font-size:0.95rem; font-weight:600;">
+                  📅 {{ google_conn.created_at[:10] if google_conn.created_at else 'Active' }}
+                </span>
+              </div>
+              <div>
+                <span class="text-muted" style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:4px;">
+                  Token Status
+                </span>
+                <span style="font-size:0.95rem; font-weight:600; color:#7CA88B;">
+                  🔒 Encrypted (Fernet)
+                </span>
+              </div>
+              <div>
+                <span class="text-muted" style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:4px;">
+                  Calendar Attendee Match
+                </span>
+                {% set has_cal = false %}
+                {% if scope_list %}
+                  {% for s in scope_list %}
+                    {% if 'calendar' in s %}{% set has_cal = true %}{% endif %}
+                  {% endfor %}
+                {% endif %}
+                {% if has_cal %}
+                  <span style="font-size:0.95rem; font-weight:600; color:#7CA88B;">
+                    ✅ Active
+                  </span>
+                {% else %}
+                  <span style="font-size:0.95rem; font-weight:600; color:#facc15;" title="Reconnect to grant Calendar read access">
+                    ⚠️ Not granted
+                  </span>
+                {% endif %}
+              </div>
+            </div>
+
+            {% set has_cal = false %}
+            {% if scope_list %}
+              {% for s in scope_list %}
+                {% if 'calendar' in s %}{% set has_cal = true %}{% endif %}
+              {% endfor %}
+            {% endif %}
+
+            {% if not has_cal %}
+              <div style="margin-bottom:16px; padding:12px 16px; background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.25); border-radius:8px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+                <div style="font-size:0.88rem; color:#facc15;">
+                  ℹ️ <strong>Google Calendar sync not active:</strong> Reconnect your account to grant Calendar read access and automatically populate attendee emails for action items.
+                </div>
+                <a href="{{ url_for('integrations.google_connect') }}" class="btn btn-sm btn-outline" style="font-size:0.8rem; padding:4px 12px; white-space:nowrap;">
+                  🔄 Reconnect &amp; Sync
+                </a>
+              </div>
+            {% endif %}
+
+            {% if scope_list %}
+              <div>
+                <span class="text-muted" style="font-size:0.8rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:8px;">
+                  Granted Permissions
+                </span>
+                <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                  {% for s in scope_list %}
+                    <span style="display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; background:rgba(255,255,255,0.04); padding:5px 12px; border-radius:6px; border:1px solid var(--border);">
+                      {% if 'meetings' in s %}
+                        📹 <span style="font-weight:600;">Google Meet</span> <code style="font-size:0.75rem; color:#A5B4FC;">spaces.readonly</code>
+                      {% elif 'calendar' in s %}
+                        📅 <span style="font-weight:600;">Google Calendar</span> <code style="font-size:0.75rem; color:#A5B4FC;">calendar.readonly</code>
+                      {% else %}
+                        🔑 <code style="font-size:0.75rem; color:#A5B4FC;">{{ s }}</code>
+                      {% endif %}
+                    </span>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+          </div>
+        {% elif not google_configured %}
+          <div style="margin-top:20px; padding:14px; background:rgba(217, 179, 132, 0.08); border:1px solid rgba(217, 179, 132, 0.25); border-radius:8px; font-size:0.85rem; color:#D9B384;">
+            ℹ️ Server configuration required: Set <code>CLARIO_GOOGLE_CLIENT_ID</code> and <code>CLARIO_GOOGLE_CLIENT_SECRET</code> in your <code>.env</code> file to enable Google OAuth.
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Upcoming Integrations -->
+      <div style="margin-top:12px;">
+        <h3 class="section-heading" style="font-size:0.95rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); margin-bottom:16px;">
+          More Integrations
+        </h3>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:16px;">
+          <div class="card" style="padding:22px; opacity:0.8;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+              <div style="display:flex; gap:12px; align-items:center;">
+                <div style="font-size:1.6rem; line-height:1; padding:8px; background:rgba(255,255,255,0.04); border-radius:10px; border:1px solid var(--border);">
+                  💻
+                </div>
+                <div>
+                  <h4 style="font-size:1.05rem; font-weight:700; margin:0;">Zoom</h4>
+                  <span class="text-muted" style="font-size:0.78rem;">Cloud recordings &amp; participants</span>
+                </div>
+              </div>
+              <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--muted); font-size:0.72rem;">Coming Soon</span>
+            </div>
+            <p class="text-muted" style="font-size:0.84rem; margin:0;">
+              Ingest Zoom recordings, live transcripts, and attendee rosters automatically.
+            </p>
+          </div>
+
+          <div class="card" style="padding:22px; opacity:0.8;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+              <div style="display:flex; gap:12px; align-items:center;">
+                <div style="font-size:1.6rem; line-height:1; padding:8px; background:rgba(255,255,255,0.04); border-radius:10px; border:1px solid var(--border);">
+                  💼
+                </div>
+                <div>
+                  <h4 style="font-size:1.05rem; font-weight:700; margin:0;">Microsoft Teams</h4>
+                  <span class="text-muted" style="font-size:0.78rem;">Microsoft 365 &amp; Graph API</span>
+                </div>
+              </div>
+              <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--muted); font-size:0.72rem;">Coming Soon</span>
+            </div>
+            <p class="text-muted" style="font-size:0.84rem; margin:0;">
+              Sync Teams scheduled meetings and transcript text with user identity resolution.
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+

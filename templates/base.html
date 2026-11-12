@@ -31,9 +31,10 @@
               <input type="text" name="q" placeholder="Search meetings..." style="background:transparent; border:none; color:var(--text); padding:4px 8px; width:150px; font-size:0.9rem; outline:none;">
             </form>
           </li>
-          <li><a href="{{ url_for('dashboard.index') }}">Dashboard</a></li>
-          <li><a href="{{ url_for('dashboard.comparison') }}">Trends</a></li>
-          <li><a href="{{ url_for('meeting.upload') }}">Upload</a></li>
+          <li><a href="{{ url_for('dashboard.index') }}" class="{% if request.endpoint == 'dashboard.index' %}active{% endif %}">Dashboard</a></li>
+          <li><a href="{{ url_for('dashboard.comparison') }}" class="{% if request.endpoint == 'dashboard.comparison' %}active{% endif %}">Trends</a></li>
+          <li><a href="{{ url_for('meeting.upload') }}" class="{% if request.endpoint and request.endpoint.startswith('meeting.') %}active{% endif %}">Upload</a></li>
+          <li><a href="{{ url_for('integrations.index') }}" class="{% if request.endpoint and request.endpoint.startswith('integrations.') %}active{% endif %}">Integrations</a></li>
           <li>
             <a href="{{ url_for('auth.logout') }}" class="btn btn-outline btn-sm">
               Log out

@@ -24,7 +24,9 @@
   --amber:          #C48B47;
   --red:            #A64444;
   --white:          #EAECEF;
+  --text:           #EAECEF;
   --muted:          #848994;
+  --text-muted:     #848994;
 
   /* Gradients */
   --grad-brand:     linear-gradient(135deg, var(--purple) 0%, #A8864C 100%);
@@ -165,6 +167,22 @@ button, input, textarea, select { font-family: inherit; }
 }
 .form-control::placeholder { color: rgba(132,137,148,0.5); }
 textarea.form-control { resize: vertical; min-height: 130px; }
+select.form-control, .select-dark {
+  background: #14161C;
+  color: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+select.form-control:focus, .select-dark:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(194,163,112,0.15);
+}
+select option {
+  background: #14161C;
+  color: var(--white);
+  padding: 6px 10px;
+}
 
 /* ── Flash messages ───────────────────────────────────────── */
 .flash-container { margin-top: 80px; }

@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Google Meet — Recent Meetings{% endblock %}
+
+{% block content %}
+<div class="page-body">
+  <div class="container" style="max-width:980px;">
+
+    <!-- ── Header & Breadcrumbs ──────────────────────────────── -->
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px; margin-bottom:28px;">
+      <div>
+        <a href="{{ url_for('integrations.index') }}" class="text-muted" style="font-size:0.9rem; display:inline-flex; align-items:center; gap:6px;">
+          ← Back to Platform Integrations
+        </a>
+        <h1 style="font-size:2.2rem; font-weight:800; margin-top:10px; margin-bottom:6px;">
+          📹 Recent Google Meet Meetings
+        </h1>
+        <p class="text-muted" style="margin:0; font-size:0.95rem;">
+          Conferences organized by your connected Google account in the last 30 days.
+        </p>
+      </div>
+
+      <div style="display:flex; gap:10px; align-items:center;">
+        <a href="{{ url_for('integrations.google_meetings') }}" class="btn btn-outline btn-sm" title="Refresh meeting records from Google Meet">
+          🔄 Refresh
+        </a>
+        {% if meetings %}
+          <span class="badge badge-purple" style="font-size:0.85rem; padding:6px 14px;">
+            {{ meetings | length }} Meeting{{ 's' if (meetings | length) != 1 else '' }} Found
+          </span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ── Empty State ───────────────────────────────────────── -->
+    {% if not meetings %}
+      <div class="card" style="padding:56px 24px; text-align:center;">
+        <div style="font-size:3.2rem; margin-bottom:16px; line-height:1;">📭</div>
+        <h2 style="font-size:1.4rem; font-weight:700; margin-bottom:10px;">No recent meetings found</h2>
+        <p class="text-muted" style="max-width:540px; margin:0 auto 24px; font-size:0.92rem; line-height:1.6;">
+          Google Meet REST API lists conferences where your account was the <strong>host/organizer</strong>.
+          Conferences you attended as an invitee without organizing are not returned by the Meet API.
+          Recent meetings take <strong>1–5 minutes</strong> after ending to be published by Google.
+        </p>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+          <a href="{{ url_for('integrations.google_meetings') }}" class="btn btn-primary btn-sm">
+            🔄 Check Again
+          </a>
+          <a href="{{ url_for('integrations.index') }}" class="btn btn-outline btn-sm">
+            ← Platform Integrations
+          </a>
+        </div>
+      </div>
+
+    {% else %}
+      <!-- ── Meetings List ─────────────────────────────────── -->
+      <div style="display:flex; flex-direction:column; gap:18px;">
+        {% for m in meetings %}
+          <div class="card" style="padding:24px 28px;">
+            
+            <!-- Top bar: Status, Code, Record ID -->
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06);">
+              <div style="display:flex; align-items:center; gap:10px;">
+                {% if m.end_time %}
+                  <span class="badge" style="background:rgba(34,197,94,0.15); color:#86efac; font-size:0.75rem; padding:3px 10px; border-radius:9999px;">
+                    Completed
+                  </span>
+                {% else %}
+                  <span class="badge" style="background:rgba(234,179,8,0.15); color:#facc15; font-size:0.75rem; padding:3px 10px; border-radius:9999px;">
+                    🔴 Ongoing
+                  </span>
+                {% endif %}
+
+                {% if m.meeting_code %}
+                  <a href="https://meet.google.com/{{ m.meeting_code }}" target="_blank" rel="noopener noreferrer"
+                     style="font-family:monospace; font-size:0.9rem; font-weight:700; color:#A5B4FC; text-decoration:none; display:inline-flex; align-items:center; gap:4px; background:rgba(165,180,252,0.1); padding:2px 8px; border-radius:6px; border:1px solid rgba(165,180,252,0.25);"
+                     title="Open meeting room in Google Meet">
+                    meet.google.com/{{ m.meeting_code }} ↗
+                  </a>
+                {% endif %}
+              </div>
+
+              <div>
+                <span class="text-muted" style="font-size:0.78rem;">
+                  Record: <code style="font-size:0.75rem; color:var(--muted); background:rgba(255,255,255,0.03); padding:2px 6px; border-radius:4px;">{{ m.external_id }}</code>
+                </span>
+              </div>
+            </div>
+
+            <!-- Main layout: Info left, Actions right -->
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:20px;">
+              
+              <!-- Left: Meeting Metadata Grid -->
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:18px; flex:1; min-width:280px;">
+                <div>
+                  <span class="text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:3px;">
+                    Start Time
+                  </span>
+                  <span style="font-size:0.95rem; font-weight:600;">
+                    📅 {{ (m.start_time[:16] | replace("T", " ")) if m.start_time else '—' }} UTC
+                  </span>
+                </div>
+
+                <div>
+                  <span class="text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:3px;">
+                    Duration
+                  </span>
+                  <span style="font-size:0.95rem; font-weight:600;">
+                    {% if m.duration_minutes is not none %}
+                      ⏱ {{ m.duration_minutes }} min
+                    {% elif not m.end_time %}
+                      🔴 In Progress
+                    {% else %}
+                      —
+                    {% endif %}
+                  </span>
+                </div>
+
+                <div>
+                  <span class="text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.5px; display:block; margin-bottom:3px;">
+                    Participants
+                  </span>
+                  <span style="font-size:0.95rem; font-weight:600;">
+                    {% if m.participant_count is not none %}
+                      👥 {{ m.participant_count }} attendee{{ 's' if m.participant_count != 1 else '' }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Right: Actions & Import Form -->
+              <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                
+                <!-- View Participants Link -->
+                <a href="{{ url_for('integrations.google_participants', record=m.external_id, meeting_code=m.meeting_code or '', start_time=m.start_time or '') }}"
+                   class="btn btn-outline btn-sm" style="white-space:nowrap; padding:8px 14px;">
+                  👥 View Participants
+                </a>
+
+                <!-- Import Form -->
+                <form method="POST" action="{{ url_for('integrations.google_import') }}" style="display:flex; align-items:center; gap:8px; margin:0;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                  <input type="hidden" name="external_meeting_id" value="{{ m.external_id }}"/>
+                  <input type="hidden" name="meeting_code" value="{{ m.meeting_code or '' }}"/>
+                  <input type="hidden" name="start_time" value="{{ m.start_time or '' }}"/>
+
+                  {% if user_meetings %}
+                    <select name="meeting_id" class="select-dark"
+                            style="padding:7px 10px; font-size:0.82rem; border-radius:6px; min-width:180px; max-width:240px; height:auto;"
+                            title="Select existing Clario meeting or choose New meeting">
+                      <option value="">➕ New meeting</option>
+                      {% for um in user_meetings %}
+                        <option value="{{ um.id }}">
+                          📁 {{ (um.get('title') or um.get('audio_filename') or 'Meeting #' ~ um.id) }} ({{ um.get('meeting_date', '') }})
+                        </option>
+                      {% endfor %}
+                    </select>
+                  {% endif %}
+
+                  <button type="submit" class="btn btn-primary btn-sm" style="white-space:nowrap; padding:8px 16px;">
+                    📥 Import
+                  </button>
+                </form>
+
+              </div>
+
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
