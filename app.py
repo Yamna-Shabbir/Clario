@@ -74,6 +74,7 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
             _db_path = test_config["db_path"]
 
     app.secret_key = _secret_key
+    app.config["CLARIO_DB_PATH"] = _db_path
 
     # ── Upload limits & security settings ──────────────────────────────────────
     app.config["MAX_CONTENT_LENGTH"] = (
@@ -207,12 +208,19 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     @app.errorhandler(500)
     def server_error(e):
         app.logger.exception("Unhandled server error")
-        return render_template(
+        detail = f"{type(e).__name__}: {e}".replace("\n", " ")
+        if len(detail) > 220:
+            detail = detail[:220] + "…"
+        response = render_template(
             "error.html",
             code    = 500,
             title   = "Internal server error",
-            message = "Something went wrong. Please try again in a moment.",
-        ), 500
+            message = f"Something went wrong. {detail}",
+        )
+        response = app.make_response(response)
+        response.status_code = 500
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     return app
 

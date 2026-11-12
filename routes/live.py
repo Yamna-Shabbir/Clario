@@ -5,8 +5,10 @@ Start a Clario meeting, share the join link, and record each participant.
 """
 
 import json
+import logging
 import os
 import re
+import sqlite3
 from typing import List
 
 from flask import (
@@ -37,6 +39,7 @@ from services.live import finish_live_room, safe_recording_path
 from services.notifications import mail_is_configured
 
 live_bp = Blueprint("live", __name__)
+logger = logging.getLogger(__name__)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _AUDIO_EXT = {".webm", ".ogg", ".wav", ".mp3", ".m4a", ".flac"}
@@ -163,7 +166,12 @@ def start():
         init_db(DB_PATH)
         from secrets import token_urlsafe
         token = token_urlsafe(18)
-        create_live_room(session["user_id"], title, token, DB_PATH)
+        try:
+            create_live_room(session["user_id"], title, token, DB_PATH)
+        except sqlite3.Error as exc:
+            logger.exception("Could not create live room")
+            flash(f"The meeting could not be created. {exc}", "error")
+            return redirect(url_for("live.start"))
         link = _join_url(token)
         if invites:
             from services.notifications import send_invite_emails

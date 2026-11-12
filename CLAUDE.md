@@ -185,7 +185,7 @@ Clario/
 │   ├── live.py             # Blueprint: /live/start, /live/<token>, recording, invite, end
 │   ├── tasks.py            # Blueprint: /tasks status board and shared-name confirmation
 │   ├── search.py           # Blueprint: /search
-│   ├── utils.py            # @login_required decorator + current_user()
+│   ├── utils.py            # @login_required decorator + current_user(); drops a session whose user row was wiped (Render free disk)
 │   └── integrations.py     # Blueprint: /integrations, /google/connect|callback|disconnect|meetings|participants|import
 │
 ├── services/

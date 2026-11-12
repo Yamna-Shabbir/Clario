@@ -108,9 +108,16 @@ def tiny_limit_client(tmp_dirs):
         }
     )
     flask_app.config["WTF_CSRF_ENABLED"] = False
+    from models.database import init_db, insert_user
+    from werkzeug.security import generate_password_hash
+    init_db(tmp_dirs["db_path"])
+    user_id = insert_user(
+        "secUserA", "sec_a@example.com", generate_password_hash("SecurePass1!"),
+        db_path=tmp_dirs["db_path"],
+    )
     c = flask_app.test_client()
     with c.session_transaction() as sess:
-        sess["user_id"] = 1
+        sess["user_id"] = user_id
         sess["username"] = "secUserA"
     yield c
 
