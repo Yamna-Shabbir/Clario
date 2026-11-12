@@ -126,7 +126,7 @@
                     <select name="meeting_id" class="input" style="padding:4px 8px; font-size:0.75rem; border-radius:6px; max-width:180px; height:auto; background:rgba(255,255,255,0.05); color:var(--text); border:1px solid var(--border);" title="Select existing meeting or choose New">
                       <option value="">-- New meeting --</option>
                       {% for um in user_meetings %}
-                        <option value="{{ um.id }}">{{ um.title[:18] }} ({{ um.meeting_date }})</option>
+                        <option value="{{ um.id }}">{{ (um.get('title') or um.get('audio_filename') or 'Meeting #' ~ um.id)[:18] }} ({{ um.get('meeting_date', '') }})</option>
                       {% endfor %}
                     </select>
                   {% endif %}

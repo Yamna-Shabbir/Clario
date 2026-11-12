@@ -258,6 +258,10 @@ def get_meetings_by_user(user_id: int,
     with get_connection(db_path) as conn:
         rows = conn.execute("""
             SELECT  m.id,
+                    m.title,
+                    m.sentiment,
+                    m.platform,
+                    m.external_meeting_id,
                     m.meeting_date,
                     m.audio_filename,
                     m.graph_path,
