@@ -47,7 +47,8 @@ deleted.
 | DistilBART / BART neural summarization | **No** |
 | Marian Urdu→English translation | **No** |
 | Durable meetings/uploads across restarts | **No** (ephemeral disk; wiped on spin-down ~15 min idle) |
-| Google Meet OAuth / SMTP | Optional; needs secrets; SMTP ports often blocked on free |
+| Google Meet OAuth | Optional; needs Google client secrets |
+| Invite / follow-up email | HTTPS only. Set `CLARIO_BREVO_API_KEY` and `CLARIO_SMTP_FROM` to a sender verified in Brevo. Gmail SMTP (587/465) is blocked on free |
 
 Full ML + durable storage: use `render.standard.yaml` later on a paid plan.
 

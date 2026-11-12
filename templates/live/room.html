@@ -110,6 +110,9 @@
         <form method="POST" action="{{ url_for('live.invite', token=room.join_token) }}" class="stack-sm meet-invite">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
           <label class="form-label" for="invites">Invite by email</label>
+          {% if mail_configured is defined and not mail_configured %}
+          <p class="notice-banner">Email is not configured on this server. Copy the join link above. Render free needs <code>CLARIO_BREVO_API_KEY</code> because it blocks Gmail SMTP.</p>
+          {% endif %}
           <div class="form-row">
             <input id="invites" name="invites" class="form-control" placeholder="colleague@example.com">
             <button type="submit" class="btn btn-primary btn-sm">Send</button>

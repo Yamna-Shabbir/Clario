@@ -7,29 +7,44 @@ After the pipeline finishes, each person with an email address receives a
 message. Assignees see their own tasks in the body. Everyone receives a PDF
 of the summary, decisions, and the full task list.
 
-Delivery uses SMTP when CLARIO_SMTP_HOST and CLARIO_SMTP_FROM are set.
+Delivery prefers an HTTPS provider (Brevo or Resend). Those work on Render's
+free plan, which blocks SMTP ports 25, 465, and 587. SMTP is used when no
+HTTPS key is set and CLARIO_SMTP_HOST plus CLARIO_SMTP_FROM are set.
 Otherwise a copy is written under CLARIO_EMAIL_DIR, or data/outbox in debug.
 """
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import smtplib
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import (
+    BREVO_API_KEY,
     DATA_DIR,
     DB_PATH,
     DEBUG,
     EMAIL_DIR,
+    RESEND_API_KEY,
     SMTP_FROM,
     SMTP_HOST,
     SMTP_PASSWORD,
     SMTP_PORT,
     SMTP_TLS,
     SMTP_USER,
+)
+
+_HTTPS_SETUP = (
+    "This server cannot send mail yet. Render's free plan blocks Gmail SMTP "
+    "(ports 587 and 465). Add CLARIO_BREVO_API_KEY in the Render environment "
+    "(a verified sender in Brevo), then invite again. Until then, copy the "
+    "link from the meeting page."
 )
 
 _PAGE_LINES = 46
@@ -189,18 +204,24 @@ def _message_copy(title: str, person: Dict[str, Any]) -> Tuple[str, str]:
     return subject, "\n".join(lines)
 
 
+def mail_is_configured() -> bool:
+    """True when an HTTPS API key or SMTP host is available."""
+    return bool(BREVO_API_KEY or RESEND_API_KEY or (SMTP_HOST and SMTP_FROM))
+
+
 def _deliver(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: int) -> Tuple[str, str]:
     saved = _save_copy(recipient, subject, body, pdf, meeting_id)
-    if not SMTP_HOST or not SMTP_FROM:
+    if not mail_is_configured():
         if saved:
-            return "saved", f"Saved locally at {saved}. Set CLARIO_SMTP_HOST to send mail."
-        return "skipped", "SMTP is not configured."
+            return "saved", f"{_HTTPS_SETUP} A copy was saved at {saved}."
+        return "skipped", _HTTPS_SETUP
     try:
-        _send_smtp(recipient, subject, body, pdf)
+        message = _build_message(recipient, subject, body, pdf)
+        _dispatch(message)
     except Exception as exc:
-        detail = str(exc) or type(exc).__name__
+        detail = _explain_send_error(exc)
         if saved:
-            detail = f"{detail}. A copy was saved at {saved}."
+            detail = f"{detail} A copy was saved at {saved}."
         return "failed", detail
     if saved:
         return "sent", f"Sent. A copy was saved at {saved}."
@@ -246,6 +267,114 @@ def send_invite_emails(recipients: List[str], join_url: str, title: str,
     return sent
 
 
+def _sender_address() -> str:
+    return SMTP_FROM or SMTP_USER or "clario@localhost"
+
+
+def _dispatch(message: EmailMessage) -> None:
+    """Send through HTTPS when a key is set, otherwise SMTP."""
+    if BREVO_API_KEY or RESEND_API_KEY:
+        _send_https(message)
+        return
+    _smtp_send(message)
+
+
+def _send_https(message: EmailMessage) -> None:
+    recipient = str(message["To"] or "")
+    subject = str(message["Subject"] or "")
+    plain = message.get_body(preferencelist=("plain",))
+    text = plain.get_content() if plain is not None else ""
+    attachment = None
+    filename = "meeting-summary.pdf"
+    for part in message.iter_attachments():
+        attachment = part.get_payload(decode=True)
+        filename = part.get_filename() or filename
+        break
+    if BREVO_API_KEY:
+        _post_brevo(recipient, subject, text, attachment, filename)
+        return
+    _post_resend(recipient, subject, text, attachment, filename)
+
+
+def _post_json(url: str, payload: dict, headers: Dict[str, str]) -> None:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            response.read()
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(raw or f"HTTP {exc.code}") from exc
+
+
+def _post_brevo(recipient: str, subject: str, text: str,
+                attachment: Optional[bytes], filename: str) -> None:
+    payload: Dict[str, Any] = {
+        "sender": {"name": "Clario", "email": _sender_address()},
+        "to": [{"email": recipient}],
+        "subject": subject,
+        "textContent": text,
+    }
+    if attachment:
+        payload["attachment"] = [{
+            "name": filename,
+            "content": base64.b64encode(attachment).decode("ascii"),
+        }]
+    _post_json(
+        "https://api.brevo.com/v3/smtp/email",
+        payload,
+        {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": BREVO_API_KEY,
+        },
+    )
+
+
+def _post_resend(recipient: str, subject: str, text: str,
+                 attachment: Optional[bytes], filename: str) -> None:
+    payload: Dict[str, Any] = {
+        "from": f"Clario <{_sender_address()}>",
+        "to": [recipient],
+        "subject": subject,
+        "text": text,
+    }
+    if attachment:
+        payload["attachments"] = [{
+            "filename": filename,
+            "content": base64.b64encode(attachment).decode("ascii"),
+        }]
+    _post_json(
+        "https://api.resend.com/emails",
+        payload,
+        {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "authorization": f"Bearer {RESEND_API_KEY}",
+        },
+    )
+
+
+def _explain_send_error(exc: Exception) -> str:
+    detail = str(exc) or type(exc).__name__
+    if "Authentication" in detail or "Username and Password" in detail:
+        return (
+            "Gmail rejected the SMTP login. Use a Google App Password "
+            "(not the normal account password) in CLARIO_SMTP_PASSWORD."
+        )
+    lowered = detail.lower()
+    if any(token in lowered for token in ("timed out", "unreachable", "errno", "connection refused", "network")):
+        return (
+            "SMTP could not be reached. Render's free plan blocks ports 587 and 465. "
+            "Set CLARIO_BREVO_API_KEY to send over HTTPS."
+        )
+    return detail
+
+
 def _smtp_send(message: EmailMessage) -> None:
     """Send one message, trying STARTTLS then SSL when the first path fails."""
     last_error: Optional[Exception] = None
@@ -257,12 +386,12 @@ def _smtp_send(message: EmailMessage) -> None:
     for mode in attempts:
         try:
             if mode == "ssl":
-                with smtplib.SMTP_SSL(SMTP_HOST, 465 if SMTP_PORT == 587 else SMTP_PORT, timeout=20) as client:
+                with smtplib.SMTP_SSL(SMTP_HOST, 465 if SMTP_PORT == 587 else SMTP_PORT, timeout=12) as client:
                     if SMTP_USER:
                         client.login(SMTP_USER, SMTP_PASSWORD)
                     client.send_message(message)
             else:
-                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as client:
+                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=12) as client:
                     if SMTP_TLS:
                         client.starttls()
                     if SMTP_USER:
@@ -278,24 +407,19 @@ def _smtp_send(message: EmailMessage) -> None:
 
 def _deliver_text(recipient: str, subject: str, body: str, stem: str) -> Tuple[str, str]:
     saved = _save_text_copy(recipient, subject, body, stem)
-    if not SMTP_HOST or not SMTP_FROM:
+    if not mail_is_configured():
         if saved:
-            return "saved", f"Saved locally at {saved}. The link is also on the meeting page."
-        return "skipped", "SMTP is not configured. Copy the link from the meeting page."
+            return "saved", f"{_HTTPS_SETUP} A copy was saved at {saved}."
+        return "skipped", _HTTPS_SETUP
     try:
         message = EmailMessage()
         message["Subject"] = subject
-        message["From"] = SMTP_FROM or "clario@localhost"
+        message["From"] = _sender_address()
         message["To"] = recipient
         message.set_content(body)
-        _smtp_send(message)
+        _dispatch(message)
     except Exception as exc:
-        detail = str(exc) or type(exc).__name__
-        if "Authentication" in detail or "Username and Password" in detail:
-            detail = (
-                "Gmail rejected the SMTP login. Use a Google App Password "
-                "(not the normal account password) in CLARIO_SMTP_PASSWORD."
-            )
+        detail = _explain_send_error(exc)
         if saved:
             detail = f"{detail} A copy was saved at {saved}."
         return "failed", detail
@@ -322,13 +446,8 @@ def _save_text_copy(recipient: str, subject: str, body: str, stem: str) -> str:
 
 
 def _send_smtp(recipient: str, subject: str, body: str, pdf: bytes) -> None:
-    message = _build_message(recipient, subject, body, pdf)
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as client:
-        if SMTP_TLS:
-            client.starttls()
-        if SMTP_USER:
-            client.login(SMTP_USER, SMTP_PASSWORD)
-        client.send_message(message)
+    """Backward-compatible SMTP helper. Prefer :func:`_dispatch`."""
+    _smtp_send(_build_message(recipient, subject, body, pdf))
 
 
 def _build_message(recipient: str, subject: str, body: str, pdf: bytes) -> EmailMessage:

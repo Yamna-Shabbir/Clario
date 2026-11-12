@@ -326,7 +326,10 @@ services/jobs.py  _run_pipeline_job()
   4. Run post-completion hooks. send_meeting_followups emails each
      assignee their tasks and attaches a PDF of the summary, decisions,
      and the full task list. The meeting owner receives the PDF too.
-     SMTP uses CLARIO_SMTP_*; without a host, copies go to data/outbox in debug.
+     Mail prefers CLARIO_BREVO_API_KEY or CLARIO_RESEND_API_KEY (HTTPS).
+     SMTP (CLARIO_SMTP_*) is the local fallback. Render free blocks ports
+     587 and 465, so Gmail SMTP cannot send there. Without a transport,
+     copies go to CLARIO_EMAIL_DIR or data/outbox in debug.
   5. On error: update_meeting_status(meeting_id, status='failed', error_message=...)
   │
   ▼

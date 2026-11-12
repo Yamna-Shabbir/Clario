@@ -108,7 +108,9 @@ OAUTH_REDIRECT_BASE     = _env("CLARIO_OAUTH_REDIRECT_BASE", "http://127.0.0.1:5
 TOKEN_ENCRYPTION_KEY    = _env("CLARIO_TOKEN_ENCRYPTION_KEY", "")
 
 # ── Follow-up email ────────────────────────────────────────────────────────────
-# Leave CLARIO_SMTP_HOST empty to keep copies in CLARIO_EMAIL_DIR instead of sending.
+# Render free blocks outbound SMTP (ports 25, 465, 587). Prefer an HTTPS API:
+# CLARIO_BREVO_API_KEY (https://app.brevo.com) or CLARIO_RESEND_API_KEY.
+# SMTP still works locally and on a paid Render instance.
 SMTP_HOST     = _env("CLARIO_SMTP_HOST", "")
 SMTP_PORT     = int(_env("CLARIO_SMTP_PORT", "587"))
 SMTP_USER     = _env("CLARIO_SMTP_USER", "")
@@ -116,6 +118,8 @@ SMTP_PASSWORD = _env("CLARIO_SMTP_PASSWORD", "")
 SMTP_FROM     = _env("CLARIO_SMTP_FROM", "") or SMTP_USER
 SMTP_TLS      = _env("CLARIO_SMTP_TLS", "True").lower() in ("1", "true", "yes")
 EMAIL_DIR     = _env("CLARIO_EMAIL_DIR", "")
+BREVO_API_KEY = _env("CLARIO_BREVO_API_KEY", "")
+RESEND_API_KEY = _env("CLARIO_RESEND_API_KEY", "")
 
 # ── Secret key — must come from the environment ────────────────────────────────
 # Production (DEBUG=False): CLARIO_SECRET_KEY must be set; a RuntimeError is

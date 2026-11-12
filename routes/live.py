@@ -34,6 +34,7 @@ from models.database import (
 )
 from routes.utils import current_user, login_required
 from services.live import finish_live_room, safe_recording_path
+from services.notifications import mail_is_configured
 
 live_bp = Blueprint("live", __name__)
 
@@ -171,6 +172,7 @@ def start():
             )
             sent = sum(1 for item in results if item["status"] == "sent")
             failed = next((item for item in results if item["status"] == "failed"), None)
+            held = next((item for item in results if item["status"] != "sent"), None)
             if sent:
                 flash(f"Join link emailed to {sent} people.", "success")
             if failed:
@@ -179,13 +181,18 @@ def start():
                     or "The invite email could not be sent. Copy the link from the meeting page.",
                     "error",
                 )
-            elif not sent:
+            elif not sent and held:
                 flash(
-                    "Invite email was not delivered. Copy the join link from the meeting page.",
+                    held.get("detail")
+                    or "Invite email was not delivered. Copy the join link from the meeting page.",
                     "info",
                 )
         return redirect(url_for("live.room", token=token))
-    return render_template("live/start.html", user=current_user())
+    return render_template(
+        "live/start.html",
+        user=current_user(),
+        mail_configured=mail_is_configured(),
+    )
 
 
 @live_bp.route("/live/<token>")
@@ -229,6 +236,7 @@ def room(token: str):
         is_host=is_host,
         admission_status=admission,
         in_meeting=admission == "admitted",
+        mail_configured=mail_is_configured(),
     )
 
 
@@ -255,6 +263,7 @@ def invite(token: str):
     )
     sent = [item["recipient"] for item in results if item["status"] == "sent"]
     failed = next((item for item in results if item["status"] == "failed"), None)
+    held = next((item for item in results if item["status"] != "sent"), None)
     if sent:
         flash(f"Link sent to {', '.join(sent)}.", "success")
     if failed:
@@ -263,8 +272,12 @@ def invite(token: str):
             or "Email could not be delivered. Copy the join link from this page.",
             "error",
         )
-    elif not sent:
-        flash("Email could not be delivered. Copy the join link from this page.", "info")
+    elif not sent and held:
+        flash(
+            held.get("detail")
+            or "Email could not be delivered. Copy the join link from this page.",
+            "info",
+        )
     return redirect(url_for("live.room", token=token))
 
 

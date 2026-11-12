@@ -1,5 +1,6 @@
 """Follow-up mail: assignee tasks in the body, summary PDF for everyone."""
 
+import json
 import os
 import tempfile
 from unittest.mock import patch
@@ -12,7 +13,7 @@ from models.database import (
     insert_tasks,
     insert_user,
 )
-from services.notifications import build_summary_pdf, send_meeting_followups
+from services.notifications import build_summary_pdf, send_invite_emails, send_meeting_followups
 
 
 def _db():
@@ -100,3 +101,54 @@ def test_followups_email_assignee_and_owner(tmp_path):
 
 def test_followups_ignore_results_without_a_meeting():
     send_meeting_followups({"summary": "orphan"})
+
+
+def test_invite_sends_over_https_when_brevo_is_set(monkeypatch):
+    captured = {}
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def _urlopen(request, timeout=0):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data.decode())
+        captured["key"] = request.get_header("Api-key")
+        return _Response()
+
+    monkeypatch.setattr("services.notifications.BREVO_API_KEY", "brevo-test")
+    monkeypatch.setattr("services.notifications.RESEND_API_KEY", "")
+    monkeypatch.setattr("services.notifications.SMTP_FROM", "host@example.com")
+    monkeypatch.setattr("services.notifications.EMAIL_DIR", "")
+    monkeypatch.setattr("services.notifications.DEBUG", False)
+    monkeypatch.setattr("services.notifications.urllib.request.urlopen", _urlopen)
+
+    results = send_invite_emails(
+        ["guest@example.com"],
+        "https://clario.example/live/abc",
+        "Planning",
+        "Ada",
+    )
+    assert results[0]["status"] == "sent"
+    assert captured["url"] == "https://api.brevo.com/v3/smtp/email"
+    assert captured["key"] == "brevo-test"
+    assert captured["body"]["to"] == [{"email": "guest@example.com"}]
+    assert "https://clario.example/live/abc" in captured["body"]["textContent"]
+
+
+def test_invite_without_transport_names_the_https_setup(monkeypatch, tmp_path):
+    monkeypatch.setattr("services.notifications.BREVO_API_KEY", "")
+    monkeypatch.setattr("services.notifications.RESEND_API_KEY", "")
+    monkeypatch.setattr("services.notifications.SMTP_HOST", "")
+    monkeypatch.setattr("services.notifications.SMTP_FROM", "")
+    monkeypatch.setattr("services.notifications.EMAIL_DIR", str(tmp_path))
+    monkeypatch.setattr("services.notifications.DEBUG", False)
+    results = send_invite_emails(["guest@example.com"], "https://x/live/t", "Planning", "Ada")
+    assert results[0]["status"] == "saved"
+    assert "CLARIO_BREVO_API_KEY" in results[0]["detail"]

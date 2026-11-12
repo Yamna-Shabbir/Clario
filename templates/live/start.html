@@ -25,6 +25,9 @@
       <label class="form-label" for="invites">Invite by email</label>
       <textarea id="invites" name="invites" class="form-control" placeholder="one@example.com, two@example.com"></textarea>
       <p class="text-muted stack-sm">Separate addresses with commas or new lines. You can copy the link after the room opens.</p>
+      {% if mail_configured is defined and not mail_configured %}
+      <p class="notice-banner">Invite email is not set up on this server yet. The join link on the next page still works. On Render free, add <code>CLARIO_BREVO_API_KEY</code> — Gmail SMTP ports are blocked there.</p>
+      {% endif %}
     </div>
   <button type="submit" class="btn btn-primary">Create meeting link</button>
   </form>

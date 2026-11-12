@@ -55,6 +55,12 @@ services:
         value: static/graphs
       - key: CLARIO_EMAIL_DIR
         value: data/outbox
+      # Free Render blocks SMTP ports 587 and 465. Paste a Brevo API key here
+      # (Dashboard → Environment) after verifying the sender address in Brevo.
+      - key: CLARIO_BREVO_API_KEY
+        sync: false
+      - key: CLARIO_SMTP_FROM
+        sync: false
       - key: CLARIO_PIPELINE_WORKERS
         value: "1"
       - key: CLARIO_MAX_UPLOAD_MB
