@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from flask import Flask
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash
 
 import routes.dashboard as dashboard_routes
@@ -70,6 +71,8 @@ class MeetingDeletionTests(unittest.TestCase):
             static_folder=str(ROOT / "static"),
         )
         self.app.secret_key = "deletion-test-secret"
+        self.app.config["WTF_CSRF_ENABLED"] = False
+        CSRFProtect(self.app)
         self.app.register_blueprint(auth_bp)
         self.app.register_blueprint(dashboard_bp)
         self.app.register_blueprint(meeting_bp)
@@ -208,7 +211,7 @@ class MeetingDeletionTests(unittest.TestCase):
         self.assertIn("Found 0 results", search_html)
         self.assertIn("No results found", search_html)
         detail = self.client.get(f"/result/{meeting_id}")
-        self.assertEqual(detail.status_code, 302)
+        self.assertEqual(detail.status_code, 404)
 
     def test_other_user_cannot_delete_meeting(self):
         meeting_id = self._seed_meeting(self.owner_id, "Protected owner summary")

@@ -82,6 +82,7 @@
                     <form method="POST"
                           action="{{ url_for('meeting.delete_meeting', meeting_id=m.id) }}"
                           style="display:inline; margin-left:8px;">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                       <button type="submit" class="btn btn-outline btn-sm"
                               onclick="return confirm('Delete this meeting and its transcript, summary, and tasks? This cannot be undone.')">
                         Delete
