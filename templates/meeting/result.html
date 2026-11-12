@@ -19,9 +19,19 @@
     <h1 style="font-size:2.2rem; font-weight:800; margin:0;">
       {{ meeting.title or "Untitled Meeting" }}
     </h1>
-    <button onclick="window.print()" class="btn btn-outline hide-on-print" style="display:flex; align-items:center; gap:8px;">
-      📄 Export to PDF
-    </button>
+    {% if meeting.status in ['queued', 'processing'] %}
+      <span class="badge" style="background:#6366F1; color:#fff; font-size:0.95rem; padding:8px 16px;">
+        ⏳ {{ meeting.status|capitalize }}
+      </span>
+    {% elif meeting.status == 'failed' %}
+      <span class="badge" style="background:#EF4444; color:#fff; font-size:0.95rem; padding:8px 16px;">
+        ❌ Failed
+      </span>
+    {% else %}
+      <button onclick="window.print()" class="btn btn-outline hide-on-print" style="display:flex; align-items:center; gap:8px;">
+        📄 Export to PDF
+      </button>
+    {% endif %}
   </div>
   
   <p class="text-muted" style="margin-bottom:36px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
@@ -30,7 +40,7 @@
       <span style="opacity:0.5;">|</span>
       <span>processed {{ meeting.created_at[:19] }}</span>
     {% endif %}
-    {% if meeting.sentiment %}
+    {% if meeting.sentiment and meeting.status not in ['queued', 'processing', 'failed'] %}
       <span style="opacity:0.5;">|</span>
       {% if meeting.sentiment == 'Positive' %}
         <span style="color:#7CA88B; font-weight:600;">🟢 Positive Vibe</span>
@@ -41,6 +51,65 @@
       {% endif %}
     {% endif %}
   </p>
+
+  {% if meeting.status in ['queued', 'processing'] %}
+  <!-- ── Loading / In-Progress State ────────────────────────── -->
+  <div id="processing-container" class="card" style="padding:56px 32px; text-align:center; margin-bottom:32px;"
+       data-meeting-id="{{ meeting.id }}"
+       data-status="{{ meeting.status }}"
+       data-stage="{{ meeting.progress_stage or 'queued' }}">
+    <div class="logo-loader" style="margin-bottom:24px;">
+      <span class="logo-pulse" style="font-size:3rem; display:inline-block;">🎙️</span>
+    </div>
+    <h2 id="processing-title" style="font-size:1.6rem; font-weight:800; margin-bottom:8px;">
+      Processing Your Meeting...
+    </h2>
+    <p id="processing-stage-text" class="text-muted" style="font-size:1rem; margin-bottom:28px;">
+      {% if meeting.progress_stage == 'transcribing' %}
+        🎙️ Transcribing audio recording (Whisper AI)...
+      {% elif meeting.progress_stage == 'detecting_tasks' %}
+        🔍 Extracting action items and assignees (spaCy)...
+      {% elif meeting.progress_stage == 'summarizing' %}
+        📋 Generating meeting summary (BART AI)...
+      {% elif meeting.progress_stage == 'saving' %}
+        💾 Persisting results to database...
+      {% elif meeting.progress_stage == 'generating_charts' %}
+        📊 Generating knowledge graphs and analytics...
+      {% else %}
+        ⏳ Queued for processing...
+      {% endif %}
+    </p>
+
+    <!-- Progress bar -->
+    <div style="max-width:440px; margin:0 auto 20px; background:rgba(255,255,255,0.08); border-radius:10px; height:8px; overflow:hidden;">
+      <div id="processing-progress-bar" style="height:100%; width:15%; background:var(--primary); transition:width 0.4s ease;"></div>
+    </div>
+    <p class="text-muted" style="font-size:0.85rem;">
+      This page will automatically refresh as soon as processing completes.
+    </p>
+  </div>
+
+  {% elif meeting.status == 'failed' %}
+  <!-- ── Failed State ─────────────────────────────────────── -->
+  <div class="card" style="padding:48px 32px; text-align:center; border-color:rgba(239,68,68,0.4); background:rgba(239,68,68,0.04); margin-bottom:32px;">
+    <div style="font-size:3rem; margin-bottom:16px;">❌</div>
+    <h2 style="font-size:1.6rem; font-weight:800; color:#EF4444; margin-bottom:12px;">
+      Meeting Processing Failed
+    </h2>
+    <p style="color:var(--text); max-width:640px; margin:0 auto 28px; font-size:1rem; line-height:1.6;">
+      {{ meeting.error_message or "An unexpected error occurred during processing." }}
+    </p>
+    <div style="display:flex; justify-content:center; gap:16px; flex-wrap:wrap;">
+      <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary">
+        🔄 Upload Again
+      </a>
+      <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline">
+        Back to Dashboard
+      </a>
+    </div>
+  </div>
+
+  {% else %}
 
   <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px; margin-bottom:32px;">
 
@@ -271,6 +340,7 @@
       Dashboard
     </a>
   </div>
+  {% endif %}
 
   <!-- ── Image Modal / Lightbox ────────────────────────────────── -->
   <div id="image-modal" class="image-modal">

@@ -58,6 +58,7 @@
                 <tr>
                   <th>#</th>
                   <th>Date</th>
+                  <th>Status</th>
                   <th>Summary preview</th>
                   <th>Created</th>
                   <th></th>
@@ -68,6 +69,17 @@
                 <tr>
                   <td><span class="badge badge-purple">{{ m.id }}</span></td>
                   <td>{{ m.meeting_date }}</td>
+                  <td>
+                    {% if m.status == 'queued' %}
+                      <span class="badge" style="background:rgba(99,102,241,0.2); color:#A5B4FC; border:1px solid rgba(99,102,241,0.4);">Queued</span>
+                    {% elif m.status == 'processing' %}
+                      <span class="badge" style="background:rgba(245,158,11,0.2); color:#FCD34D; border:1px solid rgba(245,158,11,0.4);">Processing</span>
+                    {% elif m.status == 'failed' %}
+                      <span class="badge" style="background:rgba(239,68,68,0.2); color:#FCA5A5; border:1px solid rgba(239,68,68,0.4);">Failed</span>
+                    {% else %}
+                      <span class="badge badge-green">Completed</span>
+                    {% endif %}
+                  </td>
                   <td style="max-width:320px; color:var(--muted); font-size:0.88rem;">
                     {{ (m.summary or '')[:120] }}{% if (m.summary or '')|length > 120 %}…{% endif %}
                   </td>

@@ -80,6 +80,9 @@ def init_db(db_path: str = DB_PATH) -> None:
                 status_chart_path   TEXT,
                 platform            TEXT,
                 external_meeting_id TEXT,
+                status              TEXT    NOT NULL DEFAULT 'completed',
+                error_message       TEXT,
+                progress_stage      TEXT,
                 created_at          TEXT    DEFAULT (datetime('now')),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
@@ -157,6 +160,12 @@ def init_db(db_path: str = DB_PATH) -> None:
             conn.execute("ALTER TABLE meetings ADD COLUMN platform TEXT")
         if "external_meeting_id" not in meeting_cols:
             conn.execute("ALTER TABLE meetings ADD COLUMN external_meeting_id TEXT")
+        if "status" not in meeting_cols:
+            conn.execute("ALTER TABLE meetings ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'")
+        if "error_message" not in meeting_cols:
+            conn.execute("ALTER TABLE meetings ADD COLUMN error_message TEXT")
+        if "progress_stage" not in meeting_cols:
+            conn.execute("ALTER TABLE meetings ADD COLUMN progress_stage TEXT")
 
         task_cols = _get_columns("tasks")
         if "assigned_email" not in task_cols:
@@ -220,19 +229,80 @@ def insert_meeting(user_id: int,
                    db_path: str = DB_PATH,
                    *,
                    platform: Optional[str] = None,
-                   external_meeting_id: Optional[str] = None) -> int:
+                   external_meeting_id: Optional[str] = None,
+                   status: str = "completed",
+                   error_message: Optional[str] = None,
+                   progress_stage: Optional[str] = None) -> int:
     """Insert a meeting row and return its id."""
     if not meeting_date:
         meeting_date = datetime.now().strftime("%Y-%m-%d")
     with get_connection(db_path) as conn:
         cur = conn.execute(
             """INSERT INTO meetings 
-               (user_id, title, sentiment, meeting_date, audio_filename, platform, external_meeting_id) 
-               VALUES (?,?,?,?,?,?,?)""",
-            (user_id, title, sentiment, meeting_date, audio_filename, platform, external_meeting_id),
+               (user_id, title, sentiment, meeting_date, audio_filename, platform, external_meeting_id, status, error_message, progress_stage) 
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (user_id, title, sentiment, meeting_date, audio_filename, platform, external_meeting_id, status, error_message, progress_stage),
         )
         conn.commit()
         return cur.lastrowid
+
+
+def update_meeting_status(meeting_id: int, status: str,
+                          error_message: Optional[str] = None,
+                          progress_stage: Optional[str] = None,
+                          db_path: str = DB_PATH) -> None:
+    """Update meeting status, error_message, and optional progress_stage."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """UPDATE meetings 
+               SET status = ?, 
+                   error_message = ?, 
+                   progress_stage = COALESCE(?, progress_stage) 
+               WHERE id = ?""",
+            (status, error_message, progress_stage, meeting_id),
+        )
+        conn.commit()
+
+
+def update_meeting_progress(meeting_id: int, progress_stage: str,
+                            db_path: str = DB_PATH) -> None:
+    """Update meeting progress_stage."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "UPDATE meetings SET progress_stage = ? WHERE id = ?",
+            (progress_stage, meeting_id),
+        )
+        conn.commit()
+
+
+def get_meeting_status(meeting_id: int, user_id: int,
+                       db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
+    """Return status, stage, error for a meeting owned by user_id, or None if not found/unauthorized."""
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT status, progress_stage, error_message FROM meetings WHERE id = ? AND user_id = ?",
+            (meeting_id, user_id),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "status": row["status"] or "completed",
+            "stage": row["progress_stage"],
+            "error": row["error_message"],
+        }
+
+
+def fail_interrupted_meetings(db_path: str = DB_PATH) -> int:
+    """Mark any meetings stuck in 'queued' or 'processing' as failed on startup."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """UPDATE meetings 
+               SET status = 'failed', 
+                   error_message = 'Interrupted by server restart'
+               WHERE status IN ('queued', 'processing')"""
+        )
+        conn.commit()
+        return cur.rowcount
 
 
 def set_meeting_graphs(meeting_id: int, graph_path: str,
@@ -268,6 +338,9 @@ def get_meetings_by_user(user_id: int,
                     m.bar_chart_path,
                     m.donut_chart_path,
                     m.status_chart_path,
+                    m.status,
+                    m.error_message,
+                    m.progress_stage,
                     m.created_at,
                     t.content  AS transcript,
                     s.content  AS summary,

@@ -153,3 +153,27 @@
 
 **False Negatives:** none
 
+
+---
+## Eval run 2026-11-12 17:33
+
+### dev (20) split  (P=1.000, R=1.000, F1=1.000)
+
+| TP | FP | FN | TN |
+|----|----|----|----|
+| 11 | 0 | 0 | 9 |
+
+**False Positives:** none
+
+**False Negatives:** none
+
+### held-out (10) split  (P=1.000, R=1.000, F1=1.000)
+
+| TP | FP | FN | TN |
+|----|----|----|----|
+| 6 | 0 | 0 | 4 |
+
+**False Positives:** none
+
+**False Negatives:** none
+

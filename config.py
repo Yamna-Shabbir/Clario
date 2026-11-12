@@ -63,6 +63,10 @@ SUMMARY_CHUNK_TOKENS    = int(_env("CLARIO_SUMMARY_CHUNK_TOKENS",    "700"))
 # Preserved for backward compatibility, but summarization now uses token-aware chunking.
 SUMMARY_MAX_INPUT_CHARS = int(_env("CLARIO_SUMMARY_MAX_INPUT_CHARS", "1000"))
 
+# ── Pipeline & Worker settings ───────────────────────────────────────────────
+CLARIO_PIPELINE_WORKERS = int(_env("CLARIO_PIPELINE_WORKERS", "1"))
+CLARIO_SYNC_JOBS        = _env("CLARIO_SYNC_JOBS", "False").lower() in ("1", "true", "yes")
+
 # ── Flask settings ─────────────────────────────────────────────────────────────
 # DEBUG defaults to False for safety.
 # Set CLARIO_DEBUG=True in your .env file for local development.

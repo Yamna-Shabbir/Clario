@@ -21,7 +21,7 @@ import pathlib
 from uuid import uuid4
 from werkzeug.utils import secure_filename
 from flask import (
-    Blueprint, abort, flash, redirect, render_template,
+    Blueprint, abort, flash, jsonify, redirect, render_template,
     request, session, url_for,
 )
 
@@ -150,13 +150,15 @@ def upload():
             )
             return render_template("meeting/upload.html", user=current_user())
 
-        # ── Initialise DB + create meeting row ─────────────────────────────────
+        # ── Initialise DB + create meeting row (queued) ────────────────────────
         init_db(DB_PATH)
         meeting_id = insert_meeting(
             user_id        = user_id,
             title          = meeting_title,
             audio_filename = audio_name,
             db_path        = DB_PATH,
+            status         = "queued",
+            progress_stage = "queued",
         )
 
         # ── Check for prefilled participants from platform import ──────────────
@@ -170,29 +172,37 @@ def upload():
             if prefill_platform and prefill_external_id:
                 update_meeting_platform(meeting_id, prefill_platform, prefill_external_id, DB_PATH)
 
-        # ── Run AI pipeline ────────────────────────────────────────────────────
-        try:
-            results = run_clario_pipeline(
-                audio_path   = audio_path,
-                text_input   = text_input or None,
-                meeting_id   = meeting_id,
-                user_id      = user_id,
-                db_path      = DB_PATH,
-                graph_dir    = GRAPH_DIR,
-                participants = prefill_participants,
-            )
-        except Exception as exc:
-            flash(f"Pipeline error: {exc}", "error")
-            return render_template("meeting/upload.html", user=current_user())
+        # ── Submit background AI pipeline job ──────────────────────────────────
+        from services.jobs import submit_pipeline_job
+        submit_pipeline_job(
+            meeting_id   = meeting_id,
+            user_id      = user_id,
+            audio_path   = audio_path,
+            text_input   = text_input or None,
+            db_path      = DB_PATH,
+            graph_dir    = GRAPH_DIR,
+            participants = prefill_participants,
+        )
 
-        if not results:
-            flash("Pipeline returned no output. Check your input.", "error")
-            return render_template("meeting/upload.html", user=current_user())
-
-        flash("Meeting processed successfully! 🎉", "success")
         return redirect(url_for("meeting.result", meeting_id=meeting_id))
 
     return render_template("meeting/upload.html", user=current_user())
+
+
+# ── Status (polling) ───────────────────────────────────────────────────────────
+@meeting_bp.route("/meeting/<int:meeting_id>/status", methods=["GET"])
+@login_required
+def meeting_status(meeting_id: int):
+    """
+    Return JSON {status, stage, error} for a meeting.
+    Enforces user ownership: aborts 404 if not found or unauthorized.
+    """
+    user_id = session["user_id"]
+    from models.database import get_meeting_status
+    status_info = get_meeting_status(meeting_id, user_id, DB_PATH)
+    if not status_info:
+        abort(404)
+    return jsonify(status_info)
 
 
 # ── Result ─────────────────────────────────────────────────────────────────────

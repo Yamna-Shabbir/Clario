@@ -170,6 +170,7 @@ Clario/
 │
 ├── services/
 │   ├── __init__.py         # Intentionally empty (no eager ML imports)
+│   ├── jobs.py             # ThreadPoolExecutor background pipeline job runner & hooks
 │   ├── pipeline.py         # run_clario_pipeline() — orchestrates all steps
 │   ├── transcription.py    # Whisper load/transcribe
 │   ├── summarization.py    # BART load/summarize
@@ -225,65 +226,77 @@ Browser  POST /upload  (multipart/form-data)
 routes/meeting.py  upload()
   1. Sanitise filename with secure_filename(); validate extension against ALLOWED_AUDIO
   2. Save file to uploads/u{user_id}_{uuid4().hex}{ext} (original name kept in DB)
-  3. insert_meeting()  → meeting row in DB (returns meeting_id)
-  4. run_clario_pipeline(audio_path, text_input, meeting_id, ...)
+  3. insert_meeting()  → meeting row in DB with status='queued' (returns meeting_id)
+  4. submit_pipeline_job(...)  → non-blocking submission to ThreadPoolExecutor (services/jobs.py)
+  5. redirect immediately to GET /result/<meeting_id>
         │
-        ├─ 1. TRANSCRIPTION
+        ▼ (in background thread pool)
+services/jobs.py  _run_pipeline_job()
+  1. update_meeting_status(meeting_id, status='processing', progress_stage=...)
+  2. run_clario_pipeline(audio_path, text_input, meeting_id, ..., progress_callback=...)
+        │
+        ├─ 1. TRANSCRIPTION (stage: "transcribing")
         │      transcribe_audio(audio_path, model=_get_whisper())
-        │      → whisper.load_model("tiny.en") [lazy, cached globally]
+        │      → whisper.load_model("tiny.en") [lazy, cached globally, thread-safe]
         │      → model.transcribe(audio_path) → {"text": "..."}
         │      → FFmpeg auto-resolved via imageio-ffmpeg if not found on system PATH
         │
-        ├─ 2. TASK DETECTION
+        ├─ 2. TASK DETECTION (stage: "detecting_tasks")
         │      detect_tasks(transcript, nlp_model=_get_nlp())
-        │      → spacy.load("en_core_web_sm") [lazy, cached globally]
+        │      → spacy.load("en_core_web_sm") [lazy, cached globally, thread-safe]
         │      → sentence segmentation via spaCy
-        │      → regex keyword matching (TASK_KEYWORDS list)
+        │      → regex keyword matching (TASK_KEYWORDS list) with verb POS validation
         │      → NER for PERSON (assignee) and DATE/TIME (due date)
         │      → priority via PRIORITY_KEYWORDS + day-proximity heuristic
         │
-        ├─ 3. SUMMARISATION
+        ├─ 3. SUMMARISATION (stage: "summarizing")
         │      summarize_text(transcript, summariser=_get_summariser())
         │      → AutoTokenizer + AutoModelForSeq2SeqLM.from_pretrained(bart)
-        │        [lazy, cached globally]
+        │        [lazy, cached globally, thread-safe]
         │      → Token-aware chunking: sentence-boundary chunks <= CLARIO_SUMMARY_CHUNK_TOKENS
         │        (default 700 tokens) with 2-sentence overlap
         │      → Map: summarize each chunk (num_beams=4, early_stopping=True)
         │      → Reduce: join partials; re-summarize if > chunk limit (max 3 levels)
-        │      → Short transcripts (<=30 tokens) returned as-is; single-chunk = one pass
-        │      → SUMMARY_MAX_INPUT_CHARS is DEPRECATED - full transcript always processed
+        │      → Extractive summarization fallback when model is unavailable or OOM
         │      → smart_merge(): append tasks not in summary (post map-reduce)
         │
-        ├─ 4. SENTIMENT (TextBlob)
-        │      TextBlob(transcript).sentiment.polarity
-        │      → "Positive" > 0.15 | "Tense" < -0.05 | "Neutral"
-        │
-        ├─ 5. DB PERSIST
+        ├─ 4. DB PERSIST (stage: "saving")
         │      insert_transcript(meeting_id, transcript)
         │      insert_summary(meeting_id, summary)
         │      insert_tasks(meeting_id, tasks)
         │      update_meeting_sentiment(meeting_id, vibe)
         │
-        └─ 6. GRAPH & CHART GENERATION
+        └─ 5. GRAPH & CHART GENERATION (stage: "generating_charts")
                build_knowledge_graph(tasks) → static/graphs/graph_m{id}.png
                generate_assignee_bar_chart() → static/graphs/bar_m{id}.png
                generate_priority_donut_chart() → static/graphs/donut_m{id}.png
                generate_status_pie_chart() → static/graphs/status_m{id}.png
                set_meeting_graphs(meeting_id, paths...)
+  3. update_meeting_status(meeting_id, status='completed', progress_stage='completed')
+  4. Run post-completion hooks (email notifications, etc.)
+  5. On error: update_meeting_status(meeting_id, status='failed', error_message=...)
   │
   ▼
-redirect  GET /result/<meeting_id>
+Browser  GET /result/<meeting_id>
   │
-  ▼
-routes/meeting.py  result()
-  get_meeting_detail(meeting_id, user_id)   ← ownership enforced (AND m.user_id=?)
-  get_tasks_by_meeting(meeting_id)
-  render_template("meeting/result.html", ...)
+  ├─ If status == 'queued' | 'processing':
+  │    Render loading UI; JS polls GET /meeting/<id>/status every 2 seconds
+  │    When completed: window.location.reload() renders final results
+  │    When failed: display error message with link to upload again
+  │
+  ├─ If status == 'failed':
+  │    Render failure UI with error message and 'Upload Again' button
+  │
+  └─ If status == 'completed':
+       get_meeting_detail(meeting_id, user_id)   ← ownership enforced (AND m.user_id=?)
+       get_tasks_by_meeting(meeting_id)
+       render_template("meeting/result.html", ...)
 ```
 
-> **Blocking pipeline**: The entire pipeline runs synchronously inside the HTTP
-> request. For large audio files this means multi-minute request times. The
-> upload page shows a JS fake-progress spinner to mask the latency.
+> **Asynchronous pipeline**: File uploads insert the meeting row with `status='queued'`,
+> dispatch the heavy AI processing to an in-process `ThreadPoolExecutor` worker pool
+> (`services/jobs.py`), and immediately redirect the user to `/result/<meeting_id>`. The
+> browser polls `/meeting/<id>/status` every 2s for live stage-driven progress updates.
 
 ---
 
@@ -439,9 +452,14 @@ meeting_participants                  (many-to-1 with meetings)
    `flask_app.config["WTF_CSRF_ENABLED"] = False`; use a separate `csrf_app`
    fixture when testing CSRF enforcement specifically.
 
-9. **The pipeline is synchronous / blocking.** Do not introduce `time.sleep()`
-   or busy-waits as a workaround. Any long-running work should be moved to a
-   task queue (Celery, RQ) with a proper async result endpoint.
+9. **Asynchronous background-thread design.** AI pipeline execution is non-blocking,
+   managed by an in-process `ThreadPoolExecutor` worker pool (`services/jobs.py`,
+   `CLARIO_PIPELINE_WORKERS=1` by default). State transitions follow
+   `queued` -> `processing` -> `completed` / `failed` in the database.
+   For testing, setting `CLARIO_SYNC_JOBS=True` runs jobs synchronously inline.
+   Do not introduce `time.sleep()` or busy-waits. For production scaling across
+   multiple server instances, this thread pool design is architected to transition
+   seamlessly to distributed task queues (Celery or RQ with Redis).
 
 10. **`SECRET_KEY` must come from the environment in production.** `config.py`
     raises a `RuntimeError` on startup if `CLARIO_SECRET_KEY` is unset and

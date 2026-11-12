@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ── Upload form — show spinner & percentage on submit ───────────────────────
+  // ── Upload form — show upload indicator on submit ─────────────────────────
   const uploadForm = document.getElementById('upload-form');
   const submitBtn  = document.getElementById('upload-submit-btn');
   const spinnerEl  = document.getElementById('upload-spinner');
@@ -96,41 +96,62 @@ document.addEventListener('DOMContentLoaded', () => {
       cards.forEach(c => c.style.display = 'none');
       
       if (spinnerEl) spinnerEl.style.display = 'block';
-
-      let progress = 0;
-      
-      // Simulated intelligent loading progression
-      const interval = setInterval(() => {
-        // Fast upload phase (0 to 15%)
-        if (progress < 15) {
-          progress += Math.floor(Math.random() * 4) + 2;
-          if (statusEl) statusEl.textContent = 'Uploading audio file...';
-        }
-        // AI Transcription phase (15% to 55%)
-        else if (progress < 55) {
-          progress += Math.floor(Math.random() * 3) + 1;
-          if (statusEl) statusEl.textContent = 'Whisper AI is transcribing audio...';
-        }
-        // Summarization phase (55% to 80%)
-        else if (progress < 80) {
-          progress += Math.floor(Math.random() * 2) + 1;
-          if (statusEl) statusEl.textContent = 'BART AI is generating summary...';
-        }
-        // Task extraction & graph phase (80% to 95%)
-        else if (progress < 95) {
-          progress += 1;
-          if (statusEl) statusEl.textContent = 'Extracting tasks & building graphs...';
-        }
-        // Cap at 95% until server actually responds and page reloads
-        else {
-          progress = 95;
-          if (statusEl) statusEl.textContent = 'Finalizing business analytics...';
-        }
-
-        if (pctEl) pctEl.textContent = progress + '%';
-
-      }, 800); // Update every 800ms
+      if (pctEl) pctEl.textContent = '🚀';
+      if (statusEl) statusEl.textContent = 'Uploading meeting to server...';
     });
+  }
+
+  // ── Stage-driven Progress Poller for meeting results ───────────────────────
+  const STAGE_CONFIG = {
+    'queued':            { pct: 15, text: '⏳ Queued for processing...' },
+    'transcribing':      { pct: 35, text: '🎙️ Transcribing audio recording (Whisper AI)...' },
+    'detecting_tasks':   { pct: 55, text: '🔍 Extracting action items and assignees (spaCy)...' },
+    'summarizing':       { pct: 75, text: '📋 Generating meeting summary (BART AI)...' },
+    'saving':            { pct: 85, text: '💾 Persisting results to database...' },
+    'generating_charts': { pct: 95, text: '📊 Generating knowledge graphs and analytics...' },
+    'completed':         { pct: 100, text: '✅ Completed! Loading results...' },
+    'failed':            { pct: 100, text: '❌ Failed' }
+  };
+
+  const statusContainer = document.getElementById('processing-container');
+  if (statusContainer) {
+    const meetingId = statusContainer.getAttribute('data-meeting-id');
+    const stageText = document.getElementById('processing-stage-text');
+    const progressBar = document.getElementById('processing-progress-bar');
+
+    if (meetingId) {
+      const pollTimer = setInterval(() => {
+        fetch(`/meeting/${encodeURIComponent(meetingId)}/status`)
+          .then(res => {
+            if (res.status === 404) {
+              clearInterval(pollTimer);
+              return null;
+            }
+            return res.json();
+          })
+          .then(data => {
+            if (!data) return;
+
+            if (data.status === 'completed') {
+              clearInterval(pollTimer);
+              if (progressBar) progressBar.style.width = '100%';
+              if (stageText) stageText.textContent = '✅ Completed! Loading results...';
+              window.location.reload();
+            } else if (data.status === 'failed') {
+              clearInterval(pollTimer);
+              window.location.reload();
+            } else {
+              const stageKey = data.stage || data.status;
+              const cfg = STAGE_CONFIG[stageKey] || { pct: 20, text: 'Processing...' };
+              if (progressBar) progressBar.style.width = cfg.pct + '%';
+              if (stageText) stageText.textContent = cfg.text;
+            }
+          })
+          .catch(err => {
+            console.warn('Status poll warning:', err);
+          });
+      }, 2000);
+    }
   }
 
   // ── Auto-dismiss flash messages ─────────────────────────────────────────────

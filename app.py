@@ -93,9 +93,10 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     # Sessions expire after 7 days of inactivity
     app.permanent_session_lifetime = timedelta(days=7)
 
-    # ── Initialise database ────────────────────────────────────────────────────
-    from models.database import init_db
+    # ── Initialise database & recover interrupted jobs ─────────────────────────
+    from models.database import init_db, fail_interrupted_meetings
     init_db(_db_path)
+    fail_interrupted_meetings(_db_path)
 
     # ── Register blueprints ────────────────────────────────────────────────────
     from routes.auth         import auth_bp

@@ -19,7 +19,7 @@ Public API
 import os
 import threading
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from config import (
     DB_PATH, GRAPH_DIR,
@@ -33,7 +33,9 @@ import pathlib
 _whisper_model    = None
 _whisper_lock     = threading.Lock()
 _summariser       = None
+_summariser_lock  = threading.Lock()
 _nlp              = None
+_nlp_lock         = threading.Lock()
 
 
 def _get_whisper():
@@ -49,16 +51,20 @@ def _get_whisper():
 def _get_summariser():
     global _summariser
     if _summariser is None:
-        from services.summarization import load_summarizer
-        _summariser = load_summarizer(BART_MODEL)
+        with _summariser_lock:
+            if _summariser is None:
+                from services.summarization import load_summarizer
+                _summariser = load_summarizer(BART_MODEL)
     return _summariser
 
 
 def _get_nlp():
     global _nlp
     if _nlp is None:
-        from services.task_detection import load_nlp
-        _nlp = load_nlp(SPACY_MODEL)
+        with _nlp_lock:
+            if _nlp is None:
+                from services.task_detection import load_nlp
+                _nlp = load_nlp(SPACY_MODEL)
     return _nlp
 
 
@@ -73,6 +79,7 @@ def run_clario_pipeline(
     graph_dir:  str            = GRAPH_DIR,
     *,
     participants: Optional[List[Dict[str, Any]]] = None,
+    progress_callback: Optional[Callable[[str], None]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Run the full Clario AI pipeline and persist results.
@@ -108,6 +115,8 @@ def run_clario_pipeline(
     from services.task_detection import detect_tasks
 
     # ── 1. Transcription ───────────────────────────────────────────────────────
+    if progress_callback:
+        progress_callback("transcribing")
     if audio_path and os.path.exists(audio_path):
         print(" Transcribing audio …")
         try:
@@ -138,6 +147,8 @@ def run_clario_pipeline(
     print(f" Transcript length: {len(transcript)} chars")
 
     # ── 2. Task detection ──────────────────────────────────────────────────────
+    if progress_callback:
+        progress_callback("detecting_tasks")
     print(" Detecting tasks …")
     try:
         tasks = detect_tasks(transcript, nlp_model=_get_nlp(), participants=participants)
@@ -148,6 +159,8 @@ def run_clario_pipeline(
     print(f" {len(tasks)} task(s) detected")
 
     # ── 3. Summarisation ───────────────────────────────────────────────────────
+    if progress_callback:
+        progress_callback("summarizing")
     print(" Summarising …")
     try:
         from services.summarization import smart_merge
@@ -173,6 +186,8 @@ def run_clario_pipeline(
     print(f" Summary length: {len(summary)} chars")
 
     # ── 4. Persist to DB ───────────────────────────────────────────────────────
+    if progress_callback:
+        progress_callback("saving")
     graph_path = ""
     vibe = "Neutral"
     if meeting_id is not None:
@@ -201,6 +216,8 @@ def run_clario_pipeline(
             print(f"️  DB save failed: {exc}")
 
         # ── 5. Analytics & Graphs ──────────────────────────────────────────────
+        if progress_callback:
+            progress_callback("generating_charts")
         try:
             from utils.visualization import (
                 build_knowledge_graph,

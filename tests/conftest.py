@@ -99,6 +99,13 @@ def patch_nlp(real_nlp):
         yield real_nlp
 
 
+@pytest.fixture(autouse=True)
+def patch_sync_jobs(monkeypatch):
+    """Ensure pipeline jobs execute synchronously in tests by default."""
+    monkeypatch.setattr("config.CLARIO_SYNC_JOBS", True)
+    monkeypatch.setattr("services.jobs.CLARIO_SYNC_JOBS", True)
+
+
 # ---------------------------------------------------------------------------
 # Also patch visualization so tests don't write PNGs to static/graphs/
 # ---------------------------------------------------------------------------

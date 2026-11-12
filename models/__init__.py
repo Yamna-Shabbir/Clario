@@ -18,6 +18,10 @@ from models.database import (
     set_meeting_graphs,
     get_meetings_by_user,
     get_meeting_detail,
+    update_meeting_status,
+    update_meeting_progress,
+    get_meeting_status,
+    fail_interrupted_meetings,
 
     # Transcripts
     insert_transcript,
@@ -50,6 +54,8 @@ __all__ = [
     "email_exists", "username_exists",
     "insert_meeting", "set_meeting_graphs",
     "get_meetings_by_user", "get_meeting_detail",
+    "update_meeting_status", "update_meeting_progress",
+    "get_meeting_status", "fail_interrupted_meetings",
     "insert_transcript",
     "insert_summary",
     "insert_tasks", "get_tasks_by_meeting",
