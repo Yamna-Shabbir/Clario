@@ -98,26 +98,29 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     init_db(_db_path)
 
     # ── Register blueprints ────────────────────────────────────────────────────
-    from routes.auth      import auth_bp
-    from routes.dashboard import dashboard_bp
-    from routes.meeting   import meeting_bp
-    from routes.search    import search_bp
+    from routes.auth         import auth_bp
+    from routes.dashboard    import dashboard_bp
+    from routes.meeting      import meeting_bp
+    from routes.search       import search_bp
+    from routes.integrations import integrations_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(meeting_bp)
     app.register_blueprint(search_bp)
+    app.register_blueprint(integrations_bp)
 
     # ── Patch blueprint-local bindings AFTER blueprints are imported ───────────
     # Routes use `from config import DB_PATH` which binds the name in each
     # module's own namespace.  We must patch those names, not config.DB_PATH.
     if test_config:
-        import routes.auth      as _r_auth
-        import routes.dashboard as _r_dash
-        import routes.meeting   as _r_meet
-        import routes.search    as _r_search
+        import routes.auth         as _r_auth
+        import routes.dashboard    as _r_dash
+        import routes.meeting      as _r_meet
+        import routes.search       as _r_search
+        import routes.integrations as _r_integ
 
-        for _mod in (_r_auth, _r_dash, _r_meet, _r_search):
+        for _mod in (_r_auth, _r_dash, _r_meet, _r_search, _r_integ):
             if hasattr(_mod, "DB_PATH"):
                 setattr(_mod, "DB_PATH", _db_path)
 

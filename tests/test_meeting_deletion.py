@@ -11,6 +11,7 @@ from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash
 
 import routes.dashboard as dashboard_routes
+import routes.integrations as integrations_routes
 import routes.meeting as meeting_routes
 import routes.search as search_routes
 from models.database import (
@@ -27,6 +28,7 @@ from models.database import (
 )
 from routes.auth import auth_bp
 from routes.dashboard import dashboard_bp
+from routes.integrations import integrations_bp
 from routes.meeting import meeting_bp
 from routes.search import search_bp
 
@@ -49,12 +51,14 @@ class MeetingDeletionTests(unittest.TestCase):
             "meeting_upload": meeting_routes.UPLOAD_DIR,
             "meeting_graphs": meeting_routes.STATIC_GRAPHS_DIR,
             "dashboard_db": dashboard_routes.DB_PATH,
+            "integrations_db": integrations_routes.DB_PATH,
             "search_db": search_routes.DB_PATH,
         }
         meeting_routes.DB_PATH = self.db_path
         meeting_routes.UPLOAD_DIR = self.upload_dir
         meeting_routes.STATIC_GRAPHS_DIR = self.graph_dir
         dashboard_routes.DB_PATH = self.db_path
+        integrations_routes.DB_PATH = self.db_path
         search_routes.DB_PATH = self.db_path
 
         init_db(self.db_path)
@@ -75,6 +79,7 @@ class MeetingDeletionTests(unittest.TestCase):
         CSRFProtect(self.app)
         self.app.register_blueprint(auth_bp)
         self.app.register_blueprint(dashboard_bp)
+        self.app.register_blueprint(integrations_bp)
         self.app.register_blueprint(meeting_bp)
         self.app.register_blueprint(search_bp)
         self.client = self.app.test_client()
@@ -84,6 +89,7 @@ class MeetingDeletionTests(unittest.TestCase):
         meeting_routes.UPLOAD_DIR = self._saved["meeting_upload"]
         meeting_routes.STATIC_GRAPHS_DIR = self._saved["meeting_graphs"]
         dashboard_routes.DB_PATH = self._saved["dashboard_db"]
+        integrations_routes.DB_PATH = self._saved["integrations_db"]
         search_routes.DB_PATH = self._saved["search_db"]
         gc.collect()
         self.tmp.cleanup()

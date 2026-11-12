@@ -139,6 +139,7 @@ Clario/
 │   ├── test_security.py    # Security tests: open redirect, 413, UUID files, CSRF, IDOR, XSS
 │   ├── test_summarization.py # Unit tests for map-reduce summarization (FakeModel/FakeTokenizer)
 │   └── test_integrations_foundations.py # Fernet crypto & OAuth/participants migration tests
+│   └── test_integrations_google_oauth.py # Google OAuth connect/disconnect flow tests (all HTTP mocked)
 │
 ├── .github/
 │   └── workflows/ci.yml    # GitHub Actions: Python 3.10, core deps, pytest
@@ -162,6 +163,7 @@ Clario/
 │   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
 │   ├── search.py           # Blueprint: /search
 │   └── utils.py            # @login_required decorator + current_user()
+│   └── integrations.py     # Blueprint: /integrations, /integrations/google/connect|callback|disconnect
 │
 ├── services/
 │   ├── __init__.py         # Intentionally empty (no eager ML imports)
@@ -170,9 +172,12 @@ Clario/
 │   ├── summarization.py    # BART load/summarize
 │   ├── task_detection.py   # spaCy + regex task extractor
 │   ├── evaluation.py       # ROUGE + F1 offline evaluation utilities
-│   └── integrations/       # Platform integrations
-│       ├── __init__.py     # Re-exports integration crypto helpers
-│       └── crypto.py       # Fernet token encryption/decryption at rest
+│   └── integrations/           # Platform integrations (Google Meet OAuth, etc.)
+│       ├── __init__.py         # Re-exports all integration symbols
+│       ├── base.py             # Exception classes (IntegrationError, NotConnected,
+│       │                       #   TokenRevoked, RateLimited, ApiError)
+│       ├── crypto.py           # Fernet token encryption/decryption at rest
+│       └── google_meet.py      # Google OAuth 2.0 auth flow + get_valid_access_token
 │
 ├── utils/
 │   ├── __init__.py         # Re-exports helpers + visualization functions
@@ -199,6 +204,8 @@ Clario/
     └── meeting/
         ├── upload.html     # Upload form (audio file or pasted transcript)
         └── result.html     # Meeting detail: transcript, summary, tasks, graphs
+    └── integrations/
+        └── index.html      # Integration status page (Connect/Disconnect Google Meet)
 ```
 
 ---
@@ -365,8 +372,10 @@ meeting_participants                  (many-to-1 with meetings)
   the context-manager style.
 - **Ownership enforcement** — every query that fetches meeting-scoped data
   includes `AND m.user_id = ?` with the session user ID.
-- **Blueprint-per-concern** — `auth`, `dashboard`, `meeting`, `search` each
+- **Blueprint-per-concern** — `auth`, `dashboard`, `meeting`, `search`, `integrations` each
   live in their own file and register on the Flask app in `create_app()`.
+  When adding a new blueprint with a manual test app (as in `test_meeting_deletion.py`),
+  register `integrations_bp` in that app too so `base.html`'s `url_for('integrations.index')` resolves.
 - **Config via `config.py`** — all paths, model names, and tunable constants
   live in one file; each can be overridden via an environment variable.
   `config.py` calls `load_dotenv()` at import time so `.env` is always loaded.

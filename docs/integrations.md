@@ -98,3 +98,63 @@ Paste the resulting output string into `CLARIO_TOKEN_ENCRYPTION_KEY` in `.env`.
   - OAuth `access_token` and `refresh_token` are symmetrically encrypted with Fernet (`AES-128-CBC` with `HMAC-SHA256`) using `services/integrations/crypto.py` before insertion into SQLite (`access_token_enc`, `refresh_token_enc`).
   - Raw tokens, keys, and ciphertexts are never logged.
   - If `CLARIO_TOKEN_ENCRYPTION_KEY` is missing or invalid, cryptographic operations fail safely with generic, secret-free error messages.
+
+---
+
+## 7. OAuth Flow Routes
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `GET`  | `/integrations` | Required | Status page — shows connected/disconnected badge, scope list, Connect/Disconnect buttons |
+| `GET`  | `/integrations/google/connect` | Required | Generates a random `state` token (stored in session), redirects to Google's authorization server |
+| `GET`  | `/integrations/google/callback` | Required | Validates `state` (constant-time), handles `error=access_denied` and other Google errors, exchanges `code` for tokens, encrypts and stores them |
+| `POST` | `/integrations/google/disconnect` | Required + CSRF | Best-effort token revocation at Google, then deletes the `oauth_connections` row |
+
+### Anti-forgery State
+
+`state` is a `secrets.token_urlsafe(32)` value stored in `session["google_oauth_state"]`. The callback compares received vs. stored with `secrets.compare_digest` and rejects any mismatch or missing state to prevent CSRF in the OAuth flow.
+
+### Error handling in callback
+
+| Condition | Action |
+|-----------|--------|
+| `error=access_denied` | Flash "cancelled or denied", redirect to `/integrations` |
+| Any other `error` | Flash message includes the error code |
+| State missing/mismatch | Flash "Invalid or expired OAuth state" |
+| No `code` param | Flash "Authorization code missing" |
+| Google returns 400 on token exchange | Flash "Could not complete Google authorization" |
+| `invalid_grant` on refresh | Delete connection row, raise `TokenRevoked` |
+
+---
+
+## 8. `get_valid_access_token(user_id, db_path)` Helper
+
+Located in `services/integrations/google_meet.py`. Used by any code that needs to call a Google API on behalf of a user.
+
+- Returns a **valid, decrypted** access token (automatically refreshes if expired within 5 minutes).
+- Raises `NotConnected` if the user has no stored connection.
+- Raises `TokenRevoked` on `invalid_grant` (also deletes the stale row — user must reconnect).
+- Raises `RateLimited` or `ApiError` for HTTP 429 or other network/API failures.
+
+---
+
+## 9. Manual Test Steps (Real Google Account)
+
+1. Set in `.env`:
+   ```
+   CLARIO_GOOGLE_CLIENT_ID=<your-client-id>
+   CLARIO_GOOGLE_CLIENT_SECRET=<your-client-secret>
+   CLARIO_OAUTH_REDIRECT_BASE=http://127.0.0.1:5000
+   CLARIO_TOKEN_ENCRYPTION_KEY=<generated Fernet key>
+   ```
+2. Add your Google account email as a **Test User** in GCP console → OAuth consent screen → Test users.
+3. Run: `python app.py`
+4. Register/log in to Clario, navigate to **Integrations** (navbar).
+5. Click **Connect Google Meet →** — you are redirected to Google's consent screen.
+6. Grant permissions — you are redirected back to `/integrations` with a flash "Google Meet connected successfully! 🎉"
+7. Verify the page shows a **Connected** badge, your connection timestamp, and the granted scope list.
+8. Click **Disconnect** and confirm — flash "Google Meet disconnected successfully." and status returns to Not Connected.
+
+> [!NOTE]
+> Refresh tokens expire after ~7 days in Testing publishing status. If `get_valid_access_token` raises `TokenRevoked`, the user will need to reconnect.
+
