@@ -1,0 +1,91 @@
+# Render Blueprint — STANDARD (paid) configuration.
+# Kept separately from the free Blueprint. Applying this file WILL use a paid
+# compute plan and a persistent disk and can incur charges.
+#
+# Do NOT rename this to render.yaml unless you intentionally want paid hosting.
+# Default free deploy uses render.yaml (plan: free, no disk).
+#
+# To use later (only after you accept billing):
+#   1. Copy or rename this file to render.yaml, or select it in the dashboard.
+#   2. Confirm plan is Standard (1c-2g legacy "standard") and disk is attached.
+#   3. Set sync:false secrets in the dashboard.
+
+services:
+  - type: web
+    name: clario
+    runtime: python
+    plan: standard
+    region: oregon
+    branch: dev
+    buildCommand: bash build.sh
+    startCommand: >-
+      gunicorn "app:create_app()"
+      --bind 0.0.0.0:$PORT
+      --workers 1
+      --threads 4
+      --timeout 300
+      --access-logfile -
+      --error-logfile -
+    healthCheckPath: /health
+    autoDeploy: false
+    disk:
+      name: clario-data
+      mountPath: /var/data
+      sizeGB: 20
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: CLARIO_DEBUG
+        value: "False"
+      - key: CLARIO_SECRET_KEY
+        generateValue: true
+      - key: CLARIO_FREE_TIER
+        value: "False"
+      - key: CLARIO_DATA_DIR
+        value: /var/data
+      - key: CLARIO_DB_PATH
+        value: /var/data/database/clario.db
+      - key: CLARIO_UPLOAD_DIR
+        value: /var/data/uploads
+      - key: CLARIO_HF_MODELS_DIR
+        value: /var/data/hf-models
+      - key: CLARIO_GRAPH_DIR
+        value: /var/data/graphs
+      - key: CLARIO_STATIC_GRAPH_DIR
+        value: /var/data/graphs
+      - key: CLARIO_EMAIL_DIR
+        value: /var/data/outbox
+      - key: CLARIO_WHISPER_MODEL
+        value: Loudness-ai/urdu-sukhan-asr-v1
+      - key: CLARIO_WHISPER_FALLBACK
+        value: small
+      - key: CLARIO_BART_MODEL
+        value: sshleifer/distilbart-cnn-12-6
+      - key: CLARIO_PIPELINE_WORKERS
+        value: "1"
+      - key: CLARIO_MAX_UPLOAD_MB
+        value: "100"
+      - key: CLARIO_ENABLE_TEXT_TRANSLATION
+        value: "True"
+      - key: HF_HUB_DISABLE_XET
+        value: "1"
+      - key: CLARIO_OAUTH_REDIRECT_BASE
+        sync: false
+      - key: CLARIO_GOOGLE_CLIENT_ID
+        sync: false
+      - key: CLARIO_GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: CLARIO_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: CLARIO_SMTP_HOST
+        sync: false
+      - key: CLARIO_SMTP_PORT
+        value: "587"
+      - key: CLARIO_SMTP_USER
+        sync: false
+      - key: CLARIO_SMTP_PASSWORD
+        sync: false
+      - key: CLARIO_SMTP_FROM
+        sync: false
+      - key: HF_TOKEN
+        sync: false

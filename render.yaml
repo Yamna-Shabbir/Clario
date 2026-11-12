@@ -1,12 +1,17 @@
-# Render Blueprint — FREE tier only (no paid plan, no persistent disk).
-# Persistent disks and Standard/Pro plans incur charges; do not add them here.
+# Render Blueprint — FREE tier only.
+# No paid compute plan. No persistent disk. No billing required for this file.
 #
-# Limits of this free deploy:
-# - 512 MB RAM: Torch / Whisper / DistilBART will not load. Audio ASR and neural
-#   summarization are unavailable; paste-transcript + extractive summary + task
-#   detection (spaCy) are the supported path.
-# - Ephemeral disk: SQLite and uploads reset on spin-down / redeploy.
-# - Spins down after ~15 minutes idle; cold start ~1 minute.
+# Render looks for this file by default when you create a Blueprint.
+# The paid setup is preserved separately in render.standard.yaml — do not
+# apply that file unless you accept charges.
+#
+# Realistic free-tier behavior (512 MB RAM, ephemeral disk):
+#   Works: landing, auth, dashboard, paste-transcript meetings, extractive
+#          summary, spaCy task extraction, charts (until spin-down), /health
+#   Does not work: Whisper/Sukhan audio ASR, DistilBART neural summary,
+#                  Marian translation, durable SQLite across restarts
+# All of those features remain in the codebase; they need a paid instance
+# (see render.standard.yaml) to run online.
 
 services:
   - type: web
@@ -15,7 +20,6 @@ services:
     plan: free
     region: oregon
     branch: dev
-    pythonVersion: "3.12.8"
     buildCommand: bash build.sh
     startCommand: >-
       gunicorn "app:create_app()"
@@ -28,6 +32,9 @@ services:
     healthCheckPath: /health
     autoDeploy: true
     envVars:
+      # Pin Python via env (Blueprint has no pythonVersion field). runtime.txt is a backup.
+      - key: PYTHON_VERSION
+        value: "3.12.8"
       - key: CLARIO_DEBUG
         value: "False"
       - key: CLARIO_SECRET_KEY
