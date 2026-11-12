@@ -293,6 +293,45 @@ def google_participants():
     meeting_code = request.args.get("meeting_code", "").strip()
     start_time = request.args.get("start_time", "").strip()
 
+    # Attempt to enrich participants with Google Calendar attendee emails
+    try:
+        if not meeting_code:
+            try:
+                rec = _make_authed_get(f"{MEET_API_BASE}/{record}", {}, user_id, db_path=DB_PATH)
+                start_time = start_time or rec.get("startTime", "")
+                space_name = rec.get("space", "")
+                if space_name:
+                    space_data = _make_authed_get(f"{MEET_API_BASE}/{space_name}", {}, user_id, db_path=DB_PATH)
+                    meeting_code = space_data.get("meetingCode", "")
+            except Exception:
+                pass
+
+        cal_attendees = find_calendar_attendees(
+            user_id,
+            meeting_code=meeting_code,
+            start_time=start_time,
+            db_path=DB_PATH,
+        )
+        if cal_attendees:
+            for p in participants:
+                if not p.get("email") and p.get("name"):
+                    matched_cal = match(p["name"], cal_attendees)
+                    if not matched_cal:
+                        p_norm = p["name"].strip().lower()
+                        email_matches = [
+                            ca for ca in cal_attendees
+                            if ca.get("email") and (
+                                p_norm == ca["email"].strip().lower()
+                                or p_norm == ca["email"].strip().lower().split("@")[0]
+                            )
+                        ]
+                        if len(email_matches) == 1:
+                            matched_cal = email_matches[0]
+                    if matched_cal and matched_cal.get("email"):
+                        p["email"] = matched_cal["email"]
+    except Exception:
+        pass
+
     return render_template(
         "integrations/participants.html",
         participants=participants,
