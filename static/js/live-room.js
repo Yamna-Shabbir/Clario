@@ -168,8 +168,10 @@
     setToolState(micBtn, micOn, "Mic on", "Mic");
     setToolState(camBtn, camOn, "Camera on", "Camera");
     updateLocalPreview();
-    await bindAllPeers();
-    await renegotiateOutgoing();
+    const bindings = await bindAllPeers();
+    for (const row of bindings) {
+      if (row.needs) await requestRenegotiation(row.id);
+    }
     syncPeersFromLastRoster();
     resumePlayback();
   }
@@ -532,12 +534,16 @@
     if (inMeetingPollsStarted) return;
     inMeetingPollsStarted = true;
     Promise.resolve(primeMeetingMedia())
-      .then(() => renegotiateOutgoing())
       .catch((err) => console.warn("Meeting media setup failed", err));
     window.setInterval(pollMessages, 2500);
     window.setInterval(pollSignals, 800);
     window.setInterval(() => {
-      if (meetingActive || cfg.isHost) renegotiateOutgoing().catch(() => {});
+      peers.forEach((pc, id) => {
+        const ice = pc.iceConnectionState;
+        if (pc.connectionState === "failed" || ice === "failed" || ice === "disconnected") {
+          maybeRenegotiate(id);
+        }
+      });
     }, 8000);
     pollMessages();
     pollSignals();
@@ -684,8 +690,12 @@
       const video = document.createElement("video");
       video.className = "meet-video meet-remote-video";
       video.autoplay = true;
+      video.muted = true;
       video.playsInline = true;
       video.setAttribute("playsinline", "");
+      const audio = document.createElement("audio");
+      audio.className = "meet-remote-audio";
+      audio.autoplay = true;
       const placeholder = document.createElement("div");
       placeholder.className = "meet-tile__placeholder";
       const avatar = document.createElement("span");
@@ -698,6 +708,7 @@
       const label = document.createElement("span");
       label.className = "meet-tile__label";
       wrap.appendChild(video);
+      wrap.appendChild(audio);
       wrap.appendChild(placeholder);
       wrap.appendChild(label);
       remoteTiles.appendChild(wrap);
@@ -713,22 +724,31 @@
   function refreshTileMedia(remoteId) {
     const wrap = document.getElementById(`remote-tile-${remoteId}`);
     if (!wrap) return;
-    const stream = remoteStreams.get(Number(remoteId));
+    const media = remoteStreams.get(Number(remoteId));
     const videoEl = wrap.querySelector("video");
     const placeholder = wrap.querySelector(".meet-tile__placeholder");
     const status = wrap.querySelector(".meet-tile__status");
-    const videoTracks = stream
-      ? stream.getVideoTracks().filter((track) => track.readyState === "live" && track.enabled && !track.muted)
+    const videoTracks = media && media.video
+      ? media.video.getVideoTracks().filter((track) => track.readyState === "live" && track.enabled)
       : [];
-    const hasVideo = videoTracks.length > 0;
-    if (videoEl) videoEl.classList.toggle("meet-video--visible", hasVideo);
-    if (placeholder) placeholder.hidden = hasVideo;
-    if (status && !hasVideo) {
+    const audioTracks = media && media.audio
+      ? media.audio.getAudioTracks().filter((track) => track.readyState === "live" && track.enabled)
+      : [];
+    const frames = Boolean(videoEl && videoEl.videoWidth > 0);
+    const showVideo = frames || videoTracks.some((track) => !track.muted);
+    if (videoEl) {
+      videoEl.muted = true;
+      videoEl.classList.toggle("meet-video--visible", showVideo);
+    }
+    if (placeholder) placeholder.hidden = showVideo;
+    if (status && !showVideo) {
       const pc = peers.get(Number(remoteId));
       const state = pc ? pc.connectionState : "new";
-      if (state === "connected") status.textContent = "Camera off";
-      else if (state === "failed") status.textContent = "Reconnecting…";
-      else status.textContent = "Connecting…";
+      if (state === "failed") status.textContent = "Reconnecting…";
+      else if (state !== "connected") status.textContent = "Connecting…";
+      else if (videoTracks.length) status.textContent = "Video starting…";
+      else if (audioTracks.length) status.textContent = "Camera off";
+      else status.textContent = "Waiting for their mic and camera…";
     }
   }
 
@@ -740,8 +760,8 @@
   function hideHearBanner() {
     const button = document.getElementById("meet-hear");
     if (!button) return;
-    const waiting = Array.from(document.querySelectorAll(".meet-remote-video")).some(
-      (video) => video.srcObject && video.paused,
+    const waiting = Array.from(document.querySelectorAll(".meet-remote-audio")).some(
+      (audio) => audio.srcObject && audio.paused,
     );
     if (!waiting) button.hidden = true;
   }
@@ -759,14 +779,18 @@
     const ctx = audioContext();
     if (ctx && ctx.state === "suspended") ctx.resume().catch(() => {});
     document.querySelectorAll(".meet-remote-video").forEach((video) => {
-      if (video.srcObject) playRemoteVideo(video);
+      video.muted = true;
+      if (video.srcObject) video.play().catch(() => {});
+    });
+    document.querySelectorAll(".meet-remote-audio").forEach((audio) => {
+      if (audio.srcObject) playRemoteAudio(audio);
     });
   }
 
-  function playRemoteVideo(video) {
-    video.muted = false;
-    video.volume = 1;
-    return video.play().then(() => {
+  function playRemoteAudio(audio) {
+    audio.muted = false;
+    audio.volume = 1;
+    return audio.play().then(() => {
       hideHearBanner();
     }).catch(() => {
       showHearBanner();
@@ -775,7 +799,7 @@
 
   function watchSpeaking(remoteId, stream) {
     const id = Number(remoteId);
-    if (speakingWatch.has(id) || !stream.getAudioTracks().length) return;
+    if (speakingWatch.has(id) || !stream || !stream.getAudioTracks().length) return;
     const ctx = audioContext();
     if (!ctx) return;
     try {
@@ -802,31 +826,48 @@
     }
   }
 
+  function mediaFor(remoteId) {
+    const id = Number(remoteId);
+    let media = remoteStreams.get(id);
+    if (!media || !media.audio || !media.video) {
+      media = { audio: new MediaStream(), video: new MediaStream() };
+      remoteStreams.set(id, media);
+    }
+    return media;
+  }
+
   function attachRemoteTrack(remoteId, track) {
     const id = Number(remoteId);
-    let stream = remoteStreams.get(id);
-    if (!stream) {
-      stream = new MediaStream();
-      remoteStreams.set(id, stream);
-    }
-    if (!stream.getTracks().some((existing) => existing.id === track.id)) {
-      stream.addTrack(track);
+    const media = mediaFor(id);
+    const bucket = track.kind === "audio" ? media.audio : media.video;
+    if (!bucket.getTracks().some((existing) => existing.id === track.id)) {
+      bucket.addTrack(track);
     }
     const wrap = ensureRemoteTile(id, peerNames.get(id));
     const video = wrap ? wrap.querySelector("video") : null;
-    if (video && video.srcObject !== stream) video.srcObject = stream;
-    if (video) playRemoteVideo(video);
+    const audio = wrap ? wrap.querySelector("audio") : null;
+    if (track.kind === "video" && video && video.srcObject !== media.video) {
+      video.muted = true;
+      video.srcObject = media.video;
+      video.onresize = () => refreshTileMedia(id);
+      video.onloadeddata = () => refreshTileMedia(id);
+      video.play().catch(() => {});
+    }
+    if (track.kind === "audio" && audio && audio.srcObject !== media.audio) {
+      audio.srcObject = media.audio;
+      playRemoteAudio(audio);
+    }
     const onChange = () => refreshTileMedia(id);
     track.onunmute = onChange;
     track.onmute = onChange;
     track.onended = () => {
-      if (stream.getTracks().some((existing) => existing.id === track.id)) {
-        stream.removeTrack(track);
+      if (bucket.getTracks().some((existing) => existing.id === track.id)) {
+        bucket.removeTrack(track);
       }
       refreshTileMedia(id);
     };
     refreshTileMedia(id);
-    watchSpeaking(id, stream);
+    if (track.kind === "audio") watchSpeaking(id, media.audio);
   }
 
   async function sendSignal(toUserId, kind, payload) {
@@ -859,25 +900,12 @@
   }
 
   function findTransceiver(pc, kind) {
-    const list = pc.getTransceivers();
-    return (
-      list.find((transceiver) => {
-        const senderTrack = transceiver.sender && transceiver.sender.track;
-        return senderTrack && senderTrack.kind === kind;
-      }) ||
-      list.find((transceiver) => {
-        const receiverTrack = transceiver.receiver && transceiver.receiver.track;
-        return receiverTrack && receiverTrack.kind === kind;
-      }) ||
-      list.find((transceiver) => {
-        return (
-          transceiver.sender &&
-          !transceiver.sender.track &&
-          (!transceiver.receiver || !transceiver.receiver.track) &&
-          (transceiver.mid === null || transceiver.mid === undefined)
-        );
-      })
-    );
+    return pc.getTransceivers().find((transceiver) => {
+      const senderTrack = transceiver.sender && transceiver.sender.track;
+      if (senderTrack) return senderTrack.kind === kind;
+      const receiverTrack = transceiver.receiver && transceiver.receiver.track;
+      return Boolean(receiverTrack && receiverTrack.kind === kind);
+    }) || null;
   }
 
   async function bindLocalToPeer(pc) {
@@ -895,6 +923,18 @@
         }
       }
       if (!transceiver) continue;
+      if (!track) {
+        if (transceiver.sender && transceiver.sender.track) {
+          try {
+            await transceiver.sender.replaceTrack(null);
+          } catch (err) {
+            console.warn("clearTrack", kind, err);
+          }
+        }
+        continue;
+      }
+      const direction = transceiver.currentDirection || transceiver.direction;
+      const canSend = direction === "sendrecv" || direction === "sendonly";
       if (transceiver.direction !== "sendrecv") {
         try {
           transceiver.direction = "sendrecv";
@@ -902,32 +942,39 @@
           /* older browsers */
         }
       }
-      if (transceiver.sender.track === track) continue;
-      try {
-        await transceiver.sender.replaceTrack(track);
-        needsOffer = true;
-      } catch (err) {
-        console.warn("replaceTrack", kind, err);
+      if (transceiver.sender.track !== track) {
+        try {
+          await transceiver.sender.replaceTrack(track);
+        } catch (err) {
+          console.warn("replaceTrack", kind, err);
+        }
       }
+      if (!canSend) needsOffer = true;
     }
     return needsOffer;
   }
 
   async function bindAllPeers() {
     const jobs = [];
-    peers.forEach((pc) => {
-      jobs.push(bindLocalToPeer(pc));
+    peers.forEach((pc, id) => {
+      jobs.push(bindLocalToPeer(pc).then((needs) => ({ id, needs })));
     });
-    await Promise.all(jobs);
+    return Promise.all(jobs);
   }
 
-  async function renegotiateOutgoing() {
-    const jobs = [];
-    peers.forEach((pc, id) => {
-      if (isPolite(id) || !peerReady.has(id)) return;
-      jobs.push(negotiate(pc, id));
-    });
-    await Promise.all(jobs);
+  async function requestRenegotiation(remoteId) {
+    const id = Number(remoteId);
+    const pc = peers.get(id);
+    if (!pc || !peerReady.has(id)) return;
+    if (!isPolite(id)) {
+      await negotiate(pc, id);
+      return;
+    }
+    try {
+      await sendSignal(id, "refresh", { at: Date.now() });
+    } catch (err) {
+      console.warn("Renegotiate request failed", err);
+    }
   }
 
   async function negotiate(pc, remoteId) {
@@ -1109,6 +1156,8 @@
       });
       refreshTileMedia(fromId);
       resumePlayback();
+    } else if (kind === "refresh") {
+      if (!isPolite(fromId)) await negotiate(pc, fromId);
     } else if (kind === "answer") {
       if (pc.signalingState !== "have-local-offer") return;
       await pc.setRemoteDescription(new RTCSessionDescription(payload));

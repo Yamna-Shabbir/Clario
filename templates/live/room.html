@@ -52,7 +52,7 @@
       </div>
       <div id="remote-tiles" class="meet-remote-tiles"></div>
       </div>
-      <button type="button" class="btn btn-primary btn-sm meet-hear" id="meet-hear" hidden>Click to hear everyone</button>
+      <button type="button" class="btn btn-primary btn-sm meet-hear" id="meet-hear" hidden>Tap to hear everyone</button>
       <p class="meet-stage-hint text-muted" id="record-state">
         {% if already_recorded %}Your track is saved. You can record again if you spoke more.{% else %}Everyone admitted to the meeting appears here. Your mic and camera turn on so others can hear and see you. Record saves microphone audio for the transcript.{% endif %}
       </p>
@@ -192,5 +192,5 @@
     ]
   };
 </script>
-<script src="{{ url_for('static', filename='js/live-room.js', v='8') }}"></script>
+<script src="{{ url_for('static', filename='js/live-room.js', v='9') }}"></script>
 {% endblock %}

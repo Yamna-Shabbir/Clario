@@ -665,7 +665,10 @@ meeting_participants                  (many-to-1 with meetings)
       video and audio use a mesh of peer connections. Admitted people appear
       together in one gallery. Audio and video are negotiated as soon as
       someone is in the meeting, so a mic or camera turned on afterwards still
-      reaches everyone. The browser asks for the mic and camera on entry.
+      reaches everyone. Remote video stays muted so the browser can show it
+      immediately; their voice plays on a separate audio element. A polite
+      peer asks the offerer to renegotiate (`refresh`) instead of sending a
+      new offer every few seconds. The browser asks for the mic and camera on entry.
       Signaling is stored in `live_signals` via `GET|POST /live/<token>/signal`.
       `GET` with `bootstrap=1` returns a cursor and does not replay old
       signals; the participant with the lower user id keeps sending a fresh

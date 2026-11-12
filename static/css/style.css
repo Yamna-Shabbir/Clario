@@ -1018,6 +1018,7 @@ code {
   background: #152522;
 }
 .meet-video--visible { opacity: 1; }
+.meet-remote-audio { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
 .meet-hear { align-self: center; }
 
 .meet-tile__placeholder {
