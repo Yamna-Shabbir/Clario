@@ -358,7 +358,7 @@ class TestResultPageStatusRendering:
 
         resp = c.get(f"/result/{meeting_id}")
         assert resp.status_code == 200
-        assert b"Meeting Processing Failed" in resp.data
+        assert b"Meeting processing failed" in resp.data
         assert b"Whisper out of memory" in resp.data
-        assert b"Upload Again" in resp.data
+        assert b"Upload again" in resp.data
 

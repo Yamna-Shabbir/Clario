@@ -23,13 +23,15 @@ _INLINE_SPEAKER_RE = re.compile(
 _ACK_RE = re.compile(
     r"^(?:okay|ok|thanks|thank you|hello|hi|hey|yes|yeah|yep|sure|"
     r"sounds good|great|right|alright|cool|perfect|got it|no problem|"
-    r"good morning|good afternoon)\.?$",
+    r"good morning|good afternoon|absolutely|noted|fine)\.?$",
     re.IGNORECASE,
 )
 _NOT_A_NAME = {
     "thanks", "thank", "okay", "ok", "yes", "hello", "hi", "hey", "sorry",
-    "great", "sure", "right", "well", "um", "uh", "speaker",
+    "great", "sure", "right", "well", "um", "uh", "speaker", "absolutely",
+    "noted", "fine", "yeah", "yep", "perfect", "cool", "good",
 }
+_URDU_NOT_SPEAKER = {"بالکل", "ٹھیک", "جی", "ہاں", "اچھا", "شکریہ", "ہے"}
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 _CONTRACTIONS = (
     (re.compile(r"\bI'll\b", re.IGNORECASE), "I will"),
@@ -96,8 +98,11 @@ _DECISION_STATEMENT_RE = re.compile(
 _BAD_ASSIGNEE = {
     "team", "unassigned", "yes", "so", "okay", "ok", "sorry", "hello", "thanks",
     "all", "we", "i", "the", "also", "however", "first", "without", "great",
-    "very", "one", "well", "sure", "right", "unknown",
+    "very", "one", "well", "sure", "right", "unknown", "absolutely", "noted",
+    "fine", "yeah", "yep", "perfect", "cool", "good", "hi", "hey", "someone",
+    "somebody", "bilkul", "theek", "thik", "haan", "han", "ji", "acha", "achha",
 }
+_NOT_DIRECTED = {"someone", "somebody", "team", "okay", "ok", "yes", "absolutely"}
 
 
 def segment_transcript(text: str) -> List[Dict[str, Any]]:
@@ -106,6 +111,7 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
     speaker = ""
     label = ""
     timestamp = ""
+    line_id = 0
     for raw_line in (text or "").splitlines():
         line = raw_line.strip()
         if not line:
@@ -127,7 +133,11 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
             label = speaker
             line = inline.group(2).strip()
         urdu_inline = _URDU_INLINE_RE.match(line)
-        if urdu_inline and _has_arabic(urdu_inline.group(1)):
+        if (
+            urdu_inline
+            and _has_arabic(urdu_inline.group(1))
+            and urdu_inline.group(1) not in _URDU_NOT_SPEAKER
+        ):
             speaker = _display_name(urdu_inline.group(1))
             label = speaker
             line = urdu_inline.group(2).strip()
@@ -136,9 +146,11 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
             speaker = header_only.group(1)
             label = speaker
             continue
+        line = line.replace("۔", ". ").replace("؟", "? ")
         cleaned = clean_transcript(line)
         if not cleaned:
             continue
+        line_id += 1
         for sentence in _SENTENCE_SPLIT_RE.split(cleaned):
             sentence = sentence.strip()
             if not sentence:
@@ -148,6 +160,7 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
                 "label": label,
                 "timestamp": timestamp,
                 "text": sentence,
+                "line_id": line_id,
             })
     if segments:
         return segments
@@ -233,6 +246,8 @@ def _directed_to_other(sentence: str, speaker: str) -> Optional[str]:
     if not match:
         return None
     addressee = match.group(1)
+    if addressee.casefold() in _NOT_DIRECTED:
+        return None
     if speaker and addressee.casefold() == speaker.casefold():
         return None
     return addressee
@@ -283,6 +298,16 @@ def _apply_participant(task: Dict[str, Any], participants: Optional[List[Dict[st
 def _has_arabic(token: str) -> bool:
     from services.preprocessing.language import arabic_script_ratio
     return arabic_script_ratio(token) >= 0.2
+
+
+def _unusable_assignee(name: str) -> bool:
+    """Agreement words and leftover Urdu are not people."""
+    cleaned = (name or "").strip(" ،,.")
+    if not cleaned:
+        return True
+    if _has_arabic(cleaned):
+        return True
+    return cleaned.casefold() in _BAD_ASSIGNEE
 
 
 def _display_name(token: str) -> str:
@@ -348,14 +373,65 @@ def _choose_urdu_english(phrase: Optional[str], lexicon: str) -> str:
         return phrase or lexicon or ""
 
     def rank(text: str) -> tuple:
+        # "please add" at the end is leftover Urdu word order.
+        trailing = 1 if re.search(r"\bplease\s+[A-Za-z]+\s*\.?$", text.strip()) else 0
+        ordered = 1 if re.search(
+            r"\b(?:will|please)\s+(?:add|fix|send|complete|set|check|share|write|do|update)\b",
+            text,
+            re.IGNORECASE,
+        ) else 0
         scrambled = 1 if re.search(r"\bI\s+[A-Za-z]+\s+by\b", text) else 0
-        return (len(_content_gloss_words(text)), -scrambled, len(text))
+        return (ordered - trailing, len(_content_gloss_words(text)), -scrambled, len(text))
 
     return max(options, key=rank)
 
 
-def prepare_meeting_turns(transcript: str) -> List[Dict[str, Any]]:
-    """Segment a transcript and rewrite Urdu lines without dropping evidence."""
+def _explode_gloss(turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One English sentence per turn after an Urdu line is rewritten."""
+    exploded: List[Dict[str, Any]] = []
+    for turn in turns:
+        parts = [
+            part.strip()
+            for part in re.split(r"(?<=[.!?])\s+", turn.get("text") or "")
+            if part.strip()
+        ]
+        if len(parts) <= 1:
+            exploded.append(turn)
+            continue
+        for part in parts:
+            piece = dict(turn)
+            piece["text"] = part
+            exploded.append(piece)
+    return exploded
+
+
+def _carry_addressee(turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Keep the person just named when the next please-line lost that name."""
+    last = ""
+    last_speaker = None
+    for turn in turns:
+        speaker = turn.get("speaker") or ""
+        if speaker != last_speaker:
+            last = ""
+            last_speaker = speaker
+        text = (turn.get("text") or "").strip()
+        if _is_ack(text):
+            continue
+        match = re.match(r"^([A-Z][\w'.-]+),\s+please\b", text)
+        if match and match.group(1).casefold() not in _NOT_DIRECTED:
+            last = match.group(1)
+            continue
+        if last and re.match(r"^(?:Someone|Somebody),\s+please\b", text):
+            turn["text"] = re.sub(r"^(?:Someone|Somebody)", last, text, count=1)
+    return turns
+
+
+def prepare_meeting_turns(transcript: str, *, translate: bool = True) -> List[Dict[str, Any]]:
+    """Segment a transcript and rewrite Urdu lines without dropping evidence.
+
+    *translate* controls the neural Urdu-to-English model only. The meeting
+    lexicon still runs when it is false, which is the free-hosting path.
+    """
     from services.preprocessing.language import arabic_script_ratio, ensure_english_transcript
     from services.preprocessing.roman_urdu import utterance_to_english
     from services.preprocessing.urdu_norm import render_urdu_line, speaker_names
@@ -372,10 +448,10 @@ def prepare_meeting_turns(transcript: str) -> List[Dict[str, Any]]:
             english = _choose_urdu_english(phrase, lexicon)
         else:
             english = utterance_to_english(original)
-        if arabic_script_ratio(english or "") >= 0.12:
+        if translate and arabic_script_ratio(english or "") >= 0.12:
             english = ensure_english_transcript(english)
         turn["text"] = _align_known_names(english or original, known_speakers)
-    return turns
+    return _carry_addressee(_explode_gloss(turns))
 
 
 def _looks_like_decision_only(sentence: str) -> bool:
@@ -416,6 +492,19 @@ def verify_meeting_tasks(
         speaker = (turn.get("speaker") or "").strip()
         timestamp = turn.get("timestamp") or ""
         if not sentence or _is_ack(sentence):
+            continue
+        from services.preprocessing.language import arabic_script_ratio
+        if arabic_script_ratio(sentence) >= 0.12:
+            review.append({
+                "kind": "unclear_meaning",
+                "description": sentence,
+                "assigned_to": "Unassigned",
+                "due_date": "Not specified",
+                "source_text": original,
+                "source_context": "",
+                "evidence_time": timestamp,
+                "reason": "This line is still in Urdu, so it was not saved as an action item.",
+            })
             continue
         sl = sentence.lower()
         from services.nlp.task_detection import _has_past_context
@@ -561,7 +650,7 @@ def verify_meeting_tasks(
             task["assigned_to"] = "Team"
         elif first_person and speaker:
             task["assigned_to"] = speaker
-        elif assignee.lower() in _BAD_ASSIGNEE or assignee.lower() in {
+        elif _unusable_assignee(assignee) or assignee.lower() in {
             "invoice", "deployment", "notification", "dashboard", "checklist",
             "metrics", "design", "client", "report", "api", "release", "budget",
         } or not assignee:

@@ -357,3 +357,57 @@ class TestAuthenticatedFlows:
         resp = c.get("/comparison")
         assert resp.status_code == 200
 
+    def test_upload_page_asks_for_attendee_emails(self, logged_in_client):
+        c, _ = logged_in_client
+        resp = c.get("/upload")
+        assert b"People in this meeting" in resp.data
+        assert b"attendee_email" in resp.data
+
+    def test_upload_rejects_a_name_without_an_email(self, logged_in_client):
+        c, _ = logged_in_client
+        resp = c.post(
+            "/upload",
+            data={
+                "text_input": "John will deploy the schema tomorrow.",
+                "attendee_name": "John",
+                "attendee_email": "",
+            },
+            follow_redirects=True,
+        )
+        assert b"both a name and an email" in resp.data
+
+    def test_upload_roster_mails_a_clear_name_and_holds_the_rest(self, logged_in_client, app):
+        from werkzeug.datastructures import MultiDict
+        from models.database import get_pending_confirmations, get_tasks_by_meeting
+
+        c, _ = logged_in_client
+        resp = c.post(
+            "/upload",
+            data=MultiDict([
+                ("meeting_title", "Roster check"),
+                ("text_input", "John will deploy the schema tomorrow. Sara will send the notes by Friday. Priya will write the recap."),
+                ("attendee_name", "John Smith"),
+                ("attendee_email", "john@example.com"),
+                ("attendee_name", "Sara Khan"),
+                ("attendee_email", "sara.khan@example.com"),
+                ("attendee_name", "Sara Ali"),
+                ("attendee_email", "sara.ali@example.com"),
+            ]),
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Confirm who receives this task" in resp.data
+        db = app.config["CLARIO_DB_PATH"]
+        tasks = get_tasks_by_meeting(1, db)
+        by_name = {task["assigned_to"]: task for task in tasks}
+        assert by_name["John Smith"]["assigned_email"] == "john@example.com"
+        pending = get_pending_confirmations(1, db)
+        held = {item["assignee_name"] for item in pending}
+        assert "Sara" in held
+        assert "Priya" in held
+        sara = next(item for item in pending if item["assignee_name"] == "Sara")
+        assert {person["email"] for person in sara["candidates"]} == {
+            "sara.khan@example.com",
+            "sara.ali@example.com",
+        }
+

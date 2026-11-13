@@ -108,9 +108,9 @@
   </div>
 
   {% if confirmations %}
-  <h2 class="section-heading">Confirm a shared name</h2>
+  <h2 class="section-heading">Confirm who receives this task</h2>
   <div class="card card-pad stack-lg">
-    <p class="text-muted stack-md">More than one person has this name. Choose who the task belongs to. Mail goes out after every shared name is confirmed.</p>
+    <p class="text-muted stack-md">This name matches more than one address you entered, or none of them. Choose the person. Mail goes out after every open choice is confirmed.</p>
     {% for item in confirmations %}
     <form method="POST" action="{{ url_for('tasks.confirm', task_id=item.task_id) }}" class="stack-sm">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>

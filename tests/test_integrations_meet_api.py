@@ -543,7 +543,7 @@ class TestGoogleMeetingsRoute:
         assert "abc-defg-hij" in text
         assert "45 min" in text
         assert "4" in text
-        assert "View Participants" in text
+        assert "View participants" in text
         assert "Import" in text
 
     def test_empty_meetings_renders_friendly_message(self, client, app, monkeypatch):
@@ -608,7 +608,7 @@ class TestGoogleParticipantsRoute:
         assert resp.status_code == 200
         text = resp.get_data(as_text=True)
         assert "Sarah Connor" in text
-        assert "Signed In" in text
+        assert "Signed in" in text
         assert "Anonymous Guest" in text
         assert "Active" in text
         assert "users/sarah" in text

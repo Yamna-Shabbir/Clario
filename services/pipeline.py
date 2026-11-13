@@ -69,6 +69,23 @@ def _get_nlp():
     return _nlp
 
 
+def _meeting_day(meeting_id: Optional[int], db_path: str):
+    """Return the meeting's calendar day so relative deadlines become ISO dates."""
+    if meeting_id is None:
+        return None
+    from models.database import get_connection
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT meeting_date FROM meetings WHERE id = ?",
+            (meeting_id,),
+        ).fetchone()
+    raw = (row["meeting_date"] if row else "") or ""
+    try:
+        return datetime.strptime(str(raw)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 # ── Main pipeline ──────────────────────────────────────────────────────────────
 
 def run_clario_pipeline(
@@ -148,14 +165,16 @@ def run_clario_pipeline(
     from services.nlp.task_verification import (
         prepare_meeting_turns,
         render_segments,
-        segment_transcript,
         verify_meeting_tasks,
     )
 
-    if ENABLE_TEXT_TRANSLATION:
-        english_turns = prepare_meeting_turns(transcript)
-    else:
-        english_turns = segment_transcript(transcript)
+    # Speaker lines such as "Sarah (sarah@example.com):" lose the address
+    # when turns are rendered. Read people from the original wording.
+    source_transcript = transcript
+    english_turns = prepare_meeting_turns(
+        transcript,
+        translate=ENABLE_TEXT_TRANSLATION,
+    )
     transcript = render_segments(english_turns)
     if not transcript.strip():
         print(" Empty transcript — cannot proceed.")
@@ -163,7 +182,7 @@ def run_clario_pipeline(
 
     print(f" Transcript length: {len(transcript)} chars")
 
-    mentioned = mentioned_participants(transcript)
+    mentioned = mentioned_participants(source_transcript)
     if mentioned:
         known = {
             (person.get("email") or "").strip().lower()
@@ -186,6 +205,7 @@ def run_clario_pipeline(
             transcript,
             nlp=nlp,
             participants=participants,
+            meeting_date=_meeting_day(meeting_id, db_path),
             segments=english_turns,
         )
         tasks = checked["tasks"]

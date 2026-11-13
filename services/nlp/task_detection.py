@@ -122,11 +122,12 @@ WEAK_VERBS: List[str] = [
 TASK_KEYWORDS: List[str] = STRONG_CUES + STRONG_ACTION_VERBS
 
 PRIORITY_KEYWORDS = {
-    "High":   [r"\burgent\b", r"\basap\b", r"\bimmediately\b",
+    "High":   [    r"\burgent\b", r"\basap\b", r"\bimmediately\b",
                r"\bcritical\b", r"\bmust\b", r"\bimportant\b",
+               r"\bhigh\s+priority\b",
                r"\bit\s+is\s+important\b", r"\bit['']?s\s+important\b"],
     "Medium": [r"\bsoon\b", r"\bby this week\b", r"\bshould\b",
-               r"\bneeds?\s+to\b"],
+               r"\bneeds?\s+to\b", r"\bmedium\s+priority\b"],
 }
 
 # ---------------------------------------------------------------------------
@@ -256,8 +257,22 @@ _PERSON_SKIP = {
     "metrics", "release", "budget", "caching", "design", "client", "report",
     "also", "however", "first", "without", "well", "sure", "right", "hi",
     "hey", "good", "very", "still", "about", "maybe", "actually", "instead",
-    "one", "what", "how",
+    "one", "what", "how", "absolutely", "noted", "fine", "yeah", "yep",
+    "perfect", "cool", "good", "someone", "somebody", "duplicate",
+    "records", "authentication", "filter", "priority", "updates",
 }
+
+
+def _person_token_ok(text: str, pronouns: set) -> bool:
+    """Skip pronouns, agreement words, and Urdu tokens spaCy labels as people."""
+    from services.preprocessing.language import arabic_script_ratio
+
+    cleaned = (text or "").strip(" ،,.").lower()
+    if not cleaned or cleaned in pronouns or cleaned in _PERSON_SKIP:
+        return False
+    if arabic_script_ratio(cleaned) >= 0.2:
+        return False
+    return True
 
 
 def _guess_person(sentence: str) -> str:
@@ -498,6 +513,9 @@ def detect_tasks(
 
     for sentence in sentences:
         sl = sentence.lower()
+        from services.preprocessing.language import arabic_script_ratio
+        if arabic_script_ratio(sentence) >= 0.12:
+            continue
 
         # --- Guard: negation ---
         if _is_negated(sl):
@@ -579,12 +597,13 @@ def detect_tasks(
         sent_doc = loaded_nlp(sentence) if loaded_nlp is not None else None
         if sent_doc is not None:
             for ent in sent_doc.ents:
-                if ent.label_ == "PERSON":
-                    if ent.text.lower() not in _pronoun_set:
-                        assigned_to = ent.text
-                        break
-        else:
-            assigned_to = _guess_person(sentence)
+                if ent.label_ == "PERSON" and _person_token_ok(ent.text, _pronoun_set):
+                    assigned_to = ent.text
+                    break
+        if assigned_to == "Team":
+            guessed = _guess_person(sentence)
+            if guessed != "Team":
+                assigned_to = guessed
 
         assigned_email = None
         if participants is not None:

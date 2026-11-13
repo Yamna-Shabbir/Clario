@@ -122,6 +122,15 @@ def upload():
         audio_path = None
         audio_name = None
 
+        from services.preprocessing.participants import roster_from_pairs
+        roster, roster_error = roster_from_pairs(
+            request.form.getlist("attendee_name"),
+            request.form.getlist("attendee_email"),
+        )
+        if roster_error:
+            flash(roster_error, "error")
+            return render_template("meeting/upload.html", user=current_user())
+
         # ── Save audio file ────────────────────────────────────────────────────
         if audio_file and audio_file.filename:
             raw_filename = audio_file.filename
@@ -166,9 +175,20 @@ def upload():
         prefill_external_id = session.pop("prefill_external_meeting_id", None)
         prefill_platform = session.pop("prefill_platform", None)
 
-        if prefill_participants:
+        participants = list(prefill_participants or [])
+        known_emails = {
+            (person.get("email") or "").strip().lower()
+            for person in participants
+        }
+        for person in roster:
+            if person["email"] not in known_emails:
+                participants.append(person)
+                known_emails.add(person["email"])
+
+        if participants or (prefill_platform and prefill_external_id):
             from models.database import replace_meeting_participants, update_meeting_platform
-            replace_meeting_participants(meeting_id, prefill_participants, DB_PATH)
+            if participants:
+                replace_meeting_participants(meeting_id, participants, DB_PATH)
             if prefill_platform and prefill_external_id:
                 update_meeting_platform(meeting_id, prefill_platform, prefill_external_id, DB_PATH)
 
@@ -181,7 +201,7 @@ def upload():
             text_input   = text_input or None,
             db_path      = DB_PATH,
             graph_dir    = GRAPH_DIR,
-            participants = prefill_participants,
+            participants = participants or None,
         )
 
         return redirect(url_for("meeting.result", meeting_id=meeting_id))

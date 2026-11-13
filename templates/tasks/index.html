@@ -13,8 +13,8 @@
 
   {% if confirmations %}
   <div class="card card-pad stack-lg">
-    <h2 class="section-heading">Shared names</h2>
-    <p class="text-muted stack-md">These names match more than one person. Choose the right email. Mail is sent after the choice is saved.</p>
+    <h2 class="section-heading">Confirm an address</h2>
+    <p class="text-muted stack-md">These tasks need you to choose which email you entered. Mail is sent after every choice is saved.</p>
     {% for item in confirmations %}
     <form method="POST" action="{{ url_for('tasks.confirm', task_id=item.task_id) }}" class="stack-sm">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>

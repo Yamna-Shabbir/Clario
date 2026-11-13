@@ -95,7 +95,7 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
             "recipient": owner.get("email") or "",
             "subject": f"Confirm assignees for {meeting.get('title') or 'Meeting'}",
             "status": "waiting",
-            "detail": "Two or more people share a name. The person who assigned the task needs to choose an email before mail is sent.",
+            "detail": "A name matches more than one address, or none of them. Choose who should receive each task. Mail is sent after every choice is saved.",
         }], db_path)
         return
 

@@ -52,7 +52,10 @@ from services.nlp.task_detection import (
 
 @pytest.fixture(scope="session")
 def nlp():
-    return load_nlp("en_core_web_sm")
+    model = load_nlp("en_core_web_sm")
+    if model is None:
+        pytest.skip("spaCy native library is blocked on this machine")
+    return model
 
 
 # ---------------------------------------------------------------------------

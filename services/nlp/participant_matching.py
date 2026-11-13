@@ -163,35 +163,53 @@ def ambiguous_matches(
     return []
 
 
+def _email_choices(people: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    choices = []
+    seen = set()
+    for person in people:
+        email = (person.get("email") or "").strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        choices.append({"name": person.get("name") or "", "email": email})
+    return choices
+
+
 def pending_name_collisions(
     tasks: List[Dict[str, Any]],
     participants: Optional[List[Dict[str, Any]]],
 ) -> List[Dict[str, Any]]:
-    """Tasks whose assignee name matches more than one participant email."""
+    """Tasks the uploader must confirm before mail is sent.
+
+    A shared or fuzzy name that fits two people is a tie. A person's name
+    that fits nobody on the roster is also held, and the uploader picks
+    which address they entered. Team and pronouns are never held.
+    """
+    roster = _email_choices(list(participants or []))
     collisions = []
     for task in tasks:
         if (task.get("assigned_email") or "").strip():
             continue
-        options = ambiguous_matches(task.get("assigned_to") or "", participants)
-        candidates = [
-            {"name": p.get("name") or "", "email": (p.get("email") or "").strip().lower()}
-            for p in options
-            if (p.get("email") or "").strip()
-        ]
-        deduped = []
-        seen = set()
-        for candidate in candidates:
-            if candidate["email"] in seen:
-                continue
-            seen.add(candidate["email"])
-            deduped.append(candidate)
+        assignee = (task.get("assigned_to") or "").strip()
+        options = ambiguous_matches(assignee, participants)
+        deduped = _email_choices(options)
         if len(deduped) >= 2:
-            collisions.append({
-                "task_id": task.get("id"),
-                "assignee_name": task.get("assigned_to") or "",
-                "description": task.get("description") or "",
-                "candidates": deduped,
-            })
+            chosen = deduped
+        elif (
+            roster
+            and assignee
+            and _clean_text(assignee) not in IGNORED_ASSIGNEES
+            and not options
+        ):
+            chosen = roster
+        else:
+            continue
+        collisions.append({
+            "task_id": task.get("id"),
+            "assignee_name": assignee,
+            "description": task.get("description") or "",
+            "candidates": chosen,
+        })
     return collisions
 
 

@@ -87,6 +87,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const pctEl      = document.getElementById('loading-percentage');
   const statusEl   = document.getElementById('loading-status-text');
 
+  const attendeeList = document.getElementById('attendee-list');
+  const addAttendee = document.getElementById('add-attendee');
+  if (attendeeList && addAttendee) {
+    addAttendee.addEventListener('click', () => {
+      const row = attendeeList.querySelector('.attendee-row');
+      if (!row) return;
+      const copy = row.cloneNode(true);
+      copy.querySelectorAll('input').forEach((input) => { input.value = ''; });
+      attendeeList.appendChild(copy);
+    });
+  }
+
   if (uploadForm && submitBtn) {
     uploadForm.addEventListener('submit', () => {
       submitBtn.hidden = true;

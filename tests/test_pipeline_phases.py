@@ -5,6 +5,7 @@ import tempfile
 
 from models.database import (
     get_decisions_by_meeting,
+    get_tasks_by_meeting,
     init_db,
     insert_decisions,
     insert_meeting,
@@ -63,6 +64,80 @@ def test_decision_graph_links_person_task_deadline_and_meeting():
     decision = next(node for node in graph["nodes"] if node["type"] == "Decision")
     assert decision["source"] == "We'll use React Native for this."
     assert decision["confidence"] == 0.8
+
+
+def test_pasted_speaker_email_and_decision_are_stored(monkeypatch, tmp_path):
+    """Name (email) lines stay matchable after the transcript is rendered."""
+    monkeypatch.setattr("services.pipeline._get_nlp", lambda: None)
+    monkeypatch.setattr("services.pipeline._get_summariser", lambda: (None, None))
+    monkeypatch.setattr("services.pipeline.STATIC_GRAPH_DIR", str(tmp_path))
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        init_db(path)
+        user_id = insert_user("ada", "ada@example.com", "hash", db_path=path)
+        meeting_id = insert_meeting(user_id, title="Kickoff", db_path=path)
+        from services.pipeline import run_clario_pipeline
+
+        result = run_clario_pipeline(
+            text_input=(
+                "Sarah (sarah@example.com): I will send the launch checklist by Friday.\n"
+                "Sarah (sarah@example.com): We decided to ship the dashboard on Monday.\n"
+            ),
+            meeting_id=meeting_id,
+            user_id=user_id,
+            db_path=path,
+        )
+        assert result["tasks"][0]["assigned_email"] == "sarah@example.com"
+        stored = get_tasks_by_meeting(meeting_id, path)
+        assert stored[0]["assigned_email"] == "sarah@example.com"
+        assert len(stored[0]["due_date"]) == 10 and stored[0]["due_date"][4] == "-"
+        decisions = get_decisions_by_meeting(meeting_id, path)
+        assert [row["content"] for row in decisions] == [
+            "We decided to ship the dashboard on Monday."
+        ]
+    finally:
+        os.remove(path)
+
+
+def test_roster_rows_skip_blanks_and_reject_a_half_filled_person():
+    from services.preprocessing.participants import roster_from_pairs
+
+    people, error = roster_from_pairs(
+        ["John Smith", "", "Sara"],
+        [" John@Example.com ", "", ""],
+    )
+    assert error == "Enter both a name and an email for each person."
+    people, error = roster_from_pairs(["John Smith", ""], ["John@Example.com", ""])
+    assert error == ""
+    assert people == [{
+        "name": "John Smith",
+        "email": "john@example.com",
+        "source": "upload",
+    }]
+
+
+def test_unmatched_roster_name_waits_for_the_uploader():
+    from services.nlp.participant_matching import pending_name_collisions
+
+    roster = [
+        {"name": "John Smith", "email": "john@example.com"},
+        {"name": "Sara Khan", "email": "sara@example.com"},
+    ]
+    held = pending_name_collisions(
+        [{
+            "id": 4,
+            "assigned_to": "Priya",
+            "assigned_email": None,
+            "description": "Priya will write the recap.",
+        }],
+        roster,
+    )
+    assert held[0]["task_id"] == 4
+    assert {person["email"] for person in held[0]["candidates"]} == {
+        "john@example.com",
+        "sara@example.com",
+    }
 
 
 def test_mentioned_emails_are_participants():

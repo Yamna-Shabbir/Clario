@@ -11,7 +11,7 @@
 
   <h1 class="page-title">Upload a meeting</h1>
   <p class="page-lead stack-lg">
-    Provide an audio recording or paste the transcript directly. Clario will do the rest.
+    Add the people in the meeting, then upload audio or paste the transcript. Clario matches each task to those addresses.
   </p>
 
   {% if session.get('prefill_participants') %}
@@ -35,6 +35,18 @@
         <label class="sr-only" for="meeting_title">Meeting title</label>
         <input type="text" id="meeting_title" name="meeting_title" class="form-control" placeholder="E.g. Q3 Roadmap Planning (optional)">
       </div>
+    </div>
+
+    <div class="card card-pad stack-md">
+      <h2 class="section-heading">People in this meeting</h2>
+      <p class="text-muted stack-sm">Name and email for everyone who should receive a task. If a spoken name matches two people, or none of them, you confirm the address before any mail is sent.</p>
+      <div id="attendee-list" class="stack-sm">
+        <div class="form-row attendee-row">
+          <input type="text" name="attendee_name" class="form-control" placeholder="Name" autocomplete="name">
+          <input type="email" name="attendee_email" class="form-control" placeholder="name@gmail.com" autocomplete="email">
+        </div>
+      </div>
+      <button type="button" id="add-attendee" class="btn btn-ghost btn-sm">Add person</button>
     </div>
 
     <div class="card card-pad stack-md">

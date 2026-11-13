@@ -64,9 +64,19 @@ def _make_fake_summariser():
 
 @pytest.fixture(scope="session")
 def real_nlp():
-    """Load the real en_core_web_sm once per test session."""
-    import spacy  # noqa: PLC0415
-    return spacy.load("en_core_web_sm")
+    """Load en_core_web_sm once per session.
+
+    Windows Application Control can block spaCy's compiled strings module.
+    Tests then run on the same regex path the live app uses.
+    """
+    try:
+        from services.native_compat import install
+        install()
+        import spacy  # noqa: PLC0415
+        return spacy.load("en_core_web_sm")
+    except Exception as exc:
+        print(f"spaCy unavailable for tests ({exc}). Using the regex detector.")
+        return None
 
 
 # ---------------------------------------------------------------------------

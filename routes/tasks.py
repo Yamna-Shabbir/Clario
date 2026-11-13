@@ -112,7 +112,7 @@ def confirm(task_id: int):
         flash("You cannot confirm that assignment.", "error")
         return redirect(url_for("tasks.index"))
     if not resolve_task_confirmation(task["meeting_id"], task_id, email, DB_PATH):
-        flash("Choose one of the people who share that name.", "error")
+        flash("Choose one of the addresses from this meeting.", "error")
         return redirect(url_for("tasks.index"))
     remaining = get_pending_confirmations(task["meeting_id"], DB_PATH)
     if not remaining:
@@ -131,7 +131,7 @@ def confirm(task_id: int):
         else:
             flash("Assignment saved.", "success")
     else:
-        flash("Assignment saved. Confirm the remaining shared names to send mail.", "success")
+        flash("Assignment saved. Confirm the remaining tasks to send mail.", "success")
     if request.form.get("return_to") == "result":
         return redirect(url_for("meeting.result", meeting_id=task["meeting_id"]))
     return redirect(url_for("tasks.index"))

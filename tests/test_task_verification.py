@@ -227,3 +227,42 @@ def test_urdu_short_acceptance_keeps_the_requested_update():
     assert "بھیج دوں گا" in update[0]["source_text"]
     assert update[0]["evidence_time"] == "01:00:36"
     assert len(result["tasks"]) == 2
+
+
+def test_urdu_agreement_words_are_not_assignees():
+    text = (
+        "بالکل، عایشہ آپ dashboard میں task status کا filter add کریں۔ "
+        "اس کی deadline پر medium priority رکھیں۔\n"
+        "ٹھیک ہے، علی آپ authentication bug fix کریں۔ "
+        "Duplicate records والا کام بدھ تک مکمل کر دیں۔\n"
+        "ٹھیک ہے۔ میں updates پیر شام تک بھیج دوں گی۔"
+    )
+    result = verify_meeting_tasks(
+        text,
+        segments=prepare_meeting_turns(text, translate=False),
+    )
+    for task in result["tasks"]:
+        assert "بالکل" not in task["assigned_to"]
+        assert "ٹھیک" not in task["assigned_to"]
+        assert "عایشہ" not in task["description"]
+        assert "ٹھیک" not in task["description"]
+    ayesha = [task for task in result["tasks"] if task["assigned_to"] == "Ayesha"]
+    assert any(
+        "filter" in task["description"].lower() and "dashboard" in task["description"].lower()
+        for task in ayesha
+    )
+    ali = [task for task in result["tasks"] if task["assigned_to"] == "Ali"]
+    assert any("bug" in task["description"].lower() for task in ali)
+    assert any(
+        "wednesday" in task["description"].lower()
+        or "wednesday" in (task.get("due_date") or "").lower()
+        for task in ali
+    )
+    mentioned = result["tasks"] + result["review"]
+    monday = [
+        item for item in mentioned
+        if "monday" in (item.get("description") or "").lower()
+        or "monday" in (item.get("due_date") or "").lower()
+    ]
+    assert monday
+    assert all("ٹھیک" not in (item.get("assigned_to") or "") for item in monday)

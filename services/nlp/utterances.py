@@ -32,7 +32,9 @@ _TASK_RE = re.compile(
     r"submit|send|fix|deliver|prepare|complete|finish|design|deploy)\b",
     re.IGNORECASE,
 )
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+# Newlines split speaker labels from the next sentence. Without that,
+# "Sarah\nWe decided …" is one sentence when spaCy is unavailable.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
 
 
 def _sentences(text: str, nlp: Any) -> List[str]:

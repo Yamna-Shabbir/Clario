@@ -74,7 +74,7 @@ Override any default via environment variable (or `.env` file):
 | `CLARIO_WHISPER_TASK` | `translate` | Whisper fallback task. Sukhan always transcribes, then Urdu script is translated |
 | `CLARIO_WHISPER_LANGUAGE` | `auto` | Force `en`/`ur` or `auto` for code-switching |
 | `CLARIO_WHISPER_INITIAL_PROMPT` | *(bilingual hint)* | Optional context for mixed meetings |
-| `CLARIO_ENABLE_TEXT_TRANSLATION` | `True` | Marian Urdu→English when pasted text has Arabic script |
+| `CLARIO_ENABLE_TEXT_TRANSLATION` | `True` | Neural Marian Urdu→English only. The meeting lexicon still rewrites Urdu when this is False |
 | `CLARIO_TRANSLATION_MODEL` | `Helsinki-NLP/opus-mt-ur-en` | Fallback text translator |
 | `CLARIO_BART_MODEL` | `sshleifer/distilbart-cnn-12-6` | HuggingFace summarizer (~40% faster on CPU; override with facebook/bart-large-cnn) |
 | `CLARIO_SPACY_MODEL` | `en_core_web_sm` | spaCy language model |
@@ -280,9 +280,11 @@ services/jobs.py  _run_pipeline_job()
         │        server log names it. openai-whisper is not used for that |
         │        fallback because numba is blocked here |
         │      → With no fallback configured, the primary load error is raised |
-        │      → Sukhan writes Urdu in Urdu script; ensure_english_transcript()
-        │        rewrites meeting terms (names, weekdays, action verbs) into
-        │        English, then uses Marian ur-en only for lines it cannot render
+        │      → Sukhan writes Urdu in Urdu script; prepare_meeting_turns()
+        │        rewrites names, weekdays, and action verbs with the lexicon
+        │        even when CLARIO_ENABLE_TEXT_TRANSLATION is false. Marian
+        │        runs only for a line the lexicon cannot render, and only
+        │        when that flag is on
         │      → FFmpeg auto-resolved via imageio-ffmpeg if not on PATH
         │      clean_transcript(): drop fillers (uh, um), noise markers, timestamps
         │
@@ -292,7 +294,13 @@ services/jobs.py  _run_pipeline_job()
         │      A reply such as "I can do that" keeps the request sentence as evidence
         │      Repeated commitments collapse; a later deadline replaces the earlier one
         │      Unnamed commitments go to task_reviews instead of a guessed assignee
+        │      "Name (email):" is read from the original paste before rendering
+        │      drops the address, so follow-up mail can match that person
+        │      verify_meeting_tasks receives the meeting's calendar day, and
+        │      a resolved due_date_iso is what insert_tasks stores
         │      If spaCy cannot load (blocked native libs, or msgpack rejecting int keys), keyword detection still runs and the meeting is not marked failed
+        │      On this PC, Windows Application Control blocks spacy/strings.pyd;
+        │      that is an OS allow-list, and the regex detector is the path that runs
         │      → spacy.load("en_core_web_sm") [lazy, cached globally, thread-safe]
         │      → regex keyword matching with verb POS validation
         │      → NER for PERSON (assignee) and DATE/TIME (due date)
@@ -517,7 +525,9 @@ meeting_participants                  (many-to-1 with meetings)
    `services.pipeline._get_summariser`.  spaCy (`en_core_web_sm`) may be
    loaded for real — it is small enough to include in CI.  The `real_nlp`
    session-scoped fixture in `tests/conftest.py` loads it once per test
-   session and wires it into `services.pipeline._get_nlp`.  Never load
+   session and wires it into `services.pipeline._get_nlp`.  If Windows
+   Application Control blocks `spacy/strings.pyd`, that fixture returns
+   None and `tests/test_task_detection.py` skips.  Never load
    Whisper or BART weights in any automated test.
 
 4. **Keep function signatures backward compatible unless told otherwise.**
@@ -635,10 +645,17 @@ meeting_participants                  (many-to-1 with meetings)
     `prepare_meeting_turns()` keeps each line's original wording as `source_text`,
     moves timestamps onto tasks, and rewrites Arabic-script lines with `urdu_norm`
     or the Roman Urdu lexicon, keeping the gloss that preserves more of the
-    commitment. A transliterated name is aligned to a Latin speaker label already
-    on the transcript. A named "please" is saved for that person even when nobody
-    answers; a question still waits for the reply. Marian runs only when Arabic
-    script remains.
+    commitment. It always runs, including when `CLARIO_ENABLE_TEXT_TRANSLATION`
+    is false; that flag only skips the Marian model. A transliterated name is
+    aligned to a Latin speaker label already on the transcript. A named "please"
+    is saved for that person even when nobody answers; a question still waits
+    for the reply. Agreement words (`بالکل`, `ٹھیک ہے`, okay, absolutely) are
+    never assignees or speaker names. A later please-line from the same speaker
+    keeps the person just named when the line itself has no new name. A line
+    that is still in Arabic script goes to review instead of becoming a task.
+    Code-switched imperatives such as `add کریں` and `fix کریں` become
+    please-add and please-fix. Marian runs only when Arabic script remains
+    and text translation is enabled.
 
     **Public signatures are locked** — `detect_tasks(text, nlp=None, nlp_model=None,
     *, participants=None, meeting_date=None)` and `get_task_summary(tasks)`. Add
@@ -684,10 +701,14 @@ meeting_participants                  (many-to-1 with meetings)
       is stored as a participant, even if they did not speak. The host ends the
       room; `services/live.py` transcribes each track, prefixes `Name (email):`,
       and submits that transcript to the existing pipeline.
-    - `ambiguous_matches()` reports a tie. `send_meeting_followups` writes
-      `task_confirmations` and status `waiting` instead of sending. The assigner
-      (`assigned_by_email`) or the meeting host confirms on `/tasks` or the result
-      page, and mail is sent only after no ties remain.
+    - The upload form collects `attendee_name` / `attendee_email` rows.
+      `roster_from_pairs()` stores them as meeting participants before the
+      pipeline runs, and those addresses are what task matching uses.
+    - `ambiguous_matches()` reports a tie. A spoken name that matches nobody
+      on that roster is held too. `send_meeting_followups` writes
+      `task_confirmations` and status `waiting` instead of sending. The
+      uploader (meeting host) or the assigner confirms on the result page or
+      `/tasks`, and mail is sent only after no choices remain.
     - `/tasks` lists every task in meetings the user owns, joined, or was assigned
       in. Only the assignee email can set status to `pending`, `started`,
       `doing`, or `completed`. Other people see that status and cannot change it.

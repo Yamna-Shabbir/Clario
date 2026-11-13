@@ -155,6 +155,10 @@ _URDU_PHRASES: Tuple[Tuple[str, str], ...] = (
     ("دیکھ لو", "please-check"),
     ("دیکھ لے", "will-check"),
     ("دیکھے", "will-check"),
+    ("ٹھیک کر دوں گا", "will-fix"),
+    ("ٹھیک کر دوں گی", "will-fix"),
+    ("ٹھیک کر دیں", "please-fix"),
+    ("ٹھیک کر دو", "please-fix"),
     ("کر دوں گا", "will-do"),
     ("کر دوں گی", "will-do"),
     ("کر دینا", "please-do"),
@@ -164,6 +168,33 @@ _URDU_PHRASES: Tuple[Tuple[str, str], ...] = (
     ("دیکھ لیا تھا", "did-check"),
     ("آج شام", "this-evening"),
     ("آج رات", "tonight"),
+    ("پیر شام تک", "monday-evening"),
+    ("منگل شام تک", "tuesday-evening"),
+    ("بدھ شام تک", "wednesday-evening"),
+    ("جمعرات شام تک", "thursday-evening"),
+    ("جمعہ شام تک", "friday-evening"),
+    ("پیر شام", "monday-evening"),
+    ("منگل شام", "tuesday-evening"),
+    ("بدھ شام", "wednesday-evening"),
+    ("جمعرات شام", "thursday-evening"),
+    ("جمعہ شام", "friday-evening"),
+    ("ہفتے شام", "saturday-evening"),
+    ("اتوار شام", "sunday-evening"),
+    ("add کر دیں", "please-add"),
+    ("add کریں", "please-add"),
+    ("add کر دو", "please-add"),
+    ("fix کر دیں", "please-fix"),
+    ("fix کریں", "please-fix"),
+    ("fix کر دو", "please-fix"),
+    ("update کریں", "please-do"),
+    ("share کریں", "please-share"),
+    ("send کریں", "please-send"),
+    ("complete کریں", "please-complete"),
+    ("جی بالکل", "okay"),
+    ("بالکل", "okay"),
+    ("ہاں جی", "yes"),
+    ("والا کام", ""),
+    ("والی کام", ""),
     ("براہ کرم", "please"),
     ("شاید", "maybe"),
 )
@@ -215,6 +246,27 @@ _URDU_WORDS = {
     "ڈمو": "demo",
     "بعد": "later",
     "کوئی": "koi",
+    "بالکل": "okay",
+    "عایشہ": "Ayesha",
+    "عائشہ": "Ayesha",
+    "آئیشہ": "Ayesha",
+    "علی": "Ali",
+    "کامران": "Kamran",
+    "سعد": "Saad",
+    "بلال": "Bilal",
+    "فلٹر": "filter",
+    "بگ": "bug",
+    "پر": "par",
+    "ہی": "hi",
+    "اسے": "it",
+    "اس": "it",
+    "سب": "all",
+    "بھی": "bhi",
+    "میڈیم": "medium",
+    "پرائیرٹی": "priority",
+    "رکھیں": "please-set",
+    "رکھو": "please-set",
+    "ڈیش بورڈ": "dashboard",
 }
 
 _TIME = {
@@ -244,6 +296,13 @@ _TIME = {
     "this-evening": "this evening",
     "this-morning": "this morning",
     "tonight": "tonight",
+    "monday-evening": "Monday evening",
+    "tuesday-evening": "Tuesday evening",
+    "wednesday-evening": "Wednesday evening",
+    "thursday-evening": "Thursday evening",
+    "friday-evening": "Friday evening",
+    "saturday-evening": "Saturday evening",
+    "sunday-evening": "Sunday evening",
 }
 
 _PRONOUN = {
@@ -260,6 +319,18 @@ _DROP = {
     "kaam", "wala", "wali", "wale", "hoga", "hogi", "honge", "nahi", "not",
     "please", "zara", "zaroor", "haan", "han", "ji", "kya", "mein", "par",
     "per", "ke", "ki", "a", "the", "of", "for", "and", "with", "on", "in",
+    "all", "it",
+}
+
+# Capitalised English words that are work, not people.
+_NOT_A_PERSON = {
+    "duplicate", "records", "record", "authentication", "bug", "dashboard",
+    "task", "status", "filter", "update", "updates", "medium", "priority",
+    "deadline", "login", "report", "notes", "budget", "slides", "api",
+    "client", "release", "demo", "notification", "checklist", "metrics",
+    "design", "email", "page", "system", "issue", "work", "wednesday",
+    "monday", "tuesday", "thursday", "friday", "saturday", "sunday",
+    "okay", "yes", "absolutely", "someone", "somebody", "team",
 }
 
 _VERB_ATOM = {
@@ -277,6 +348,9 @@ _VERB_ATOM = {
     "please-check": ("please", "check"),
     "please-write": ("please", "write"),
     "please-do": ("please", "do"),
+    "please-add": ("please", "add"),
+    "will-add": ("will", "add"),
+    "please-set": ("please", "set"),
     "can-you-send": ("question", "send"),
     "can-you-check": ("question", "check"),
     "can-you-share": ("question", "share"),
@@ -328,6 +402,23 @@ def _urdu_script_to_roman(text: str) -> str:
     return cleaned
 
 
+def _object_phrase(verb: str, objects: List[str]) -> str:
+    """Join the work words, and put a dashboard at the end of an add."""
+    words = [
+        word for word in objects
+        if word.lower() not in {"add", "fix", "set", "complete", "send"}
+    ]
+    if verb == "add" and "dashboard" in words:
+        rest = [word for word in words if word != "dashboard"]
+        tail = " ".join(rest).strip()
+        return f"{tail} on the dashboard".strip() if tail else "it on the dashboard"
+    if not words:
+        return ""
+    if verb in {"fix", "complete", "send", "set", "check", "share", "write", "do"}:
+        return "the " + " ".join(words)
+    return " ".join(words)
+
+
 def _content_word(token: str) -> bool:
     folded = token.lower()
     if folded in _DROP or folded in _TIME or folded in _PRONOUN:
@@ -371,7 +462,7 @@ def _assemble(raw: str) -> Optional[str]:
         if piece == "maybe":
             maybe = True
             continue
-        if piece in {"okay", "hello"} and not saw_commitment:
+        if piece in {"okay", "hello", "yes", "absolutely"} and not saw_commitment:
             continue
         if piece in _TIME:
             if skip_time:
@@ -387,14 +478,19 @@ def _assemble(raw: str) -> Optional[str]:
         if piece in _PRONOUN and not subject:
             subject = _PRONOUN[piece]
             continue
-        if piece[:1].isupper() and piece.lower() not in _DROP:
+        if (
+            piece[:1].isupper()
+            and piece.lower() not in _DROP
+            and piece.lower() not in _NOT_A_PERSON
+        ):
             names.append(piece)
             continue
-        if _content_word(piece):
-            objects.append(piece)
+        if piece.lower() in _NOT_A_PERSON or _content_word(piece):
+            if piece.lower() not in _DROP and piece.lower() not in _TIME:
+                objects.append(piece.lower() if piece.lower() in _NOT_A_PERSON else piece)
 
     if not saw_commitment:
-        if any(piece in {"okay", "hello"} for piece in pieces):
+        if any(piece in {"okay", "hello", "yes", "absolutely"} for piece in pieces):
             return "Okay."
         return None
 
@@ -421,6 +517,7 @@ def _assemble(raw: str) -> Optional[str]:
         return gloss[:1].upper() + gloss[1:] + "."
 
     when = ""
+    obj = _object_phrase(verb, objects)
     if "this evening" in times:
         when = "this evening"
     elif "tonight" in times:
@@ -429,8 +526,7 @@ def _assemble(raw: str) -> Optional[str]:
         when = "this morning"
     elif times:
         when = times[-1]
-    obj = " ".join(objects).strip()
-    if mood == "will" and verb in {"do", "send", "check", "fix", "share", "write"} and not obj:
+    if mood == "will" and verb in {"do", "send", "check", "fix", "share", "write", "add", "set"} and not obj:
         obj = "that"
     if verb == "do" and obj in {"phir", "pehle", "later"}:
         obj = "that"
@@ -478,6 +574,11 @@ def utterance_to_english(text: str) -> str:
     if not raw:
         return ""
     if arabic_script_ratio(raw) >= 0.12:
+        chunks = [chunk.strip(" ،,") for chunk in re.split(r"[۔؟!]+", raw) if chunk.strip(" ،,")]
+        if len(chunks) > 1:
+            glosses = [_assemble(_urdu_script_to_roman(chunk)) for chunk in chunks]
+            joined = " ".join(gloss for gloss in glosses if gloss)
+            return joined or raw
         converted = _assemble(_urdu_script_to_roman(raw))
         return converted or raw
     if looks_roman_urdu(raw):
