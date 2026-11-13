@@ -129,6 +129,10 @@ def run_clario_pipeline(
         insert_tasks, insert_decisions,
     )
     from services.preprocessing.participants import mentioned_participants
+    from services.preprocessing.remote_transcription import (
+        remote_transcription_configured,
+        transcribe_remote,
+    )
     from services.preprocessing.transcription import transcribe_audio
     from services.nlp.summarization import summarize_text
 
@@ -138,19 +142,25 @@ def run_clario_pipeline(
     if audio_path and os.path.exists(audio_path):
         print(" Transcribing audio …")
         try:
-            transcript = transcribe_audio(
-                audio_path,
-                model=_get_whisper(),
-                model_size=WHISPER_MODEL,
-            )
+            if remote_transcription_configured():
+                # Weights stay on the laptop. Do not call _get_whisper() here.
+                transcript = transcribe_remote(audio_path)
+            else:
+                transcript = transcribe_audio(
+                    audio_path,
+                    model=_get_whisper(),
+                    model_size=WHISPER_MODEL,
+                )
         except Exception as exc:
             if text_input and text_input.strip():
                 # Text was also supplied — use it and warn
-                print(f"⚠️  Whisper failed: {exc}. Using supplied text_input instead.")
+                print(f"⚠️  Transcription failed: {exc}. Using supplied text_input instead.")
                 transcript = text_input
             else:
                 # No fallback text — surface the error so the route can tell the user
-                print(f"❌ Whisper failed and no text_input fallback: {exc}")
+                print(f"❌ Transcription failed and no text_input fallback: {exc}")
+                if remote_transcription_configured():
+                    raise RuntimeError(str(exc)) from exc
                 raise RuntimeError(
                     f"Audio transcription failed: {exc}\n"
                     "Make sure FFmpeg is installed and on your PATH, or paste the "

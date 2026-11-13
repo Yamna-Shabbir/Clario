@@ -81,7 +81,9 @@ Override any default via environment variable (or `.env` file):
 | `CLARIO_SUMMARY_CHUNK_TOKENS` | `700` | Max BART tokens per map-reduce chunk |
 | `CLARIO_SUMMARY_MAX_INPUT_CHARS` | *(deprecated)* | Formerly hard-capped transcript chars; now ignored — full transcript is processed |
 | `CLARIO_MAX_UPLOAD_MB` | `200` | Maximum upload size in megabytes |
-| `CLARIO_FREE_TIER` | `False` | When `True` (Render free), refuse speech, BART, and Marian downloads and ask the user to paste a transcript. Local development stays `False` so Whisper and other models still load |
+| `CLARIO_FREE_TIER` | `False` | When `True` (Render free), refuse speech, BART, and Marian downloads and ask the user to paste a transcript. Local development stays `False` so Whisper and other models still load. Audio upload is allowed on the free plan only when the local transcription URL and token below are both set |
+| `CLARIO_LOCAL_TRANSCRIPTION_URL` | `""` | Optional HTTPS tunnel to the laptop ASR service. Render forwards audio there and does not download Whisper |
+| `CLARIO_LOCAL_TRANSCRIPTION_TOKEN` | `""` | Shared bearer token for that service. Never logged or sent to the browser. The laptop process reads the same variable |
 | `CLARIO_DISK_RESERVE_MB` | `64` | Reject a new upload when free space would fall below this reserve. Render free sets 64; the paid blueprint sets 512 |
 | `CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB` | `4096` | Paid instances download a missing model only when this much space remains above the reserve |
 | `CLARIO_GOOGLE_CLIENT_ID` | `""` | Google Cloud OAuth 2.0 Web Client ID for Google Meet integration |
@@ -137,6 +139,7 @@ Clario/
 │
 ├── scripts/
 │   ├── check_routes.py     # HTTP smoke-tester (needs live server)
+│   ├── local_transcription_server.py # Laptop Whisper API (localhost only)
 │   ├── fix_unicode.py      # One-shot script: strips cp1252-breaking emoji
 │   ├── benchmark_whisper.py # Whisper model benchmark (load time, RTF, WER)
 │   ├── generate_multilingual_samples.py # gTTS Urdu/English/mixed fixtures for eval
@@ -153,6 +156,7 @@ Clario/
 │   ├── fixtures/           # long_meeting.txt, extended_meeting.txt, topics JSON files
 │   ├── conftest.py         # Fixtures: app, client, logged_in_client, ML patches
 │   ├── test_routes.py      # Route-level tests (public + authenticated flows)
+│   ├── test_remote_transcription.py # Laptop ASR client and local service tests
 │   ├── test_database.py    # DB CRUD, ownership, cascade delete tests
 │   ├── test_helpers.py     # Unit tests for text, json, date, and directory utilities
 │   ├── test_meeting_deletion.py # Meeting deletion & asset cleanup unit tests
@@ -200,6 +204,8 @@ Clario/
 │   ├── live.py             # Live room: per-account microphone tracks → named transcript
 │   ├── preprocessing/      # Phase 1: input and preprocessing
 │   │   ├── transcription.py    # Whisper load/transcribe
+│   │   ├── remote_transcription.py  # Forward audio to the laptop service
+│   │   ├── local_asr.py        # Authenticated localhost transcription API
 │   │   ├── cleaning.py         # Fillers, noise markers, timestamps
 │   │   ├── roman_urdu.py       # Roman Urdu meeting lexicon → English
 │   │   └── urdu_norm.py        # Urdu phrase table before Marian fallback
@@ -276,17 +282,24 @@ services/jobs.py  _run_pipeline_job()
         │
         ├─ 1. PREPROCESSING (stage: "transcribing")
         │      transcribe_audio(audio_path, model=_get_whisper(), task=translate)
+        │      → When CLARIO_LOCAL_TRANSCRIPTION_URL and
+        │        CLARIO_LOCAL_TRANSCRIPTION_TOKEN are both set, the audio file is
+        │        POSTed to that tunnel with a bearer token. Render does not load
+        │        Whisper. Connect timeout is 15s and the read timeout is 16 minutes.
+        │        An offline service, a bad token, or a timeout fails that meeting
+        │        unless the same upload also included pasted text
         │      → Primary ASR: Urdu Sukhan v1 (Urdu, English, code-switching)
-        │      → Weights are stored in data/hf-models (CLARIO_HF_MODELS_DIR) |
-        │      → CLARIO_FREE_TIER=True returns before snapshot_download and asks |
-        │        the user to paste a transcript. Pasted text still runs. A paid |
-        │        instance downloads only when free space covers |
-        │        CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB plus the disk reserve |
-        │      → If the primary HF model cannot load, CLARIO_WHISPER_FALLBACK |
-        │        is loaded through Transformers (openai/whisper-*) and the |
-        │        server log names it. openai-whisper is not used for that |
-        │        fallback because numba is blocked here |
-        │      → With no fallback configured, the primary load error is raised |
+        │      → Weights are stored in data/hf-models (CLARIO_HF_MODELS_DIR)
+        │      → CLARIO_FREE_TIER=True returns before snapshot_download and asks
+        │        the user to paste a transcript, unless the laptop service above is
+        │        configured. Pasted text still runs. A paid
+        │        instance downloads only when free space covers
+        │        CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB plus the disk reserve
+        │      → If the primary HF model cannot load, CLARIO_WHISPER_FALLBACK
+        │        is loaded through Transformers (openai/whisper-*) and the
+        │        server log names it. openai-whisper is not used for that
+        │        fallback because numba is blocked here
+        │      → With no fallback configured, the primary load error is raised
         │      → Sukhan writes Urdu in Urdu script; prepare_meeting_turns()
         │        rewrites names, weekdays, and action verbs with the lexicon
         │        even when CLARIO_ENABLE_TEXT_TRANSLATION is false. Marian
@@ -342,11 +355,13 @@ services/jobs.py  _run_pipeline_job()
      assignee their tasks and attaches a PDF of the summary, decisions,
      and the full task list. The meeting owner receives the PDF too.
      Mail prefers CLARIO_BREVO_API_KEY or CLARIO_RESEND_API_KEY (HTTPS).
-     Brevo also requires CLARIO_SMTP_FROM to be an address verified in
-     Brevo. An empty From is refused; it is not replaced with a placeholder.
-     A logged-in host is not used as From. Their address is Reply-To, and
-     their name and email are written in the message. The same rule applies
-     to live invitations (`send_invite_emails(..., host_email=session email)`).
+     Brevo accepts the meeting host as From only when that address is an
+     active sender (`GET /v3/senders`, `active: true`). The host's username
+     is the display name and the same address is Reply-To. Summary mail and
+     per-assignee task mail both use that host. An unverified host is
+     refused in the meeting email log. Clario does not substitute
+     `CLARIO_SMTP_FROM` or the recipient. Live invitations use the same
+     host (`send_invite_emails(..., host_email=session email)`).
      SMTP (CLARIO_SMTP_*) is the local fallback. Render free blocks ports
      587 and 465, so Gmail SMTP cannot send there. Without a transport,
      copies go to CLARIO_EMAIL_DIR or data/outbox in debug.
@@ -684,10 +699,10 @@ meeting_participants                  (many-to-1 with meetings)
 
 17. **Live meetings and the shared task board.**
     - `POST /live/start` creates `live_rooms` and can email the join link.
-      The invitation names the logged-in host and sets Reply-To to that
-      account's email. From stays the verified `CLARIO_SMTP_FROM` address,
-      because Brevo rejects an unverified From. In-room invites use the same
-      host. API keys stay on the server.
+      The invitation is sent from the logged-in host. From and Reply-To
+      are that account's email, and the display name is the account name.
+      Brevo must already list that address as an active sender. In-room
+      invites use the same host. API keys stay on the server.
       `GET /live/<token>` renders the Meet-style room (`templates/live/room.html`,
       `static/js/live-room.js`): stage (local camera preview), sidebar (People |
       Chat), bottom toolbar (mic, camera, record, save, host end). Recording does
@@ -728,6 +743,21 @@ meeting_participants                  (many-to-1 with meetings)
     - `/tasks` lists every task in meetings the user owns, joined, or was assigned
       in. Only the assignee email can set status to `pending`, `started`,
       `doing`, or `completed`. Other people see that status and cannot change it.
+
+18. **Hybrid transcription (Render free + laptop Whisper).**
+    `scripts/local_transcription_server.py` binds to `127.0.0.1` only and
+    serves `POST /transcribe`. It loads the first complete checkpoint already
+    under `CLARIO_HF_MODELS_DIR` (configured model, then
+    `CLARIO_WHISPER_FALLBACK`) and sets `HF_HUB_OFFLINE` so it cannot download
+    weights. It does not import spaCy or the summarizer. Publish it with a
+    tunnel you manage. Clario calls it only when both
+    `CLARIO_LOCAL_TRANSCRIPTION_URL` and `CLARIO_LOCAL_TRANSCRIPTION_TOKEN`
+    are set. The token travels in the `Authorization` header, is compared
+    with a hash, and is never written to logs, meeting errors, or templates.
+    `CLARIO_FREE_TIER=True` still blocks model downloads on Render. With the
+    pair unset, free-tier audio uploads stay refused and pasted transcripts
+    still run. In-process Whisper is unchanged when the pair is unset.
+    Live recordings use the same choice.
 
 ---
 

@@ -51,8 +51,10 @@
 
     <div class="card card-pad stack-md">
       <h2 class="section-heading">Audio file</h2>
-      {% if free_tier %}
+      {% if free_tier and not remote_transcription %}
       <p class="text-muted stack-sm">Audio transcription is off on this plan. Paste the transcript below. Speech models are not downloaded.</p>
+      {% elif remote_transcription %}
+      <p class="text-muted stack-sm">Audio is transcribed by the connected local service. Speech models stay on that computer and are not downloaded here.</p>
       {% endif %}
       <div class="upload-zone" id="upload-zone">
         <div class="upload-icon">{{ icon_upload(32, 'icon') }}</div>

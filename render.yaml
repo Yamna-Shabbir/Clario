@@ -41,6 +41,12 @@ services:
         generateValue: true
       - key: CLARIO_FREE_TIER
         value: "True"
+      # Optional laptop ASR. Leave unset until a tunnel is running.
+      # Free tier still refuses Whisper downloads on this service.
+      - key: CLARIO_LOCAL_TRANSCRIPTION_URL
+        sync: false
+      - key: CLARIO_LOCAL_TRANSCRIPTION_TOKEN
+        sync: false
       - key: CLARIO_DISK_RESERVE_MB
         value: "64"
       - key: CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB

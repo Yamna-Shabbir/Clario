@@ -17,7 +17,18 @@ from config import DB_PATH, GRAPH_DIR, WHISPER_MODEL
 
 
 def transcribe_speaker_audio(audio_path: str) -> str:
-    """Transcribe one participant's recording. Whisper stays lazily loaded."""
+    """Transcribe one participant's recording.
+
+    Uses the laptop service when it is configured. Otherwise Whisper stays
+    lazily loaded in this process.
+    """
+    from services.preprocessing.remote_transcription import (
+        remote_transcription_configured,
+        transcribe_remote,
+    )
+
+    if remote_transcription_configured():
+        return transcribe_remote(audio_path) or ""
     from services.pipeline import _get_whisper
     from services.preprocessing.transcription import transcribe_audio
 

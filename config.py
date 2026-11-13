@@ -50,6 +50,10 @@ MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024
 # Free Render sets this True so speech and summarizer weights are never downloaded.
 # Local development and the paid disk blueprint leave it False.
 FREE_TIER = _env("CLARIO_FREE_TIER", "False").lower() in ("1", "true", "yes")
+# Optional laptop ASR. When both are set, audio is forwarded to that service
+# over a tunnel you start separately. The token is never sent to the browser.
+LOCAL_TRANSCRIPTION_URL = _env("CLARIO_LOCAL_TRANSCRIPTION_URL", "").strip()
+LOCAL_TRANSCRIPTION_TOKEN = _env("CLARIO_LOCAL_TRANSCRIPTION_TOKEN", "").strip()
 # Reject a new upload when the filesystem has less than this much free space.
 DISK_RESERVE_MB = int(_env("CLARIO_DISK_RESERVE_MB", "64"))
 # Paid instances may download a model only when at least this much space remains

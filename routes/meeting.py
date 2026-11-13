@@ -132,14 +132,14 @@ def upload():
             flash(roster_error, "error")
             return render_template("meeting/upload.html", user=current_user())
 
+        from services.preprocessing.remote_transcription import audio_upload_allowed
         from utils.storage import (
             FREE_TIER_AUDIO_MESSAGE,
             friendly_storage_error,
             upload_block_reason,
         )
-        from config import FREE_TIER
 
-        if audio_file and audio_file.filename and FREE_TIER:
+        if audio_file and audio_file.filename and not audio_upload_allowed():
             flash(FREE_TIER_AUDIO_MESSAGE, "error")
             if not text_input:
                 return render_template("meeting/upload.html", user=current_user())

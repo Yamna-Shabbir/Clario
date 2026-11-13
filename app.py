@@ -182,7 +182,13 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     @app.context_processor
     def inject_plan_flags():
         from config import FREE_TIER
-        return {"free_tier": FREE_TIER}
+        from services.preprocessing.remote_transcription import (
+            remote_transcription_configured,
+        )
+        return {
+            "free_tier": FREE_TIER,
+            "remote_transcription": remote_transcription_configured(),
+        }
 
     # ── Health check (Render / load balancers; does not load ML models) ───────
     @app.get("/health")

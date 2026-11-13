@@ -334,9 +334,9 @@ def recording(token: str):
     if ext not in _AUDIO_EXT:
         mime = (audio.mimetype or "").lower()
         ext = ".ogg" if "ogg" in mime else ".webm"
-    from config import FREE_TIER
+    from services.preprocessing.remote_transcription import audio_upload_allowed
     from utils.storage import FREE_TIER_AUDIO_MESSAGE, upload_block_reason
-    if FREE_TIER:
+    if not audio_upload_allowed():
         return jsonify({"ok": False, "error": FREE_TIER_AUDIO_MESSAGE}), 403
     space_error = upload_block_reason(UPLOAD_DIR, request.content_length or 0)
     if space_error:

@@ -43,13 +43,13 @@ deleted.
 | spaCy task extraction + verification (English) | Yes (if `en_core_web_sm` build succeeds) |
 | Charts / knowledge graph PNGs | Yes until instance spin-down |
 | `/health` | Yes |
-| Audio upload → Whisper / Sukhan ASR | **No**. The upload page explains this, and Clario refuses the download before any model file is fetched (`CLARIO_FREE_TIER=True`) |
+| Audio upload → Whisper / Sukhan ASR on Render | **No**. `CLARIO_FREE_TIER=True` refuses the download. Paste a transcript, or set `CLARIO_LOCAL_TRANSCRIPTION_URL` and `CLARIO_LOCAL_TRANSCRIPTION_TOKEN` so Render forwards the file to Whisper running on your computer (`python scripts/local_transcription_server.py` behind an HTTPS tunnel) |
 | New upload when free space is under `CLARIO_DISK_RESERVE_MB` (64) | **No**. Existing rows and files are left in place |
 | DistilBART / BART neural summarization | **No** |
 | Marian Urdu→English translation | **No** |
 | Durable meetings/uploads across restarts | **No** (ephemeral disk; wiped on spin-down ~15 min idle). Sign in again after a restart; an old login cookie is cleared instead of causing a 500 |
 | Google Meet OAuth | Optional; needs Google client secrets |
-| Invite / follow-up email | HTTPS only. Set `CLARIO_BREVO_API_KEY` and `CLARIO_SMTP_FROM` to a sender verified in Brevo. Gmail SMTP (587/465) is blocked on free |
+| Invite / follow-up email | HTTPS only. Set `CLARIO_BREVO_API_KEY`. Each host must verify their own address under Brevo → Senders; that address is the From and Reply-To. Gmail SMTP (587/465) is blocked on free |
 
 Full ML + durable storage: use `render.standard.yaml` later on a paid plan.
 
@@ -108,6 +108,8 @@ Full ML + durable storage: use `render.standard.yaml` later on a paid plan.
 | `CLARIO_PIPELINE_WORKERS` | `1` |
 | `CLARIO_MAX_UPLOAD_MB` | `25` |
 | `CLARIO_ENABLE_TEXT_TRANSLATION` | `False` |
+| `CLARIO_LOCAL_TRANSCRIPTION_URL` | Optional HTTPS tunnel to the laptop. Blank keeps paste-only audio |
+| `CLARIO_LOCAL_TRANSCRIPTION_TOKEN` | Same secret as on the laptop. Not required until the URL is set |
 
 ## Smoke test checklist (after you have a URL)
 
