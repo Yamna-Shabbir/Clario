@@ -335,6 +335,8 @@ services/jobs.py  _run_pipeline_job()
      assignee their tasks and attaches a PDF of the summary, decisions,
      and the full task list. The meeting owner receives the PDF too.
      Mail prefers CLARIO_BREVO_API_KEY or CLARIO_RESEND_API_KEY (HTTPS).
+     Brevo also requires CLARIO_SMTP_FROM to be an address verified in
+     Brevo. An empty From is refused; it is not replaced with a placeholder.
      SMTP (CLARIO_SMTP_*) is the local fallback. Render free blocks ports
      587 and 465, so Gmail SMTP cannot send there. Without a transport,
      copies go to CLARIO_EMAIL_DIR or data/outbox in debug.

@@ -267,13 +267,40 @@ def send_invite_emails(recipients: List[str], join_url: str, title: str,
     return sent
 
 
+_SENDER_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
 def _sender_address() -> str:
-    return SMTP_FROM or SMTP_USER or "clario@localhost"
+    """Address Brevo or Resend will put in the From line.
+
+    Render does not inherit the local .env file. An empty value used to
+    become ``clario@localhost``, which Brevo rejects as an invalid sender.
+    """
+    raw = (
+        os.environ.get("CLARIO_SMTP_FROM", "")
+        or os.environ.get("CLARIO_SMTP_USER", "")
+        or SMTP_FROM
+        or SMTP_USER
+        or ""
+    ).strip().strip('"').strip("'")
+    found = _SENDER_RE.search(raw)
+    if not found:
+        return ""
+    return found.group(0)
 
 
 def _dispatch(message: EmailMessage) -> None:
     """Send through HTTPS when a key is set, otherwise SMTP."""
+    sender = _sender_address()
+    if sender:
+        message.replace_header("From", sender)
     if BREVO_API_KEY or RESEND_API_KEY:
+        if not sender:
+            raise RuntimeError(
+                "Brevo needs a real From address. In the Render service, set "
+                "CLARIO_SMTP_FROM to an email you verified under Brevo → Senders, "
+                "then redeploy."
+            )
         _send_https(message)
         return
     _smtp_send(message)
@@ -367,6 +394,12 @@ def _explain_send_error(exc: Exception) -> str:
             "(not the normal account password) in CLARIO_SMTP_PASSWORD."
         )
     lowered = detail.lower()
+    if "valid sender email" in lowered or "sender email" in lowered:
+        return (
+            "Brevo rejected the From address. Set CLARIO_SMTP_FROM in Render "
+            "to an email you already verified in Brevo → Senders, Domains & Dedicated IPs, "
+            "then redeploy. The API key alone does not choose a sender."
+        )
     if any(token in lowered for token in ("timed out", "unreachable", "errno", "connection refused", "network")):
         return (
             "SMTP could not be reached. Render's free plan blocks ports 587 and 465. "

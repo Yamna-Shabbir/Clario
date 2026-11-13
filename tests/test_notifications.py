@@ -73,7 +73,9 @@ def test_followups_email_assignee_and_owner(tmp_path):
             def send_message(self, message):
                 sent.append(message)
 
-        with patch("services.notifications.SMTP_HOST", "smtp.example.com"), \
+        with patch("services.notifications.BREVO_API_KEY", ""), \
+             patch("services.notifications.RESEND_API_KEY", ""), \
+             patch("services.notifications.SMTP_HOST", "smtp.example.com"), \
              patch("services.notifications.SMTP_FROM", "clario@example.com"), \
              patch("services.notifications.SMTP_USER", "clario@example.com"), \
              patch("services.notifications.SMTP_PASSWORD", "secret"), \
@@ -140,6 +142,27 @@ def test_invite_sends_over_https_when_brevo_is_set(monkeypatch):
     assert captured["key"] == "brevo-test"
     assert captured["body"]["to"] == [{"email": "guest@example.com"}]
     assert "https://clario.example/live/abc" in captured["body"]["textContent"]
+
+
+def test_brevo_without_a_sender_explains_the_render_setting(monkeypatch, tmp_path):
+    monkeypatch.setattr("services.notifications.BREVO_API_KEY", "brevo-test")
+    monkeypatch.setattr("services.notifications.RESEND_API_KEY", "")
+    monkeypatch.setattr("services.notifications.SMTP_FROM", "")
+    monkeypatch.setattr("services.notifications.SMTP_USER", "")
+    monkeypatch.delenv("CLARIO_SMTP_FROM", raising=False)
+    monkeypatch.delenv("CLARIO_SMTP_USER", raising=False)
+    monkeypatch.setattr("services.notifications.EMAIL_DIR", str(tmp_path))
+    monkeypatch.setattr("services.notifications.DEBUG", False)
+    results = send_invite_emails(["guest@example.com"], "https://x/live/t", "Planning", "Ada")
+    assert results[0]["status"] == "failed"
+    assert "CLARIO_SMTP_FROM" in results[0]["detail"]
+
+
+def test_sender_address_accepts_a_display_name(monkeypatch):
+    from services.notifications import _sender_address
+
+    monkeypatch.setenv("CLARIO_SMTP_FROM", "Clario <Host@Example.com>")
+    assert _sender_address() == "Host@Example.com"
 
 
 def test_invite_without_transport_names_the_https_setup(monkeypatch, tmp_path):
