@@ -81,6 +81,9 @@ Override any default via environment variable (or `.env` file):
 | `CLARIO_SUMMARY_CHUNK_TOKENS` | `700` | Max BART tokens per map-reduce chunk |
 | `CLARIO_SUMMARY_MAX_INPUT_CHARS` | *(deprecated)* | Formerly hard-capped transcript chars; now ignored — full transcript is processed |
 | `CLARIO_MAX_UPLOAD_MB` | `200` | Maximum upload size in megabytes |
+| `CLARIO_FREE_TIER` | `False` | When `True` (Render free), refuse speech, BART, and Marian downloads and ask the user to paste a transcript. Local development stays `False` so Whisper and other models still load |
+| `CLARIO_DISK_RESERVE_MB` | `64` | Reject a new upload when free space would fall below this reserve. Render free sets 64; the paid blueprint sets 512 |
+| `CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB` | `4096` | Paid instances download a missing model only when this much space remains above the reserve |
 | `CLARIO_GOOGLE_CLIENT_ID` | `""` | Google Cloud OAuth 2.0 Web Client ID for Google Meet integration |
 | `CLARIO_GOOGLE_CLIENT_SECRET` | `""` | Google Cloud OAuth 2.0 Web Client Secret |
 | `CLARIO_OAUTH_REDIRECT_BASE` | `http://127.0.0.1:5000` | Base URL for OAuth redirect callback |
@@ -275,6 +278,10 @@ services/jobs.py  _run_pipeline_job()
         │      transcribe_audio(audio_path, model=_get_whisper(), task=translate)
         │      → Primary ASR: Urdu Sukhan v1 (Urdu, English, code-switching)
         │      → Weights are stored in data/hf-models (CLARIO_HF_MODELS_DIR) |
+        │      → CLARIO_FREE_TIER=True returns before snapshot_download and asks |
+        │        the user to paste a transcript. Pasted text still runs. A paid |
+        │        instance downloads only when free space covers |
+        │        CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB plus the disk reserve |
         │      → If the primary HF model cannot load, CLARIO_WHISPER_FALLBACK |
         │        is loaded through Transformers (openai/whisper-*) and the |
         │        server log names it. openai-whisper is not used for that |
@@ -337,6 +344,9 @@ services/jobs.py  _run_pipeline_job()
      Mail prefers CLARIO_BREVO_API_KEY or CLARIO_RESEND_API_KEY (HTTPS).
      Brevo also requires CLARIO_SMTP_FROM to be an address verified in
      Brevo. An empty From is refused; it is not replaced with a placeholder.
+     A logged-in host is not used as From. Their address is Reply-To, and
+     their name and email are written in the message. The same rule applies
+     to live invitations (`send_invite_emails(..., host_email=session email)`).
      SMTP (CLARIO_SMTP_*) is the local fallback. Render free blocks ports
      587 and 465, so Gmail SMTP cannot send there. Without a transport,
      copies go to CLARIO_EMAIL_DIR or data/outbox in debug.
@@ -674,6 +684,10 @@ meeting_participants                  (many-to-1 with meetings)
 
 17. **Live meetings and the shared task board.**
     - `POST /live/start` creates `live_rooms` and can email the join link.
+      The invitation names the logged-in host and sets Reply-To to that
+      account's email. From stays the verified `CLARIO_SMTP_FROM` address,
+      because Brevo rejects an unverified From. In-room invites use the same
+      host. API keys stay on the server.
       `GET /live/<token>` renders the Meet-style room (`templates/live/room.html`,
       `static/js/live-room.js`): stage (local camera preview), sidebar (People |
       Chat), bottom toolbar (mic, camera, record, save, host end). Recording does

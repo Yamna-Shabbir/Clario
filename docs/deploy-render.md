@@ -43,7 +43,8 @@ deleted.
 | spaCy task extraction + verification (English) | Yes (if `en_core_web_sm` build succeeds) |
 | Charts / knowledge graph PNGs | Yes until instance spin-down |
 | `/health` | Yes |
-| Audio upload → Whisper / Sukhan ASR | **No** (needs Torch + RAM + often ffmpeg) |
+| Audio upload → Whisper / Sukhan ASR | **No**. The upload page explains this, and Clario refuses the download before any model file is fetched (`CLARIO_FREE_TIER=True`) |
+| New upload when free space is under `CLARIO_DISK_RESERVE_MB` (64) | **No**. Existing rows and files are left in place |
 | DistilBART / BART neural summarization | **No** |
 | Marian Urdu→English translation | **No** |
 | Durable meetings/uploads across restarts | **No** (ephemeral disk; wiped on spin-down ~15 min idle). Sign in again after a restart; an old login cookie is cleared instead of causing a 500 |

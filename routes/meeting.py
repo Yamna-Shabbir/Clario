@@ -18,6 +18,7 @@ GET /result/<meeting_id>
 
 import os
 import pathlib
+import sqlite3
 from uuid import uuid4
 from werkzeug.utils import secure_filename
 from flask import (
@@ -131,6 +132,25 @@ def upload():
             flash(roster_error, "error")
             return render_template("meeting/upload.html", user=current_user())
 
+        from utils.storage import (
+            FREE_TIER_AUDIO_MESSAGE,
+            friendly_storage_error,
+            upload_block_reason,
+        )
+        from config import FREE_TIER
+
+        if audio_file and audio_file.filename and FREE_TIER:
+            flash(FREE_TIER_AUDIO_MESSAGE, "error")
+            if not text_input:
+                return render_template("meeting/upload.html", user=current_user())
+            audio_file = None
+
+        if audio_file and audio_file.filename or text_input:
+            space_error = upload_block_reason(UPLOAD_DIR, request.content_length or 0)
+            if space_error:
+                flash(space_error, "error")
+                return render_template("meeting/upload.html", user=current_user())
+
         # ── Save audio file ────────────────────────────────────────────────────
         if audio_file and audio_file.filename:
             raw_filename = audio_file.filename
@@ -161,14 +181,26 @@ def upload():
 
         # ── Initialise DB + create meeting row (queued) ────────────────────────
         init_db(DB_PATH)
-        meeting_id = insert_meeting(
-            user_id        = user_id,
-            title          = meeting_title,
-            audio_filename = audio_name,
-            db_path        = DB_PATH,
-            status         = "queued",
-            progress_stage = "queued",
-        )
+        try:
+            meeting_id = insert_meeting(
+                user_id        = user_id,
+                title          = meeting_title,
+                audio_filename = audio_name,
+                db_path        = DB_PATH,
+                status         = "queued",
+                progress_stage = "queued",
+            )
+        except sqlite3.OperationalError as exc:
+            message = friendly_storage_error(exc)
+            if not message:
+                raise
+            if audio_path and os.path.isfile(audio_path):
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    pass
+            flash(message, "error")
+            return render_template("meeting/upload.html", user=current_user())
 
         # ── Check for prefilled participants from platform import ──────────────
         prefill_participants = session.pop("prefill_participants", None)

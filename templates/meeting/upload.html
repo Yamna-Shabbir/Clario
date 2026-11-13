@@ -51,6 +51,9 @@
 
     <div class="card card-pad stack-md">
       <h2 class="section-heading">Audio file</h2>
+      {% if free_tier %}
+      <p class="text-muted stack-sm">Audio transcription is off on this plan. Paste the transcript below. Speech models are not downloaded.</p>
+      {% endif %}
       <div class="upload-zone" id="upload-zone">
         <div class="upload-icon">{{ icon_upload(32, 'icon') }}</div>
         <p class="empty-state__title">Drag and drop your audio here</p>

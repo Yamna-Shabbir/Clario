@@ -44,10 +44,25 @@ def get_connection(db_path: str = DB_PATH) -> sqlite3.Connection:
       - Auto-closing upon context-manager exit
     """
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
-    conn = sqlite3.connect(db_path, factory=ClosingConnection)
+    try:
+        conn = sqlite3.connect(db_path, factory=ClosingConnection, timeout=5.0)
+    except sqlite3.OperationalError as exc:
+        if "disk is full" in str(exc).lower() or "sqlite_full" in str(exc).lower():
+            try:
+                from utils.storage import log_disk_usage
+                log_disk_usage("opening the database")
+            except Exception:
+                pass
+        raise
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    # Wait briefly for another writer instead of failing the request at once.
+    conn.execute("PRAGMA busy_timeout = 5000")
+    # Keep sort and temp pages in memory so a small temp partition cannot fill.
+    conn.execute("PRAGMA temp_store = MEMORY")
+    # WAL already journals writes; NORMAL fsyncs at checkpoint, not every page.
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 

@@ -54,6 +54,15 @@ def _get_mt_model(model_name: str):
         import json
         import sys
 
+        from config import FREE_TIER
+        from utils.storage import ModelDownloadBlocked, assert_model_download_allowed
+
+        if FREE_TIER:
+            raise ModelDownloadBlocked(
+                "Urdu translation models are not downloaded on the free plan. "
+                "The meeting lexicon is still applied."
+            )
+
         from huggingface_hub import hf_hub_download
         from tokenizers import SentencePieceUnigramTokenizer
 
@@ -68,12 +77,18 @@ def _get_mt_model(model_name: str):
         from transformers import MarianMTModel
 
         print(f"[translation] Loading {model_name} …")
-        spm_path = hf_hub_download(model_name, "source.spm")
-        vocab_path = hf_hub_download(model_name, "vocab.json")
+        try:
+            spm_path = hf_hub_download(model_name, "source.spm", local_files_only=True)
+            vocab_path = hf_hub_download(model_name, "vocab.json", local_files_only=True)
+            model = MarianMTModel.from_pretrained(model_name, local_files_only=True)
+        except (ModelDownloadBlocked, Exception):
+            assert_model_download_allowed("Urdu translation")
+            spm_path = hf_hub_download(model_name, "source.spm")
+            vocab_path = hf_hub_download(model_name, "vocab.json")
+            model = MarianMTModel.from_pretrained(model_name)
         with open(vocab_path, encoding="utf-8") as handle:
             vocab = json.load(handle)
         encoder = SentencePieceUnigramTokenizer.from_spm(spm_path)
-        model = MarianMTModel.from_pretrained(model_name)
         model.eval()
         # The checkpoint's max_length is 512. Leaving it set makes every
         # generate(max_new_tokens=...) print a warning, which flooded the disk.
@@ -170,7 +185,16 @@ def translate_urdu_text_to_english(text: str, *, model_name: str | None = None) 
         rendered.append(render_urdu_line(raw_line, names))
 
     if any(line is None for line in rendered):
-        encoder, vocab, inverse, model, torch = _get_mt_model(name)
+        from utils.storage import ModelDownloadBlocked
+        try:
+            encoder, vocab, inverse, model, torch = _get_mt_model(name)
+        except ModelDownloadBlocked as exc:
+            print(f"[translation] {exc}")
+            translated = "\n".join(
+                line if line is not None else raw
+                for raw, line in zip(text.splitlines(), rendered)
+            ).strip()
+            return attribute_speakers(translated)
         filled: List[str] = []
         for raw_line, line in zip(text.splitlines(), rendered):
             if line is not None:

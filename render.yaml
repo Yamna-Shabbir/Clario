@@ -41,6 +41,10 @@ services:
         generateValue: true
       - key: CLARIO_FREE_TIER
         value: "True"
+      - key: CLARIO_DISK_RESERVE_MB
+        value: "64"
+      - key: CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB
+        value: "4096"
       - key: CLARIO_DATA_DIR
         value: data
       - key: CLARIO_DB_PATH

@@ -51,13 +51,29 @@ def load_summarizer(model_name: str = BART_MODEL, device: int = -1):
         or _loaded_model_name != model_name
     ):
         try:
+            from config import FREE_TIER
+            if FREE_TIER:
+                print("BART download skipped on the free plan. Using the extractive summary.")
+                _summarizer_unavailable = True
+                return None, None
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
             import torch
 
             print(f"Loading BART tokenizer ('{model_name}') ...")
-            _summarizer_tokenizer = AutoTokenizer.from_pretrained(model_name)
-            print(f"Loading BART model ('{model_name}') ...")
-            _summarizer_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            try:
+                _summarizer_tokenizer = AutoTokenizer.from_pretrained(
+                    model_name, local_files_only=True,
+                )
+                _summarizer_model = AutoModelForSeq2SeqLM.from_pretrained(
+                    model_name, local_files_only=True,
+                )
+            except (Exception, OSError):
+                from utils.storage import assert_model_download_allowed
+                assert_model_download_allowed("the meeting summarizer")
+                print(f"Downloading BART tokenizer ('{model_name}') ...")
+                _summarizer_tokenizer = AutoTokenizer.from_pretrained(model_name)
+                print(f"Downloading BART model ('{model_name}') ...")
+                _summarizer_model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
             if device == 0 and torch.cuda.is_available():
                 _summarizer_model = _summarizer_model.cuda()
             _loaded_model_name = model_name

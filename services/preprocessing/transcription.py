@@ -65,17 +65,16 @@ def _hf_models_root() -> str:
     return root
 
 
-def _whisper_download_root() -> str:
-    root = os.path.join(_hf_models_root(), "whisper")
-    os.makedirs(root, exist_ok=True)
-    return root
-
-
 def _load_openai_whisper(model_size: str):
     from services.native_compat import install
     install()
     import whisper
-    root = _whisper_download_root()
+    root = os.path.join(_hf_models_root(), "whisper")
+    weight = os.path.join(root, f"{model_size}.pt")
+    if not os.path.isfile(weight):
+        from utils.storage import assert_model_download_allowed
+        assert_model_download_allowed("speech recognition")
+    os.makedirs(root, exist_ok=True)
     print(f"Loading Whisper '{model_size}' model from {root} ...")
     model = whisper.load_model(model_size, download_root=root)
     print("Whisper model loaded.")
@@ -132,6 +131,8 @@ def _ensure_local_hf_model(model_id: str) -> str:
     config = os.path.join(folder, "config.json")
     if os.path.isfile(weights) and os.path.isfile(config):
         return folder
+    from utils.storage import assert_model_download_allowed
+    assert_model_download_allowed("speech recognition")
     from huggingface_hub import snapshot_download
     os.makedirs(folder, exist_ok=True)
     # Xet can buffer the whole checkpoint in memory and never write the file.

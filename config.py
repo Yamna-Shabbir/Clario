@@ -47,6 +47,14 @@ DB_PATH         = _env("CLARIO_DB_PATH",         os.path.join(DATA_DIR, "databas
 UPLOAD_DIR         = _env("CLARIO_UPLOAD_DIR",      os.path.join(ROOT_DIR, "uploads"))
 MAX_UPLOAD_MB      = int(_env("CLARIO_MAX_UPLOAD_MB", "200"))
 MAX_CONTENT_LENGTH = MAX_UPLOAD_MB * 1024 * 1024
+# Free Render sets this True so speech and summarizer weights are never downloaded.
+# Local development and the paid disk blueprint leave it False.
+FREE_TIER = _env("CLARIO_FREE_TIER", "False").lower() in ("1", "true", "yes")
+# Reject a new upload when the filesystem has less than this much free space.
+DISK_RESERVE_MB = int(_env("CLARIO_DISK_RESERVE_MB", "64"))
+# Paid instances may download a model only when at least this much space remains
+# above the safety reserve. A free instance never downloads.
+MODEL_DOWNLOAD_MIN_FREE_MB = int(_env("CLARIO_MODEL_DOWNLOAD_MIN_FREE_MB", "4096"))
 # Chart PNGs. On Render set this to the persistent disk (e.g. /var/data/graphs)
 # so redeploys do not wipe meeting charts. Served at /static/graphs/...
 STATIC_GRAPH_DIR   = _env(

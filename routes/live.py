@@ -177,6 +177,7 @@ def start():
             from services.notifications import send_invite_emails
             results = send_invite_emails(
                 invites, link, title, session.get("username") or "A teammate",
+                host_email=session.get("email") or "",
             )
             sent = sum(1 for item in results if item["status"] == "sent")
             failed = next((item for item in results if item["status"] == "failed"), None)
@@ -268,6 +269,7 @@ def invite(token: str):
         _join_url(token),
         found.get("title") or "Live meeting",
         session.get("username") or "A teammate",
+        host_email=session.get("email") or "",
     )
     sent = [item["recipient"] for item in results if item["status"] == "sent"]
     failed = next((item for item in results if item["status"] == "failed"), None)
@@ -332,6 +334,13 @@ def recording(token: str):
     if ext not in _AUDIO_EXT:
         mime = (audio.mimetype or "").lower()
         ext = ".ogg" if "ogg" in mime else ".webm"
+    from config import FREE_TIER
+    from utils.storage import FREE_TIER_AUDIO_MESSAGE, upload_block_reason
+    if FREE_TIER:
+        return jsonify({"ok": False, "error": FREE_TIER_AUDIO_MESSAGE}), 403
+    space_error = upload_block_reason(UPLOAD_DIR, request.content_length or 0)
+    if space_error:
+        return jsonify({"ok": False, "error": space_error}), 507
     path = safe_recording_path(UPLOAD_DIR, token, session["user_id"], ext)
     audio.save(path)
     if os.path.getsize(path) <= 0:

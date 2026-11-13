@@ -129,6 +129,9 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     from models.database import init_db, fail_interrupted_meetings
     init_db(_db_path)
     fail_interrupted_meetings(_db_path)
+    if not (test_config or {}).get("TESTING"):
+        from utils.storage import maintain_storage
+        maintain_storage(_db_path)
 
     # ── Register blueprints ────────────────────────────────────────────────────
     from routes.auth         import auth_bp
@@ -175,6 +178,11 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
 
         if "graph_dir" in test_config:
             _r_meet.GRAPH_DIR = test_config["graph_dir"]
+
+    @app.context_processor
+    def inject_plan_flags():
+        from config import FREE_TIER
+        return {"free_tier": FREE_TIER}
 
     # ── Health check (Render / load balancers; does not load ML models) ───────
     @app.get("/health")

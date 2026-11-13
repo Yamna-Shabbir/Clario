@@ -159,7 +159,8 @@ def _run_pipeline_job(
         return results
 
     except Exception as exc:
-        error_msg = str(exc) or type(exc).__name__
+        from utils.storage import friendly_storage_error
+        error_msg = friendly_storage_error(exc) or str(exc) or type(exc).__name__
         logger.error("Pipeline job failed for meeting %s: %s", meeting_id, error_msg, exc_info=True)
         try:
             update_meeting_status(
