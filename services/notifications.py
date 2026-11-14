@@ -7,10 +7,15 @@ After the pipeline finishes, each person with an email address receives a
 message. Assignees see their own tasks in the body. Everyone receives a PDF
 of the summary, decisions, and the full task list.
 
-Delivery prefers an HTTPS provider (Brevo or Resend). Those work on Render's
-free plan, which blocks SMTP ports 25, 465, and 587. SMTP is used when no
-HTTPS key is set and CLARIO_SMTP_HOST plus CLARIO_SMTP_FROM are set.
-Otherwise a copy is written under CLARIO_EMAIL_DIR, or data/outbox in debug.
+The From address is always the meeting host's own account. Clario does not
+send every user's mail from one shared address.
+
+Delivery prefers that host's Gmail, using the Google account they connected
+(gmail.send over HTTPS, so Render free can deliver). Brevo or Resend is used
+only when that same host address is already authorized on the provider.
+SMTP is used when no HTTPS path is available. Gmail's SMTP server is used
+only when its login is that same host. Otherwise a copy is written under
+CLARIO_EMAIL_DIR, or data/outbox in debug.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ import smtplib
 import urllib.error
 import urllib.request
 from email.message import EmailMessage
+from email.utils import formataddr, parseaddr
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import (
@@ -41,10 +47,11 @@ from config import (
 )
 
 _HTTPS_SETUP = (
-    "This server cannot send mail yet. Render's free plan blocks Gmail SMTP "
-    "(ports 587 and 465). Add CLARIO_BREVO_API_KEY in the Render environment "
-    "(a verified sender in Brevo), then invite again. Until then, copy the "
-    "link from the meeting page."
+    "Clario sends from the address you logged in with. Connect that Google "
+    "account under Integrations and allow Gmail send. A different mailbox is "
+    "not used as From. Render's free plan blocks Gmail SMTP (ports 587 and 465). "
+    "Optional: CLARIO_BREVO_API_KEY delivers only after this same address is an "
+    "active Brevo sender. Until then, copy the link from the meeting page."
 )
 
 _PAGE_LINES = 46
@@ -73,6 +80,10 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
         replace_meeting_emails,
     )
     from services.nlp.participant_matching import match, rematch_meeting_tasks
+
+    from models.database import get_meeting_emails
+    if any(row.get("status") == "sent" for row in get_meeting_emails(int(meeting_id), db_path)):
+        return
 
     meeting = get_meeting_detail(int(meeting_id), int(user_id), db_path)
     owner = get_user_by_id(int(user_id), db_path)
@@ -112,9 +123,21 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
             "status": "skipped",
             "detail": "No email addresses were available.",
         })
+    host_email = _clean_email(owner.get("email") or "")
+    host_name = (owner.get("username") or "the host").strip() or "the host"
+    reply_to = _reply_header(host_name, host_email)
     for person in recipients:
         subject, body = _message_copy(title, person)
-        status, detail = _deliver(person["email"], subject, body, pdf, int(meeting_id))
+        if host_email:
+            body = (
+                f"{body}\n\nThis meeting was hosted by {host_name} ({host_email}). "
+                "Reply to this message to reach them."
+            )
+        status, detail = _deliver(
+            person["email"], subject, body, pdf, int(meeting_id),
+            reply_to=reply_to, sender_name=host_name, sender_email=host_email,
+            host_user_id=int(user_id), db_path=db_path,
+        )
         log.append({
             "recipient": person["email"],
             "subject": subject,
@@ -204,20 +227,87 @@ def _message_copy(title: str, person: Dict[str, Any]) -> Tuple[str, str]:
     return subject, "\n".join(lines)
 
 
-def mail_is_configured() -> bool:
-    """True when an HTTPS API key or SMTP host is available."""
-    return bool(BREVO_API_KEY or RESEND_API_KEY or (SMTP_HOST and SMTP_FROM))
+def sends_as_self(user_id: Optional[int] = None, db_path: Optional[str] = None) -> bool:
+    """True when this login can deliver from their own mailbox.
+
+    A shared Brevo key does not count. The host needs their own Gmail
+    connection, or a Gmail SMTP login that is the same address.
+    """
+    if not user_id:
+        return False
+    path = db_path or DB_PATH
+    if _host_gmail_can_send(int(user_id), path):
+        return True
+    return _is_gmail_smtp() and _smtp_login_is(_account_email(int(user_id), path))
 
 
-def _deliver(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: int) -> Tuple[str, str]:
-    saved = _save_copy(recipient, subject, body, pdf, meeting_id)
-    if not mail_is_configured():
+def mail_is_configured(user_id: Optional[int] = None, db_path: Optional[str] = None) -> bool:
+    """True when this host can send as themselves, or a shared HTTPS key exists.
+
+    Gmail SMTP counts only when its login is this user's address. A server
+    mailbox that belongs to someone else is not treated as ready.
+    """
+    path = db_path or DB_PATH
+    if user_id and _host_gmail_can_send(int(user_id), path):
+        return True
+    if BREVO_API_KEY or RESEND_API_KEY:
+        return True
+    if not (SMTP_HOST and (SMTP_FROM or SMTP_USER)):
+        return False
+    if user_id and _is_gmail_smtp():
+        return _smtp_login_is(_account_email(int(user_id), path))
+    return True
+
+
+def _account_email(user_id: int, db_path: str) -> str:
+    try:
+        from models.database import get_user_by_id
+        owner = get_user_by_id(int(user_id), db_path) or {}
+    except Exception:
+        return ""
+    return _clean_email(owner.get("email") or "")
+
+
+def _is_gmail_smtp() -> bool:
+    host = (SMTP_HOST or "").lower()
+    return "gmail.com" in host or "googlemail.com" in host
+
+
+def _smtp_login_is(email: str) -> bool:
+    login = _clean_email(SMTP_USER or SMTP_FROM or "")
+    host = _clean_email(email)
+    return bool(login) and bool(host) and login.lower() == host.lower()
+
+
+def _host_gmail_can_send(user_id: int, db_path: str) -> bool:
+    """True when this user connected Google and granted gmail.send."""
+    try:
+        from models.database import get_oauth_connection
+        row = get_oauth_connection(int(user_id), "google", db_path=db_path)
+    except Exception:
+        return False
+    if not row or not row.get("access_token_enc"):
+        return False
+    return "gmail.send" in (row.get("scope") or "").lower()
+
+
+def _deliver(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: int,
+            *, reply_to: str = "", sender_name: str = "", sender_email: str = "",
+            host_user_id: Optional[int] = None, db_path: Optional[str] = None) -> Tuple[str, str]:
+    saved = _save_copy(
+        recipient, subject, body, pdf, meeting_id,
+        reply_to=reply_to, sender_name=sender_name, sender_email=sender_email,
+    )
+    if not mail_is_configured(host_user_id, db_path):
         if saved:
             return "saved", f"{_HTTPS_SETUP} A copy was saved at {saved}."
         return "skipped", _HTTPS_SETUP
     try:
-        message = _build_message(recipient, subject, body, pdf)
-        _dispatch(message)
+        message = _build_message(
+            recipient, subject, body, pdf, reply_to=reply_to,
+            sender_name=sender_name, sender_email=sender_email,
+        )
+        _dispatch(message, host_user_id=host_user_id, db_path=db_path)
     except Exception as exc:
         detail = _explain_send_error(exc)
         if saved:
@@ -228,7 +318,8 @@ def _deliver(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: in
     return "sent", "Sent."
 
 
-def _save_copy(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: int) -> str:
+def _save_copy(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: int,
+               *, reply_to: str = "", sender_name: str = "", sender_email: str = "") -> str:
     folder = EMAIL_DIR or (os.path.join(DATA_DIR, "outbox") if DEBUG else "")
     if not folder:
         return ""
@@ -237,7 +328,10 @@ def _save_copy(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: 
     stem = re.sub(r"[^a-z0-9]+", "-", recipient.lower()).strip("-") or "recipient"
     pdf_path = os.path.join(meeting_dir, f"{stem}.pdf")
     eml_path = os.path.join(meeting_dir, f"{stem}.eml")
-    message = _build_message(recipient, subject, body, pdf)
+    message = _build_message(
+        recipient, subject, body, pdf, reply_to=reply_to,
+        sender_name=sender_name, sender_email=sender_email,
+    )
     with open(pdf_path, "wb") as handle:
         handle.write(pdf)
     with open(eml_path, "wb") as handle:
@@ -246,12 +340,27 @@ def _save_copy(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: 
 
 
 def send_invite_emails(recipients: List[str], join_url: str, title: str,
-                       host_name: str) -> List[Dict[str, str]]:
-    """Email a copyable join link. Saves a local copy when SMTP is not set."""
-    subject = f"Join {title} on Clario"
+                       host_name: str, *, host_email: str = "",
+                       host_user_id: Optional[int] = None,
+                       db_path: Optional[str] = None) -> List[Dict[str, str]]:
+    """Email a copyable join link. Saves a local copy when mail cannot be sent.
+
+    The logged-in host is the From address and the Reply-To address.
+    When ``host_user_id`` is set and that person connected Gmail, the message
+    is sent through their mailbox. A shared From address is not substituted.
+    """
+    host = (host_name or "A teammate").strip() or "A teammate"
+    address = _clean_email(host_email)
+    reply_to = _reply_header(host, address)
+    subject = f"{host} invited you to {title}"
+    who = f"{host} ({address})" if address else host
     body = (
-        f"{host_name} invited you to a Clario meeting: {title}\n\n"
-        f"Open this link and sign in with your email:\n{join_url}\n\n"
+        f"{who} invited you to a Clario meeting: {title}.\n\n"
+        + (
+            f"Reply to this message to reach {host} at {address}.\n\n"
+            if address else ""
+        )
+        + f"Open this link and sign in with your email:\n{join_url}\n\n"
         "After you join, record your microphone. Clario labels that audio "
         "with your account name and email."
     )
@@ -262,7 +371,11 @@ def send_invite_emails(recipients: List[str], join_url: str, title: str,
         if not email or "@" not in email or email in seen:
             continue
         seen.add(email)
-        status, detail = _deliver_text(email, subject, body, "invite")
+        status, detail = _deliver_text(
+            email, subject, body, "invite",
+            reply_to=reply_to, sender_name=host, sender_email=address,
+            host_user_id=host_user_id, db_path=db_path,
+        )
         sent.append({"recipient": email, "status": status, "detail": detail})
     return sent
 
@@ -270,12 +383,29 @@ def send_invite_emails(recipients: List[str], join_url: str, title: str,
 _SENDER_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
 
-def _sender_address() -> str:
-    """Address Brevo or Resend will put in the From line.
+def _clean_email(value: str) -> str:
+    found = _SENDER_RE.search((value or "").strip().strip('"').strip("'"))
+    return found.group(0) if found else ""
 
-    Render does not inherit the local .env file. An empty value used to
-    become ``clario@localhost``, which Brevo rejects as an invalid sender.
-    """
+
+def _reply_header(name: str, email: str) -> str:
+    """Reply-To value. The address is the host; the name is display only."""
+    address = _clean_email(email)
+    if not address:
+        return ""
+    display = " ".join((name or "").replace("\r", " ").replace("\n", " ").split())
+    return formataddr((display, address)) if display else address
+
+
+def _reply_parts(header: str) -> Tuple[str, str]:
+    display, address = parseaddr(header or "")
+    address = _clean_email(address or header)
+    display = " ".join((display or "").split())
+    return display, address
+
+
+def _sender_address() -> str:
+    """Parse an optional env address. Meeting mail does not use this as From."""
     raw = (
         os.environ.get("CLARIO_SMTP_FROM", "")
         or os.environ.get("CLARIO_SMTP_USER", "")
@@ -283,27 +413,162 @@ def _sender_address() -> str:
         or SMTP_USER
         or ""
     ).strip().strip('"').strip("'")
-    found = _SENDER_RE.search(raw)
-    if not found:
-        return ""
-    return found.group(0)
+    return _clean_email(raw)
 
 
-def _dispatch(message: EmailMessage) -> None:
-    """Send through HTTPS when a key is set, otherwise SMTP."""
-    sender = _sender_address()
-    if sender:
-        message.replace_header("From", sender)
+def _from_parts(message: EmailMessage) -> Tuple[str, str]:
+    display, address = parseaddr(str(message.get("From") or ""))
+    address = _clean_email(address or str(message.get("From") or ""))
+    display = " ".join((display or "").split())
+    return display, address
+
+
+def _brevo_active_senders() -> set:
+    """Email addresses Brevo currently allows in the From line.
+
+    ``GET /v3/senders`` lists each sender. ``active`` is true only after
+    that address has been verified. An unverified host is absent.
+    """
+    request = urllib.request.Request(
+        "https://api.brevo.com/v3/senders",
+        headers={"accept": "application/json", "api-key": BREVO_API_KEY},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(raw or f"HTTP {exc.code}") from exc
+    allowed = set()
+    for item in payload.get("senders") or []:
+        if item.get("active") is not True:
+            continue
+        email = _clean_email(str(item.get("email") or ""))
+        if email:
+            allowed.add(email.lower())
+    return allowed
+
+
+def _require_brevo_sender(email: str) -> None:
+    """Refuse the send when this host address is not an active Brevo sender."""
+    try:
+        allowed = _brevo_active_senders()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Clario could not check whether {email} is an authorized Brevo sender ({exc}). "
+            "The message was not sent, and no other From address was used."
+        ) from exc
+    if email.lower() not in allowed:
+        raise RuntimeError(
+            f"{email} is not an active sender in this Brevo account. "
+            "Brevo only accepts a From address that has been verified under "
+            "Brevo → Senders. Add and verify this host address, then send again. "
+            "Clario did not substitute another sender."
+        )
+
+
+def _dispatch(message: EmailMessage, *, host_user_id: Optional[int] = None,
+              db_path: Optional[str] = None) -> None:
+    """Send as the meeting host. Never replace From with a shared address.
+
+    The host's connected Gmail is used first. Brevo or Resend runs only for
+    that same address. Gmail SMTP runs only when its login is that address.
+    """
+    _name, email = _from_parts(message)
+    if not email:
+        raise RuntimeError(
+            "This message has no meeting-host address to send from. "
+            "Clario did not substitute a fixed sender."
+        )
+    path = db_path or DB_PATH
+    if host_user_id and _host_gmail_can_send(int(host_user_id), path):
+        _send_via_gmail(message, int(host_user_id), path)
+        return
     if BREVO_API_KEY or RESEND_API_KEY:
-        if not sender:
-            raise RuntimeError(
-                "Brevo needs a real From address. In the Render service, set "
-                "CLARIO_SMTP_FROM to an email you verified under Brevo → Senders, "
-                "then redeploy."
-            )
+        if BREVO_API_KEY:
+            _require_brevo_sender(email)
         _send_https(message)
         return
+    if _is_gmail_smtp() and not _smtp_login_is(email):
+        raise RuntimeError(
+            f"Mail has to leave from {email}. This server's Gmail login is a "
+            "different mailbox, so it was not used. Connect Google under "
+            "Integrations with the address you logged in with. "
+            "Clario did not substitute another sender."
+        )
     _smtp_send(message)
+
+
+def _google_account_email(token: str) -> str:
+    """Address of the Google account that owns this access token."""
+    request = urllib.request.Request(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        headers={"accept": "application/json", "authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(
+            "Clario could not confirm which Google account is connected "
+            f"({raw or exc.code}). Reconnect under Integrations. "
+            "The message was not sent, and no other From address was used."
+        ) from exc
+    found = _clean_email(str(payload.get("email") or ""))
+    if not found:
+        raise RuntimeError(
+            "The connected Google account did not share its email address. "
+            "Reconnect under Integrations and allow the email permission. "
+            "Clario did not substitute another sender."
+        )
+    return found
+
+
+def _send_via_gmail(message: EmailMessage, user_id: int, db_path: str) -> None:
+    """Deliver one RFC822 message through the host's Gmail account."""
+    from services.integrations.base import NotConnected, TokenRevoked
+    from services.integrations.google_meet import get_valid_access_token
+
+    _name, sender = _from_parts(message)
+    try:
+        token = get_valid_access_token(int(user_id), db_path)
+    except NotConnected as exc:
+        raise RuntimeError(
+            f"Mail has to leave from {sender}. Connect that Google account "
+            "under Integrations. Clario did not substitute another sender."
+        ) from exc
+    except TokenRevoked as exc:
+        raise RuntimeError(
+            "Google disconnected this account. Reconnect under Integrations "
+            "with the address you logged in with. Clario did not substitute "
+            "another sender."
+        ) from exc
+    except Exception as exc:
+        raise RuntimeError(
+            f"Clario could not open this host's Google mailbox ({exc}). "
+            "The message was not sent, and no other From address was used."
+        ) from exc
+
+    google_email = _google_account_email(token)
+    if google_email.lower() != sender.lower():
+        raise RuntimeError(
+            f"The connected Google account is {google_email}, but this meeting "
+            f"is hosted by {sender}. Reconnect Google with the address you "
+            "logged in with. Clario did not substitute another sender."
+        )
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii").rstrip("=")
+    _post_json(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        {"raw": raw},
+        {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "authorization": f"Bearer {token}",
+        },
+    )
 
 
 def _send_https(message: EmailMessage) -> None:
@@ -317,10 +582,22 @@ def _send_https(message: EmailMessage) -> None:
         attachment = part.get_payload(decode=True)
         filename = part.get_filename() or filename
         break
+    sender_name, sender_email = _from_parts(message)
+    reply_name, reply_email = _reply_parts(str(message.get("Reply-To") or ""))
+    if not reply_email:
+        reply_email, reply_name = sender_email, sender_name
     if BREVO_API_KEY:
-        _post_brevo(recipient, subject, text, attachment, filename)
+        _post_brevo(
+            recipient, subject, text, attachment, filename,
+            sender_email=sender_email, sender_name=sender_name or sender_email,
+            reply_to=reply_email, reply_name=reply_name or sender_name,
+        )
         return
-    _post_resend(recipient, subject, text, attachment, filename)
+    _post_resend(
+        recipient, subject, text, attachment, filename,
+        sender_email=sender_email, sender_name=sender_name or sender_email,
+        reply_to=reply_email, reply_name=reply_name or sender_name,
+    )
 
 
 def _post_json(url: str, payload: dict, headers: Dict[str, str]) -> None:
@@ -339,13 +616,17 @@ def _post_json(url: str, payload: dict, headers: Dict[str, str]) -> None:
 
 
 def _post_brevo(recipient: str, subject: str, text: str,
-                attachment: Optional[bytes], filename: str) -> None:
+                attachment: Optional[bytes], filename: str, *,
+                sender_email: str, sender_name: str,
+                reply_to: str = "", reply_name: str = "") -> None:
     payload: Dict[str, Any] = {
-        "sender": {"name": "Clario", "email": _sender_address()},
+        "sender": {"name": sender_name, "email": sender_email},
         "to": [{"email": recipient}],
         "subject": subject,
         "textContent": text,
     }
+    if reply_to:
+        payload["replyTo"] = {"email": reply_to, "name": reply_name or reply_to}
     if attachment:
         payload["attachment"] = [{
             "name": filename,
@@ -363,13 +644,17 @@ def _post_brevo(recipient: str, subject: str, text: str,
 
 
 def _post_resend(recipient: str, subject: str, text: str,
-                 attachment: Optional[bytes], filename: str) -> None:
+                 attachment: Optional[bytes], filename: str, *,
+                 sender_email: str, sender_name: str,
+                 reply_to: str = "", reply_name: str = "") -> None:
     payload: Dict[str, Any] = {
-        "from": f"Clario <{_sender_address()}>",
+        "from": formataddr((sender_name, sender_email)),
         "to": [recipient],
         "subject": subject,
         "text": text,
     }
+    if reply_to:
+        payload["reply_to"] = formataddr((reply_name, reply_to)) if reply_name else reply_to
     if attachment:
         payload["attachments"] = [{
             "filename": filename,
@@ -394,11 +679,13 @@ def _explain_send_error(exc: Exception) -> str:
             "(not the normal account password) in CLARIO_SMTP_PASSWORD."
         )
     lowered = detail.lower()
+    if "not an active sender" in lowered or "could not check whether" in lowered:
+        return detail
     if "valid sender email" in lowered or "sender email" in lowered:
         return (
-            "Brevo rejected the From address. Set CLARIO_SMTP_FROM in Render "
-            "to an email you already verified in Brevo → Senders, Domains & Dedicated IPs, "
-            "then redeploy. The API key alone does not choose a sender."
+            f"{detail} Brevo rejected this host address and Clario did not "
+            "replace it with a fixed sender. Verify the host under "
+            "Brevo → Senders, then send again."
         )
     if any(token in lowered for token in ("timed out", "unreachable", "errno", "connection refused", "network")):
         return (
@@ -438,19 +725,30 @@ def _smtp_send(message: EmailMessage) -> None:
     raise RuntimeError("SMTP send failed.")
 
 
-def _deliver_text(recipient: str, subject: str, body: str, stem: str) -> Tuple[str, str]:
-    saved = _save_text_copy(recipient, subject, body, stem)
-    if not mail_is_configured():
+def _deliver_text(recipient: str, subject: str, body: str, stem: str,
+                 *, reply_to: str = "", sender_name: str = "", sender_email: str = "",
+                 host_user_id: Optional[int] = None, db_path: Optional[str] = None) -> Tuple[str, str]:
+    saved = _save_text_copy(
+        recipient, subject, body, stem, reply_to=reply_to,
+        sender_name=sender_name, sender_email=sender_email,
+    )
+    if not mail_is_configured(host_user_id, db_path):
         if saved:
             return "saved", f"{_HTTPS_SETUP} A copy was saved at {saved}."
         return "skipped", _HTTPS_SETUP
     try:
         message = EmailMessage()
         message["Subject"] = subject
-        message["From"] = _sender_address()
         message["To"] = recipient
+        email = _clean_email(sender_email)
+        name = " ".join((sender_name or "").replace("\r", " ").replace("\n", " ").split())
+        if email:
+            message["From"] = formataddr((name, email)) if name else email
+            message["Reply-To"] = reply_to or message["From"]
+        elif reply_to:
+            message["Reply-To"] = reply_to
         message.set_content(body)
-        _dispatch(message)
+        _dispatch(message, host_user_id=host_user_id, db_path=db_path)
     except Exception as exc:
         detail = _explain_send_error(exc)
         if saved:
@@ -461,7 +759,8 @@ def _deliver_text(recipient: str, subject: str, body: str, stem: str) -> Tuple[s
     return "sent", "Sent."
 
 
-def _save_text_copy(recipient: str, subject: str, body: str, stem: str) -> str:
+def _save_text_copy(recipient: str, subject: str, body: str, stem: str,
+                   *, reply_to: str = "", sender_name: str = "", sender_email: str = "") -> str:
     folder = EMAIL_DIR or (os.path.join(DATA_DIR, "outbox") if DEBUG else "")
     if not folder:
         return ""
@@ -471,7 +770,13 @@ def _save_text_copy(recipient: str, subject: str, body: str, stem: str) -> str:
     message = EmailMessage()
     message["Subject"] = subject
     message["To"] = recipient
-    message["From"] = SMTP_FROM or "clario@localhost"
+    email = _clean_email(sender_email)
+    name = " ".join((sender_name or "").replace("\r", " ").replace("\n", " ").split())
+    if email:
+        message["From"] = formataddr((name, email)) if name else email
+        message["Reply-To"] = reply_to or message["From"]
+    elif reply_to:
+        message["Reply-To"] = reply_to
     message.set_content(body)
     with open(path, "wb") as handle:
         handle.write(message.as_bytes())
@@ -483,11 +788,19 @@ def _send_smtp(recipient: str, subject: str, body: str, pdf: bytes) -> None:
     _smtp_send(_build_message(recipient, subject, body, pdf))
 
 
-def _build_message(recipient: str, subject: str, body: str, pdf: bytes) -> EmailMessage:
+def _build_message(recipient: str, subject: str, body: str, pdf: bytes,
+                   *, reply_to: str = "", sender_name: str = "",
+                   sender_email: str = "") -> EmailMessage:
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = SMTP_FROM or "clario@localhost"
     message["To"] = recipient
+    email = _clean_email(sender_email)
+    name = " ".join((sender_name or "").replace("\r", " ").replace("\n", " ").split())
+    if email:
+        message["From"] = formataddr((name, email)) if name else email
+        message["Reply-To"] = reply_to or message["From"]
+    elif reply_to:
+        message["Reply-To"] = reply_to
     message.set_content(body)
     message.add_attachment(
         pdf,

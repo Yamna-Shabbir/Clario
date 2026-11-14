@@ -49,7 +49,7 @@ deleted.
 | Marian Urdu→English translation | **No** |
 | Durable meetings/uploads across restarts | **No** (ephemeral disk; wiped on spin-down ~15 min idle). Sign in again after a restart; an old login cookie is cleared instead of causing a 500 |
 | Google Meet OAuth | Optional; needs Google client secrets |
-| Invite / follow-up email | HTTPS only. Set `CLARIO_BREVO_API_KEY`. Each host must verify their own address under Brevo → Senders; that address is the From and Reply-To. Gmail SMTP (587/465) is blocked on free |
+| Invite / follow-up email | Sent as the logged-in host. They connect Google and grant `gmail.send` (HTTPS, so free hosting can deliver). Brevo is optional and only for that same verified address. Gmail SMTP (587/465) is blocked on free, and a shared From address is not used |
 
 Full ML + durable storage: use `render.standard.yaml` later on a paid plan.
 

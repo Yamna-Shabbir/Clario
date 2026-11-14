@@ -65,8 +65,9 @@ services:
         value: static/graphs
       - key: CLARIO_EMAIL_DIR
         value: data/outbox
-      # Free Render blocks SMTP ports 587 and 465. Paste a Brevo API key here
-      # (Dashboard → Environment) after verifying the sender address in Brevo.
+      # Optional. Mail is sent as each host's connected Gmail account.
+      # Brevo is used only when that same address is an active sender.
+      # CLARIO_SMTP_FROM is not the From address for every user.
       - key: CLARIO_BREVO_API_KEY
         sync: false
       - key: CLARIO_SMTP_FROM

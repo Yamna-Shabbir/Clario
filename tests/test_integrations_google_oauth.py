@@ -177,6 +177,8 @@ class TestGoogleConnect:
         assert "access_type=offline" in location
         assert "prompt=consent" in location
         assert "meetings.space.readonly" in location
+        assert "gmail.send" in location
+        assert "userinfo.email" in location
 
     def test_connect_stores_state_in_session(self, client, app, monkeypatch):
         _set_encryption_key(monkeypatch)

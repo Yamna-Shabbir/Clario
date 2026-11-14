@@ -354,17 +354,19 @@ services/jobs.py  _run_pipeline_job()
   4. Run post-completion hooks. send_meeting_followups emails each
      assignee their tasks and attaches a PDF of the summary, decisions,
      and the full task list. The meeting owner receives the PDF too.
-     Mail prefers CLARIO_BREVO_API_KEY or CLARIO_RESEND_API_KEY (HTTPS).
-     Brevo accepts the meeting host as From only when that address is an
-     active sender (`GET /v3/senders`, `active: true`). The host's username
-     is the display name and the same address is Reply-To. Summary mail and
-     per-assignee task mail both use that host. An unverified host is
-     refused in the meeting email log. Clario does not substitute
-     `CLARIO_SMTP_FROM` or the recipient. Live invitations use the same
-     host (`send_invite_emails(..., host_email=session email)`).
-     SMTP (CLARIO_SMTP_*) is the local fallback. Render free blocks ports
-     587 and 465, so Gmail SMTP cannot send there. Without a transport,
-     copies go to CLARIO_EMAIL_DIR or data/outbox in debug.
+     The From address is the meeting owner's account. The display name is
+     their username, and Reply-To is the same address. Summary mail and
+     per-assignee task mail both use that host. Live invitations pass
+     `host_email` and `host_user_id` from the session.
+     If that user has connected Google with `gmail.send`, delivery uses
+     `POST /gmail/v1/users/me/messages/send` and checks the Google account
+     email matches the Clario login. A different Google account is refused.
+     Brevo or Resend is the next choice, and only when that same host
+     address is authorized (`GET /v3/senders`, `active: true` for Brevo).
+     SMTP is last. `smtp.gmail.com` sends only when `CLARIO_SMTP_USER` is
+     that host; another login is not substituted. Render free blocks ports
+     587 and 465, so Gmail SMTP cannot send there. The Gmail API path can.
+     Without a transport, copies go to CLARIO_EMAIL_DIR or data/outbox in debug.
   5. On error: update_meeting_status(meeting_id, status='failed', error_message=...)
   │
   ▼
@@ -706,8 +708,9 @@ meeting_participants                  (many-to-1 with meetings)
     - `POST /live/start` creates `live_rooms` and can email the join link.
       The invitation is sent from the logged-in host. From and Reply-To
       are that account's email, and the display name is the account name.
-      Brevo must already list that address as an active sender. In-room
-      invites use the same host. API keys stay on the server.
+      `host_user_id` selects that person's Gmail connection when they have
+      granted `gmail.send`. In-room invites use the same host. A shared
+      sender address is not used. API keys stay on the server.
       `GET /live/<token>` renders the Meet-style room (`templates/live/room.html`,
       `static/js/live-room.js`): stage (local camera preview), sidebar (People |
       Chat), bottom toolbar (mic, camera, record, save, host end). Recording does

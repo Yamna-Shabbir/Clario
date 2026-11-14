@@ -52,12 +52,18 @@ AUTH_URI = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 REVOKE_URI = "https://oauth2.googleapis.com/revoke"
 
-# Scopes authorized on the user's consent screen
+# Scopes authorized on the user's consent screen.
+# gmail.send lets Clario deliver invites and follow-ups as this Google account.
+# userinfo.email confirms that account is the one the host logged in with.
 CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
 
 DEFAULT_SCOPES: List[str] = [
     "https://www.googleapis.com/auth/meetings.space.readonly",
     CALENDAR_READONLY_SCOPE,
+    GMAIL_SEND_SCOPE,
+    USERINFO_EMAIL_SCOPE,
 ]
 
 REQUEST_TIMEOUT_SECONDS = 15

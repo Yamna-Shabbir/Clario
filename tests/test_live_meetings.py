@@ -59,6 +59,8 @@ def test_shared_first_name_is_ambiguous_and_holds_mail(tmp_path, monkeypatch):
         "keyword": "will",
         "priority": "Low",
     }], db)
+    monkeypatch.setattr("services.notifications.BREVO_API_KEY", "")
+    monkeypatch.setattr("services.notifications.RESEND_API_KEY", "")
     monkeypatch.setattr("services.notifications.SMTP_HOST", "")
     monkeypatch.setattr("services.notifications.SMTP_FROM", "")
     monkeypatch.setattr("services.notifications.EMAIL_DIR", str(tmp_path))
@@ -369,3 +371,46 @@ def test_guest_microphone_uploads_after_the_host_starts_ending(tmp_path, monkeyp
     assert "Yamna (yamna@example.com):" in text
     assert "Aisha (aisha@example.com):" in text
     assert "send the notes" in text
+
+
+def test_live_invites_identify_the_logged_in_host(tmp_path, monkeypatch):
+    db = str(tmp_path / "app.db")
+    app = create_app(test_config={
+        "db_path": db,
+        "upload_dir": str(tmp_path / "uploads"),
+        "secret_key": "test-secret",
+        "TESTING": True,
+        "WTF_CSRF_ENABLED": False,
+    })
+    init_db(db)
+    host_id = insert_user(
+        "Yamna", "yamna@example.com",
+        generate_password_hash("Password1!", method="pbkdf2:sha256"),
+        db_path=db,
+    )
+    seen = {}
+
+    def _capture(*args, **kwargs):
+        seen["args"] = args
+        seen["kwargs"] = kwargs
+        return [{"recipient": "lead@example.com", "status": "sent", "detail": "Sent."}]
+
+    monkeypatch.setattr("services.notifications.send_invite_emails", _capture)
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = host_id
+        sess["username"] = "Yamna"
+        sess["email"] = "yamna@example.com"
+
+    started = client.post("/live/start", data={"title": "Demo", "invites": "lead@example.com"})
+    assert started.status_code == 302
+    assert seen["args"][3] == "Yamna"
+    assert seen["kwargs"]["host_email"] == "yamna@example.com"
+    assert seen["kwargs"]["host_user_id"] == host_id
+
+    token = started.headers["Location"].rstrip("/").split("/")[-1]
+    again = client.post(f"/live/{token}/invite", data={"invites": "guest@example.com"})
+    assert again.status_code == 302
+    assert seen["kwargs"]["host_email"] == "yamna@example.com"
+    assert seen["kwargs"]["host_user_id"] == host_id
+    assert seen["args"][0] == ["guest@example.com"]

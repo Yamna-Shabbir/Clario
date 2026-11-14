@@ -15,6 +15,7 @@ Clario connects to Google Meet via Google Cloud OAuth 2.0 to import meeting spac
 3. Navigate to **APIs & Services > Library**.
 4. Search for and enable:
    - **Google Meet REST API** (`meetings.googleapis.com`)
+   - **Gmail API** (`gmail.googleapis.com`) so each host can send mail as themselves
    - *(Optional for calendar event lookups)* **Google Calendar API** (`calendar-json.googleapis.com`)
 
 ### 2. Configure OAuth Consent Screen
@@ -35,7 +36,9 @@ Clario connects to Google Meet via Google Cloud OAuth 2.0 to import meeting spac
    - Select the approved scopes:
      - `https://www.googleapis.com/auth/meetings.space.readonly`
      - `https://www.googleapis.com/auth/calendar.readonly` *(if calendar meeting sync is enabled)*
-   > ⚠️ **Scope Restriction:** Do not request any scopes beyond this approved list without prior consent screen updates.
+     - `https://www.googleapis.com/auth/gmail.send` (invites and follow-ups are sent as this user)
+     - `https://www.googleapis.com/auth/userinfo.email` (confirms the Google account matches the Clario login)
+   > ⚠️ **Scope Restriction:** Add these on the consent screen before reconnecting. `gmail.send` is a sensitive scope. In Testing status, every host must be listed as a test user. Clario does not send mail from one shared address.
 
 ### 3. Create OAuth 2.0 Client Credentials
 

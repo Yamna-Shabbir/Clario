@@ -120,9 +120,11 @@ OAUTH_REDIRECT_BASE     = _env("CLARIO_OAUTH_REDIRECT_BASE", "http://127.0.0.1:5
 TOKEN_ENCRYPTION_KEY    = _env("CLARIO_TOKEN_ENCRYPTION_KEY", "")
 
 # ── Follow-up email ────────────────────────────────────────────────────────────
-# Render free blocks outbound SMTP (ports 25, 465, 587). Prefer an HTTPS API:
-# CLARIO_BREVO_API_KEY (https://app.brevo.com) or CLARIO_RESEND_API_KEY.
-# SMTP still works locally and on a paid Render instance.
+# From is the logged-in host. Prefer that person's connected Gmail (gmail.send).
+# Render free blocks outbound SMTP (ports 25, 465, 587).
+# CLARIO_BREVO_API_KEY / CLARIO_RESEND_API_KEY are optional and only send when
+# the host address itself is authorized. SMTP is the local fallback; Gmail SMTP
+# is used only when CLARIO_SMTP_USER is that same host.
 SMTP_HOST     = _env("CLARIO_SMTP_HOST", "")
 SMTP_PORT     = int(_env("CLARIO_SMTP_PORT", "587"))
 SMTP_USER     = _env("CLARIO_SMTP_USER", "")

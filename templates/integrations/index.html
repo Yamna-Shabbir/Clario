@@ -30,7 +30,7 @@
                 {% endif %}
               </div>
               <p class="feature-desc">
-                Sync Google Meet spaces, retrieve participant lists, and match action-item assignees directly from Google Workspace.
+                Sync Google Meet spaces and attendee lists. Invites, task mail, and the meeting summary are sent from this Google address, not from a shared Clario mailbox.
               </p>
             </div>
           </div>
@@ -102,6 +102,21 @@
             </div>
           {% endif %}
 
+          {% set gmail_ns = namespace(ready=false) %}
+          {% if scope_list %}
+            {% for s in scope_list %}
+              {% if 'gmail.send' in s %}{% set gmail_ns.ready = true %}{% endif %}
+            {% endfor %}
+          {% endif %}
+          {% if not gmail_ns.ready %}
+            <div class="notice-banner row-between">
+              <p class="callout__text">
+                <strong>Mail is not sent from this account yet.</strong> Reconnect and allow Gmail send. Invites and follow-ups then leave from this address.
+              </p>
+              <a href="{{ url_for('integrations.google_connect') }}" class="btn btn-outline btn-sm">Reconnect to send mail</a>
+            </div>
+          {% endif %}
+
           {% if scope_list %}
             <div class="stack-sm">
               <div class="stat-label">Granted permissions</div>
@@ -112,6 +127,10 @@
                       {{ icon_video(14, 'icon') }} Google Meet <code>spaces.readonly</code>
                     {% elif 'calendar' in s %}
                       {{ icon_calendar(14, 'icon') }} Google Calendar <code>calendar.readonly</code>
+                    {% elif 'gmail.send' in s %}
+                      Gmail <code>gmail.send</code>
+                    {% elif 'userinfo.email' in s %}
+                      Account email
                     {% else %}
                       <code>{{ s }}</code>
                     {% endif %}

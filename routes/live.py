@@ -36,7 +36,7 @@ from models.database import (
 )
 from routes.utils import current_user, login_required
 from services.live import finish_live_room, safe_recording_path
-from services.notifications import mail_is_configured
+from services.notifications import mail_is_configured, sends_as_self
 
 live_bp = Blueprint("live", __name__)
 logger = logging.getLogger(__name__)
@@ -178,6 +178,8 @@ def start():
             results = send_invite_emails(
                 invites, link, title, session.get("username") or "A teammate",
                 host_email=session.get("email") or "",
+                host_user_id=session["user_id"],
+                db_path=DB_PATH,
             )
             sent = sum(1 for item in results if item["status"] == "sent")
             failed = next((item for item in results if item["status"] == "failed"), None)
@@ -200,7 +202,8 @@ def start():
     return render_template(
         "live/start.html",
         user=current_user(),
-        mail_configured=mail_is_configured(),
+        mail_configured=mail_is_configured(session["user_id"], DB_PATH),
+        sends_as_self=sends_as_self(session["user_id"], DB_PATH),
     )
 
 
@@ -249,7 +252,8 @@ def room(token: str):
         is_host=is_host,
         admission_status=admission,
         in_meeting=admission == "admitted",
-        mail_configured=mail_is_configured(),
+        mail_configured=mail_is_configured(session["user_id"], DB_PATH),
+        sends_as_self=sends_as_self(session["user_id"], DB_PATH),
     )
 
 
@@ -274,6 +278,8 @@ def invite(token: str):
         found.get("title") or "Live meeting",
         session.get("username") or "A teammate",
         host_email=session.get("email") or "",
+        host_user_id=session["user_id"],
+        db_path=DB_PATH,
     )
     sent = [item["recipient"] for item in results if item["status"] == "sent"]
     failed = next((item for item in results if item["status"] == "failed"), None)
