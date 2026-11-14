@@ -72,13 +72,7 @@
             </div>
             <div>
               <div class="stat-label">Calendar attendee match</div>
-              {% set has_cal = false %}
-              {% if scope_list %}
-                {% for s in scope_list %}
-                  {% if 'calendar' in s %}{% set has_cal = true %}{% endif %}
-                {% endfor %}
-              {% endif %}
-              {% if has_cal %}
+              {% if calendar_granted %}
                 <span class="badge badge-mint">{{ icon_check(12, 'icon') }} Active</span>
               {% else %}
                 <span class="badge badge-coral" title="Reconnect to grant Calendar read access">Not granted</span>
@@ -86,14 +80,7 @@
             </div>
           </div>
 
-          {% set has_cal = false %}
-          {% if scope_list %}
-            {% for s in scope_list %}
-              {% if 'calendar' in s %}{% set has_cal = true %}{% endif %}
-            {% endfor %}
-          {% endif %}
-
-          {% if not has_cal %}
+          {% if not calendar_granted %}
             <div class="notice-banner row-between">
               <p class="callout__text">
                 <strong>Google Calendar sync not active:</strong> Reconnect your account to grant Calendar read access and automatically populate attendee emails for action items.

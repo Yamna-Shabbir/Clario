@@ -80,7 +80,7 @@ def _login(client, app):
     return user["id"], creds["username"], creds["email"]
 
 
-def _seed_connection(app, user_id, monkeypatch, expires_at=None):
+def _seed_connection(app, user_id, monkeypatch, expires_at=None, scope=FAKE_SCOPE):
     """
     Persist an oauth_connections row using encrypted dummy tokens.
     Returns the plaintext access and refresh tokens.
@@ -104,7 +104,7 @@ def _seed_connection(app, user_id, monkeypatch, expires_at=None):
         access_token_enc=at_enc,
         refresh_token_enc=rt_enc,
         expires_at=expires_at,
-        scope=FAKE_SCOPE,
+        scope=scope,
         db_path=_r_integ.DB_PATH,
     )
     return at_plain, rt_plain
@@ -156,6 +156,50 @@ class TestIntegrationsIndex:
         resp = client.get("/integrations")
         assert resp.status_code == 200
         assert b"Not Connected" in resp.data or b"not connected" in resp.data.lower()
+
+    def test_calendar_readonly_scope_is_shown_as_granted(self, client, app, monkeypatch):
+        """The status uses the same stored scope URLs as the permission chips.
+
+        Assigning a flag inside a Jinja loop used to leave this status at
+        "Not granted" even when calendar.readonly was listed below it.
+        """
+        _set_encryption_key(monkeypatch)
+        user_id, _, _ = _login(client, app)
+        _seed_connection(
+            app, user_id, monkeypatch,
+            scope=(
+                "https://www.googleapis.com/auth/meetings.space.readonly "
+                "https://www.googleapis.com/auth/calendar.readonly "
+                "https://www.googleapis.com/auth/gmail.send "
+                "https://www.googleapis.com/auth/userinfo.email"
+            ),
+        )
+        resp = client.get("/integrations")
+        page = resp.data.decode()
+        assert resp.status_code == 200
+        assert "calendar.readonly" in page
+        assert "Active" in page
+        assert "Not granted" not in page
+        assert "Google Calendar sync not active" not in page
+
+    def test_missing_calendar_scope_stays_not_granted(self, client, app, monkeypatch):
+        _set_encryption_key(monkeypatch)
+        user_id, _, _ = _login(client, app)
+        _seed_connection(app, user_id, monkeypatch, scope=FAKE_SCOPE)
+        resp = client.get("/integrations")
+        page = resp.data.decode()
+        assert "Not granted" in page
+        assert "Google Calendar sync not active" in page
+
+    def test_comma_separated_calendar_scope_is_granted(self):
+        from routes.integrations import calendar_scope_granted
+
+        stored = (
+            "https://www.googleapis.com/auth/calendar.readonly,"
+            "https://www.googleapis.com/auth/meetings.space.readonly"
+        )
+        assert calendar_scope_granted(stored) is True
+        assert calendar_scope_granted("https://www.googleapis.com/auth/calendar.events") is False
 
 
 # =============================================================================

@@ -51,6 +51,25 @@ from services.nlp.participant_matching import match, rematch_meeting_tasks
 integrations_bp = Blueprint("integrations", __name__, url_prefix="/integrations")
 
 
+def parse_oauth_scopes(scope: str) -> list:
+    """Split a stored Google scope string into individual scope URLs.
+
+    Google returns a space-separated list. A comma-separated copy is accepted
+    so the status check and the permission chips read the same tokens.
+    """
+    text = (scope or "").replace(",", " ")
+    return [part.strip().strip("\"'") for part in text.split() if part.strip().strip("\"'")]
+
+
+def calendar_scope_granted(scope: str) -> bool:
+    """True when the stored scopes include Google Calendar read access."""
+    for part in parse_oauth_scopes(scope):
+        token = part.rstrip("/").lower()
+        if token.endswith("/auth/calendar.readonly") or token == "calendar.readonly":
+            return True
+    return False
+
+
 @integrations_bp.route("", methods=["GET"])
 @login_required
 def index():
@@ -62,9 +81,8 @@ def index():
     client_secret = getattr(config, "GOOGLE_CLIENT_SECRET", "")
     is_configured = bool(client_id and client_secret)
 
-    scope_list = []
-    if google_conn and google_conn.get("scope"):
-        scope_list = [s.strip() for s in google_conn["scope"].split() if s.strip()]
+    stored_scope = google_conn.get("scope") if google_conn else ""
+    scope_list = parse_oauth_scopes(stored_scope or "")
 
     return render_template(
         "integrations/index.html",
@@ -72,6 +90,7 @@ def index():
         google_conn=google_conn,
         google_configured=is_configured,
         scope_list=scope_list,
+        calendar_granted=calendar_scope_granted(stored_scope or ""),
     )
 
 
