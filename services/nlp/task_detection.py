@@ -135,6 +135,14 @@ PRIORITY_KEYWORDS = {
 # ---------------------------------------------------------------------------
 
 # If any of these match, skip the sentence (high-confidence non-tasks)
+# A status remark ("it's recording", "we are live") is not an assignment.
+_STATUS_RE = re.compile(
+    r"\b(?:it(?:'s| is)|this is|that(?:'s| is)|we are|they are)\s+"
+    r"(?:now\s+)?(?:recording|recorded|live|done|ready|working|happening|over)\b",
+    re.IGNORECASE,
+)
+
+
 _NEGATION_RE = re.compile(
     r"\b(won'?t|will\s+not|not\s+be|nobody|no\s+one|n'?t\b|didn'?t|"
     r"doesn'?t|don'?t|never|cannot|can'?t)\b",
@@ -286,6 +294,7 @@ _PERSON_SKIP = {
     "metrics", "release", "budget", "caching", "design", "client", "report",
     "also", "however", "first", "without", "well", "sure", "right", "hi",
     "hey", "good", "very", "still", "about", "maybe", "actually", "instead",
+    "now", "then", "here", "there", "currently", "already", "just", "recording",
     "one", "what", "how", "absolutely", "noted", "fine", "yeah", "yep",
     "perfect", "cool", "good", "someone", "somebody", "duplicate",
     "records", "authentication", "filter", "priority", "updates",
@@ -510,7 +519,7 @@ def _dep_parse_is_task(sent_doc) -> bool:
         for tok in sent_doc:
             if tok.is_alpha:
                 if tok.i == root.i or (
-                    tok.i < root.i and tok.text.lower() in ("please", "now", "also")
+                    tok.i < root.i and tok.text.lower() in ("please", "also")
                 ):
                     return True
                 break
@@ -662,6 +671,9 @@ def detect_tasks(
 
         # --- Guard: negation ---
         if _is_negated(sl):
+            continue
+
+        if _STATUS_RE.search(sl) and not _has_strong_cue(sl):
             continue
 
         # --- Guard: past temporal context (yesterday, last week, etc.) ---

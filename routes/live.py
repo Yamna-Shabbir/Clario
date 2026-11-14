@@ -346,8 +346,12 @@ def recording(token: str):
         return jsonify({"ok": False, "error": space_error}), 507
     path = safe_recording_path(UPLOAD_DIR, token, session["user_id"], ext)
     audio.save(path)
+    role = (request.form.get("role") or "speaker").strip().lower()
     try:
-        add_live_recording(found["id"], session["user_id"], path, DB_PATH)
+        add_live_recording(
+            found["id"], session["user_id"], path, DB_PATH,
+            kind="mix" if role == "mix" else "speaker",
+        )
     except ValueError as exc:
         if os.path.isfile(path):
             os.remove(path)
@@ -407,12 +411,38 @@ def roster(token: str):
     found = get_live_room_by_token(token, DB_PATH)
     if not found:
         return jsonify({"ok": False}), 404
-    if found["status"] != "live":
-        return jsonify({"ok": True, "status": found["status"], "members": []})
+    if found["status"] not in {"live", "ending"}:
+        return jsonify({
+            "ok": True,
+            "status": found["status"],
+            "meeting_id": found.get("meeting_id"),
+            "members": [],
+        })
+    if found["status"] == "ending":
+        recordings = get_live_recordings(found["id"], DB_PATH)
+        recorded_ids = {
+            row["user_id"] for row in recordings
+            if (row.get("kind") or "speaker") == "speaker"
+        }
+        host_id = int(found["host_user_id"])
+        admitted_rows, _pending = _partition_members(get_live_members(found["id"], DB_PATH), host_id)
+        members = [
+            _member_payload(m, recorded_ids, session["user_id"], host_id) for m in admitted_rows
+        ]
+        return jsonify({
+            "ok": True,
+            "status": "ending",
+            "upload_now": True,
+            "members": members,
+            "missing": [m["display_name"] for m in members if not m["recorded"]],
+        })
     is_host = _is_host(found, session["user_id"])
     admission = _register_join_request(found, session["user_id"], DB_PATH)
     recordings = get_live_recordings(found["id"], DB_PATH)
-    recorded_ids = {row["user_id"] for row in recordings}
+    recorded_ids = {
+        row["user_id"] for row in recordings
+        if (row.get("kind") or "speaker") == "speaker"
+    }
     host_id = int(found["host_user_id"])
     all_rows = get_live_members(found["id"], DB_PATH)
     if is_host:
@@ -579,6 +609,23 @@ def leave(token: str):
         return jsonify({"ok": False}), 404
     mark_live_member_left(found["id"], session["user_id"], DB_PATH)
     return jsonify({"ok": True})
+
+
+@live_bp.route("/live/<token>/ending", methods=["POST"])
+@login_required
+def begin_end(token: str):
+    """Ask every browser to upload its microphone before the meeting is saved."""
+    from models.database import claim_live_room
+
+    init_db(DB_PATH)
+    found = get_live_room_by_token(token, DB_PATH)
+    if not found or found["host_user_id"] != session["user_id"]:
+        abort(404)
+    if found["status"] == "live":
+        claim_live_room(found["id"], DB_PATH)
+    elif found["status"] not in {"ending", "ended"}:
+        abort(404)
+    return jsonify({"ok": True, "status": "ending"})
 
 
 @live_bp.route("/live/<token>/end", methods=["POST"])

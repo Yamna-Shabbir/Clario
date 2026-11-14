@@ -55,7 +55,7 @@
   <section class="stack-lg">
     <h2 class="section-heading">{{ icon_mic(18, 'icon') }} Recording</h2>
     <div class="card card-pad">
-      <p class="text-muted stack-md">Each person who consented recorded their own microphone. Those tracks are the meeting recording. Other people are not mixed into the host's file.</p>
+      <p class="text-muted stack-md">Each track is one person's microphone. Play them separately. A missing person is named in the warning above the transcript.</p>
       {% for rec in recordings %}
       <div class="stack-sm">
         <strong>{{ rec.speaker_name }}</strong>
@@ -68,6 +68,16 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
+
+  {% if meeting.status == 'partial' %}
+  <div class="alert alert-error" role="status">
+    {{ meeting.error_message or "Part of this meeting could not be processed. Saved recordings were kept." }}
+    <form method="POST" action="{{ url_for('meeting.retry_transcription', meeting_id=meeting.id) }}" class="stack-sm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <button type="submit" class="btn btn-outline btn-sm">Retry transcription</button>
+    </form>
+  </div>
   {% endif %}
 
   {% if meeting.status in ['queued', 'processing'] %}
@@ -280,6 +290,8 @@
               <td class="text-muted td-nowrap">
                 {% if p.left_at %}
                   {{ p.left_at[:19] | replace("T", " ") }} UTC
+                {% elif meeting.status in ['completed', 'failed', 'partial'] %}
+                  Left
                 {% else %}
                   <span class="vibe-positive">Active</span>
                 {% endif %}
@@ -340,6 +352,7 @@
             <th>#</th>
             <th>Description</th>
             <th>Assigned to</th>
+            <th>Assigned by</th>
             <th>Due date</th>
             <th>Priority</th>
             <th>Status</th>
@@ -371,6 +384,16 @@
                 {% endif %}
               {% else %}
                 <span class="badge badge-lilac">{{ t.assigned_to }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if t.assigned_by or t.assigned_by_email %}
+                <strong>{{ t.assigned_by or "Speaker" }}</strong>
+                {% if t.assigned_by_email %}
+                <div class="text-muted">{{ t.assigned_by_email }}</div>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">Not named</span>
               {% endif %}
             </td>
             <td>

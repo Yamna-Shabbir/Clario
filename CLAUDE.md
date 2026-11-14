@@ -732,9 +732,15 @@ meeting_participants                  (many-to-1 with meetings)
       host admits via `POST /live/<token>/admit` or denies via `POST /live/<token>/deny`;
       guests poll `GET /live/<token>/admission` until `admitted`.
       **Record** saves **each person's own microphone**, not a mix of the room.
-      WebRTC lets people hear each other live. A browser cannot fold remote
-      audio into the host's file, so the meeting recording is the set of
-      consented microphone tracks. Recording starts only after the consent
+      WebRTC lets people hear each other live. Each browser records only
+      that person's microphone and uploads it on an interval, again when
+      the host starts ending, and again if the page closes. The host waits
+      briefly so the other uploads can finish. A meeting with a missing
+      microphone or a failed transcription is `partial`, and the files that
+      did arrive are kept. Tracks are transcribed in the order they were
+      saved and labelled with the account that uploaded them. The speaker of an assignment is stored
+      as `assigned_by` / `assigned_by_email`; the person who must do the work
+      stays `assigned_to`. Recording starts only after the consent
       checkbox and the browser microphone permission. An empty upload does not
       replace a saved track. Leaving sets `live_members.left_at`.
       The host ends the room once (`claim_live_room`). Each non-empty track is

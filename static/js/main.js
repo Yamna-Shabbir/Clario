@@ -146,7 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
           .then(data => {
             if (!data) return;
 
-            if (data.status === 'completed') {
+            if (data.status === 'completed' || data.status === 'partial') {
               clearInterval(pollTimer);
               if (progressBar) progressBar.style.width = '100%';
               if (stageText) stageText.textContent = 'Completed. Loading results...';

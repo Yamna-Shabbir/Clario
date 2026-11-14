@@ -54,11 +54,11 @@
       </div>
       <button type="button" class="btn btn-primary btn-sm meet-hear" id="meet-hear" hidden>Tap to hear everyone</button>
       <p class="meet-stage-hint text-muted" id="record-state" role="status">
-        {% if already_recorded %}Your microphone track is saved. Recording again replaces only your track after the new file is stored.{% else %}Not recording yet. Each person records their own microphone. The host's microphone does not include other people.{% endif %}
+        {% if already_recorded %}Your microphone is saved for this meeting.{% else %}Not recording yet. Each person records their own microphone. Another person's voice is not inside your file.{% endif %}
       </p>
       <label class="meet-consent text-muted" for="record-consent">
-        <input type="checkbox" id="record-consent">
-        I agree to record my microphone for this meeting. The browser will ask for microphone permission.
+        <input type="checkbox" id="record-consent" checked>
+        I agree to record my microphone. It is saved under my name. Everyone else records their own.
       </label>
     </section>
 
@@ -187,7 +187,8 @@
       request: {{ ("/live/" ~ room.join_token ~ "/request")|tojson }},
       admit: {{ ("/live/" ~ room.join_token ~ "/admit")|tojson }},
       deny: {{ ("/live/" ~ room.join_token ~ "/deny")|tojson }},
-      leave: {{ ("/live/" ~ room.join_token ~ "/leave")|tojson }}
+      leave: {{ ("/live/" ~ room.join_token ~ "/leave")|tojson }},
+      ending: {{ ("/live/" ~ room.join_token ~ "/ending")|tojson }}
     },
     iceServers: [
       { urls: "stun:stun.l.google.com:19302" },
@@ -197,5 +198,5 @@
     ]
   };
 </script>
-<script src="{{ url_for('static', filename='js/live-room.js', v='10') }}"></script>
+<script src="{{ url_for('static', filename='js/live-room.js', v='12') }}"></script>
 {% endblock %}

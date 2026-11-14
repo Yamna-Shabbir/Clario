@@ -239,16 +239,62 @@
     return new MediaStream(tracks);
   }
 
-  async function uploadRecording() {
-    if (!recordChunks.length) return false;
-    const type = (recorder && recorder.mimeType) || "audio/webm";
-    const blob = new Blob(recordChunks, { type });
+  let uploadTimer = null;
+  let flushingForEnd = false;
+  let mixDest = null;
+  let mixSources = new Map();
+  let mixRecorder = null;
+  let mixChunks = [];
+
+  function ensureMixDestination() {
+    const ctx = audioContext();
+    if (!ctx) return null;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    if (!mixDest) mixDest = ctx.createMediaStreamDestination();
+    return mixDest;
+  }
+
+  function connectTrackToMix(track) {
+    if (!track || track.kind !== "audio" || track.readyState !== "live") return;
+    if (mixSources.has(track.id)) return;
+    const dest = ensureMixDestination();
+    const ctx = audioContext();
+    if (!dest || !ctx) return;
+    try {
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      source.connect(dest);
+      mixSources.set(track.id, source);
+      track.addEventListener("ended", () => {
+        try { source.disconnect(); } catch (err) { /* already closed */ }
+        mixSources.delete(track.id);
+      });
+    } catch (err) {
+      console.warn("Could not add a voice to the meeting recording", err);
+    }
+  }
+
+  function refreshMixSources() {
+    if (localStream) localStream.getAudioTracks().forEach(connectTrackToMix);
+    remoteStreams.forEach((media) => {
+      if (media && media.audio) media.audio.getAudioTracks().forEach(connectTrackToMix);
+    });
+  }
+
+  async function uploadBlob(chunks, mimeType, role, keepChunks) {
+    if (!chunks.length) return false;
+    const type = mimeType || "audio/webm";
+    const blob = new Blob(chunks, { type });
     if (!blob.size) return false;
     const extension = type.includes("ogg") ? "ogg" : "webm";
     const body = new FormData();
-    body.append("audio", blob, "speaker." + extension);
+    body.append("audio", blob, (role === "mix" ? "meeting." : "speaker.") + extension);
+    body.append("role", role);
     body.append("csrf_token", csrfToken());
-    if (stateEl) stateEl.textContent = "Uploading your microphone recording...";
+    if (stateEl) {
+      stateEl.textContent = role === "mix"
+        ? "Uploading the whole meeting..."
+        : "Uploading your microphone recording...";
+    }
     const response = await fetch(cfg.urls.recording, {
       method: "POST",
       body,
@@ -264,10 +310,23 @@
       if (stateEl) stateEl.textContent = data.error || "The recording could not be saved.";
       return false;
     }
-    recordChunks = [];
-    if (stateEl) stateEl.textContent = "Saved. Your microphone track is stored with this meeting.";
+    if (!keepChunks && role === "speaker") recordChunks = [];
+    if (!keepChunks && role === "mix") mixChunks = [];
+    if (stateEl) {
+      stateEl.textContent = role === "mix"
+        ? "Saved. The meeting recording includes everyone who was connected."
+        : "Saved. Your microphone is stored so the transcript can name you.";
+    }
     pollRoster();
     return true;
+  }
+
+  function uploadRecording() {
+    return uploadBlob(recordChunks, recorder && recorder.mimeType, "speaker");
+  }
+
+  function uploadMix() {
+    return uploadBlob(mixChunks, mixRecorder && mixRecorder.mimeType, "mix");
   }
 
   async function beginRecording() {
@@ -299,13 +358,20 @@
     if (startBtn) startBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
     if (stateEl) {
-      stateEl.textContent = "Recording your microphone. Other people record their own. Status: Recording.";
+      stateEl.textContent = "Recording your microphone. Status: Recording.";
+    }
+    if (!uploadTimer) {
+      uploadTimer = window.setInterval(() => {
+        if (!recorder || recorder.state !== "recording" || !recordChunks.length) return;
+        uploadBlob(recordChunks.slice(), recorder.mimeType, "speaker", true);
+      }, 12000);
     }
     if (selfTile) selfTile.classList.add("meet-tile--recording");
   }
 
   function stopRecording() {
     if (recorder && recorder.state === "recording") recorder.stop();
+    if (mixRecorder && mixRecorder.state === "recording") mixRecorder.stop();
     if (startBtn) startBtn.disabled = false;
     if (stopBtn) stopBtn.disabled = true;
     if (selfTile) selfTile.classList.remove("meet-tile--recording");
@@ -600,7 +666,12 @@
         handleAdmissionStatus(data.my_admission);
       }
       if (Array.isArray(data.waiting)) renderWaitingList(data.waiting);
-      if (data.members && (meetingActive || cfg.isHost)) {
+      if (data.status === "ending" && !flushingForEnd) {
+        flushingForEnd = true;
+        if (stateEl) stateEl.textContent = "The host is ending the meeting. Uploading your microphone.";
+        stopRecording();
+      }
+      if (data.members && (meetingActive || cfg.isHost || data.status === "ending")) {
         lastRoster = data.members;
         renderRoster(data.members);
         if (meetingActive || cfg.isHost) syncPeers(data.members);
@@ -868,7 +939,10 @@
       refreshTileMedia(id);
     };
     refreshTileMedia(id);
-    if (track.kind === "audio") watchSpeaking(id, media.audio);
+    if (track.kind === "audio") {
+      watchSpeaking(id, media.audio);
+      if (mixRecorder && mixRecorder.state === "recording") connectTrackToMix(track);
+    }
   }
 
   async function sendSignal(toUserId, kind, payload) {
@@ -1296,17 +1370,46 @@
   const endForm = document.querySelector(".meet-end-form");
   if (endForm) {
     endForm.addEventListener("submit", (event) => {
-      if (!recorder || recorder.state !== "recording") return;
+      const recordingNow = recorder && recorder.state === "recording";
+      const mixingNow = mixRecorder && mixRecorder.state === "recording";
       event.preventDefault();
-      recorder.onstop = async () => {
-        const saved = await uploadRecording();
-        if (!saved) {
-          if (stateEl) stateEl.textContent = "The recording was not saved, so the meeting was not ended.";
+      const pending = [];
+      if (recordingNow) {
+        pending.push(new Promise((resolve) => {
+          recorder.onstop = async () => resolve(await uploadRecording());
+          recorder.stop();
+        }));
+      }
+      if (mixingNow) {
+        pending.push(new Promise((resolve) => {
+          mixRecorder.onstop = async () => resolve(await uploadMix());
+          mixRecorder.stop();
+        }));
+      }
+      Promise.all(pending).then(async (saved) => {
+        if ((recordingNow || mixingNow) && !saved.some((ok) => ok)) {
+          if (stateEl) stateEl.textContent = "Your microphone was not saved, so the meeting was not ended.";
           return;
         }
+        if (cfg.urls.ending) {
+          const body = new FormData();
+          body.append("csrf_token", csrfToken());
+          await fetch(cfg.urls.ending, { method: "POST", body, credentials: "same-origin" });
+          const deadline = Date.now() + 15000;
+          while (Date.now() < deadline) {
+            const res = await fetch(cfg.urls.roster, { credentials: "same-origin", cache: "no-store" });
+            const data = await res.json();
+            const members = data.members || [];
+            if (!members.length || members.every((member) => member.recorded)) break;
+            if (stateEl) {
+              const waiting = members.filter((member) => !member.recorded).map((member) => member.display_name);
+              stateEl.textContent = "Waiting for microphones: " + waiting.join(", ");
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 1000));
+          }
+        }
         endForm.submit();
-      };
-      recorder.stop();
+      });
     });
   }
   window.addEventListener("pagehide", () => {
@@ -1315,16 +1418,24 @@
       try { recorder.requestData(); } catch (err) { /* flush is best-effort */ }
       try { recorder.stop(); } catch (err) { /* the page is going away */ }
     }
-    if (recordChunks.length && cfg.urls.recording && navigator.sendBeacon) {
-      const type = (recorder && recorder.mimeType) || "audio/webm";
-      const blob = new Blob(recordChunks, { type });
-      if (blob.size) {
-        const audioBody = new FormData();
-        audioBody.append("csrf_token", csrfToken());
-        audioBody.append("audio", blob, type.includes("ogg") ? "speaker.ogg" : "speaker.webm");
-        navigator.sendBeacon(cfg.urls.recording, audioBody);
-      }
+    if (mixRecorder && mixRecorder.state === "recording") {
+      mixRecorder.onstop = () => {};
+      try { mixRecorder.requestData(); } catch (err) { /* flush is best-effort */ }
+      try { mixRecorder.stop(); } catch (err) { /* the page is going away */ }
     }
+    const beaconAudio = (chunks, mimeType, role) => {
+      if (!chunks.length || !cfg.urls.recording || !navigator.sendBeacon) return;
+      const type = mimeType || "audio/webm";
+      const blob = new Blob(chunks, { type });
+      if (!blob.size) return;
+      const audioBody = new FormData();
+      audioBody.append("csrf_token", csrfToken());
+      audioBody.append("role", role);
+      audioBody.append("audio", blob, (role === "mix" ? "meeting." : "speaker.") + (type.includes("ogg") ? "ogg" : "webm"));
+      navigator.sendBeacon(cfg.urls.recording, audioBody);
+    };
+    beaconAudio(recordChunks, recorder && recorder.mimeType, "speaker");
+    beaconAudio(mixChunks, mixRecorder && mixRecorder.mimeType, "mix");
     if (!cfg.urls.leave || !navigator.sendBeacon) return;
     const body = new FormData();
     body.append("csrf_token", csrfToken());

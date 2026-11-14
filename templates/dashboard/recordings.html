@@ -12,7 +12,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Meeting recordings</h1>
-      <p class="page-lead">Play a saved meeting here. Each person who recorded is a separate track, in the order they were stored.</p>
+      <p class="page-lead">Play a saved meeting here. The whole-meeting track is everyone who was connected. Named tracks are each person's microphone.</p>
     </div>
   </div>
 
@@ -37,7 +37,7 @@
       </div>
       {% for track in meeting.tracks %}
       <div class="recording-track">
-        <strong>{{ track.speaker_name }}</strong>
+        <strong>{{ "Whole meeting" if track.kind == "mix" else track.speaker_name }}</strong>
         {% if track.speaker_email %}<span class="text-muted">{{ track.speaker_email }}</span>{% endif %}
         <audio controls preload="none" src="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=track.id) }}"></audio>
         <a class="btn btn-outline btn-sm" href="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=track.id, download=1) }}">Download</a>

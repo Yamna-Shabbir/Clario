@@ -217,6 +217,128 @@ def test_recordings_page_plays_saved_audio_for_participants_only(client, tmp_dir
     assert "No recordings yet" in hidden.get_data(as_text=True)
 
 
+def test_a_mix_does_not_replace_the_speaker_track(tmp_path):
+    db = str(tmp_path / "clario.db")
+    init_db(db)
+    host_id = insert_user("host", "host@example.com", "hash", db_path=db)
+    room_id = create_live_room(host_id, "Planning", "tok", db)
+    add_live_member(room_id, host_id, "Host", "host@example.com", db, admission_status="admitted")
+    voice = tmp_path / "voice.webm"
+    voice.write_bytes(b"voice")
+    whole = tmp_path / "whole.webm"
+    whole.write_bytes(b"everyone")
+    add_live_recording(room_id, host_id, str(voice), db, kind="speaker")
+    add_live_recording(room_id, host_id, str(whole), db, kind="mix")
+    rows = get_live_recordings(room_id, db)
+    kinds = {row["kind"]: row["audio_path"] for row in rows}
+    assert kinds["speaker"] == str(voice)
+    assert kinds["mix"] == str(whole)
+    assert voice.exists() and whole.exists()
+
+
+def test_the_speaker_is_stored_as_the_assigner():
+    from services.nlp.task_verification import verify_meeting_tasks
+
+    checked = verify_meeting_tasks(
+        "Hina (hina@example.com): Omar, please send the notes by Friday."
+    )
+    tasks = checked["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["assigned_to"] == "Omar"
+    assert tasks[0]["assigned_by"] == "Hina"
+    assert tasks[0]["assigned_by_email"] == "hina@example.com"
+
+
+def test_a_shorter_upload_does_not_replace_a_longer_recording(tmp_path):
+    db = str(tmp_path / "clario.db")
+    init_db(db)
+    host_id = insert_user("host", "host@example.com", "hash", db_path=db)
+    room_id = create_live_room(host_id, "Planning", "tok", db)
+    add_live_member(room_id, host_id, "Host", "host@example.com", db, admission_status="admitted")
+    long_file = tmp_path / "long.webm"
+    long_file.write_bytes(b"long-audio-bytes")
+    short_file = tmp_path / "short.webm"
+    short_file.write_bytes(b"short")
+    add_live_recording(room_id, host_id, str(long_file), db)
+    add_live_recording(room_id, host_id, str(short_file), db)
+    rows = get_live_recordings(room_id, db)
+    assert len(rows) == 1
+    assert rows[0]["audio_path"] == str(long_file)
+    assert long_file.exists()
+
+
+def test_both_microphones_are_saved_and_transcribed_in_order(tmp_path):
+    from models.database import get_meeting_participants, get_speaker_turns
+
+    db = str(tmp_path / "clario.db")
+    init_db(db)
+    upload = tmp_path / "uploads"
+    upload.mkdir()
+    host_id, guest_id, guest_path = _room_with_track(db, str(upload), speech="unused")
+    host_path = os.path.join(str(upload), "host.webm")
+    with open(host_path, "wb") as handle:
+        handle.write(b"host-audio")
+    room = get_live_room_by_token("room-token", db)
+    add_live_recording(room["id"], host_id, host_path, db)
+
+    def speak(path):
+        if os.path.basename(path) == "host.webm":
+            return "The plan was described."
+        return "The notes will be sent."
+
+    meeting_id = finish_live_room(room, db_path=db, graph_dir=str(tmp_path), transcribe=speak)
+    turns = get_speaker_turns(meeting_id, db)
+    assert [turn["speaker_name"] for turn in turns] == ["Aisha Khan", "Host"]
+    assert [turn["content"] for turn in turns] == [
+        "The notes will be sent.",
+        "The plan was described.",
+    ]
+    people = get_meeting_participants(meeting_id, db)
+    assert people
+    assert all(person["left_at"] for person in people)
+    recordings = get_meeting_recordings(meeting_id, db)
+    assert {row["user_id"] for row in recordings} == {host_id, guest_id}
+    again = finish_live_room(get_live_room_by_token("room-token", db), db_path=db, transcribe=speak)
+    assert again == meeting_id
+    assert len(get_meeting_recordings(meeting_id, db)) == 2
+
+
+def test_a_missing_microphone_is_partial_not_complete(tmp_path):
+    db = str(tmp_path / "clario.db")
+    init_db(db)
+    upload = tmp_path / "uploads"
+    upload.mkdir()
+    host_id, guest_id, path = _room_with_track(db, str(upload))
+    room = get_live_room_by_token("room-token", db)
+    from models.database import get_connection
+    with get_connection(db) as conn:
+        conn.execute(
+            "DELETE FROM live_recordings WHERE room_id = ? AND user_id = ?",
+            (room["id"], guest_id),
+        )
+        conn.commit()
+    host_path = os.path.join(str(upload), "host-only.webm")
+    with open(host_path, "wb") as handle:
+        handle.write(b"host-only-audio")
+    add_live_recording(room["id"], host_id, host_path, db)
+    meeting_id = finish_live_room(
+        room, db_path=db, graph_dir=str(tmp_path), transcribe=lambda _path: "The plan was described.",
+    )
+    status = get_meeting_status(meeting_id, host_id, db)
+    assert status["status"] == "partial"
+    assert "Aisha Khan" in (status["error"] or "")
+    assert os.path.isfile(host_path)
+
+
+def test_a_status_remark_creates_no_task_or_decision():
+    from services.nlp.task_verification import verify_meeting_tasks
+
+    checked = verify_meeting_tasks("Now it's recording.")
+    assert checked["tasks"] == []
+    assert checked["decisions"] == []
+    assert all((item.get("assigned_to") or "") != "Now" for item in checked["review"])
+
+
 def test_highlights_come_only_from_the_transcript():
     found = meeting_highlights(
         "The budget review covered the archive plan in detail. Will the archive be ready?"

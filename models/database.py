@@ -342,6 +342,18 @@ def init_db(db_path: str = DB_PATH) -> None:
             )
         if "left_at" not in member_cols:
             conn.execute("ALTER TABLE live_members ADD COLUMN left_at TEXT")
+        recording_cols = _get_columns("live_recordings")
+        if "kind" not in recording_cols:
+            conn.execute(
+                "ALTER TABLE live_recordings ADD COLUMN kind TEXT NOT NULL DEFAULT 'speaker'"
+            )
+        meeting_recording_cols = _get_columns("meeting_recordings")
+        if meeting_recording_cols and "kind" not in meeting_recording_cols:
+            conn.execute(
+                "ALTER TABLE meeting_recordings ADD COLUMN kind TEXT NOT NULL DEFAULT 'speaker'"
+            )
+        if "assigned_by" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN assigned_by TEXT")
 
         conn.commit()
     print(f" DB ready: {db_path}")
@@ -593,8 +605,9 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
         conn.executemany(
             """INSERT INTO tasks
                (meeting_id, description, assigned_to, due_date, status, keyword,
-                priority, assigned_email, source_text, evidence_time, source_context)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                priority, assigned_email, assigned_by, assigned_by_email,
+                source_text, evidence_time, source_context)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     meeting_id,
@@ -605,6 +618,8 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
                     t.get("keyword",      ""),
                     t.get("priority",     "Low"),
                     t.get("assigned_email"),
+                    t.get("assigned_by") or "",
+                    t.get("assigned_by_email") or "",
                     t.get("source_text") or t.get("description") or "",
                     t.get("evidence_time") or "",
                     t.get("source_context") or "",
@@ -1124,24 +1139,44 @@ def get_live_members(room_id: int, db_path: str = DB_PATH, *,
 
 
 def add_live_recording(room_id: int, user_id: int, audio_path: str,
-                       db_path: str = DB_PATH) -> None:
-    """Replace a person's track only after the new file is non-empty."""
+                       db_path: str = DB_PATH, *, kind: str = "speaker") -> None:
+    """Replace one kind of track only after the new file is non-empty.
+
+    ``speaker`` is that person's microphone. ``mix`` is everyone they can hear.
+    """
     if not audio_path or not os.path.isfile(audio_path) or os.path.getsize(audio_path) <= 0:
         raise ValueError("The recording was empty and was not saved.")
+    new_size = os.path.getsize(audio_path)
+    track_kind = "mix" if kind == "mix" else "speaker"
     with get_connection(db_path) as conn:
         previous = conn.execute(
-            "SELECT audio_path FROM live_recordings WHERE room_id = ? AND user_id = ?",
-            (room_id, user_id),
+            """SELECT audio_path FROM live_recordings
+               WHERE room_id = ? AND user_id = ? AND COALESCE(kind, 'speaker') = ?""",
+            (room_id, user_id, track_kind),
         ).fetchall()
+        kept = 0
+        for row in previous:
+            old = row["audio_path"]
+            if old and os.path.isfile(old):
+                kept = max(kept, os.path.getsize(old))
+        if previous and new_size < kept:
+            conn.commit()
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
+            return
         conn.execute(
-            """INSERT INTO live_recordings (room_id, user_id, audio_path)
-               VALUES (?, ?, ?)""",
-            (room_id, user_id, audio_path),
+            """INSERT INTO live_recordings (room_id, user_id, audio_path, kind)
+               VALUES (?, ?, ?, ?)""",
+            (room_id, user_id, audio_path, track_kind),
         )
         conn.execute(
             """DELETE FROM live_recordings
-               WHERE room_id = ? AND user_id = ? AND audio_path != ?""",
-            (room_id, user_id, audio_path),
+               WHERE room_id = ? AND user_id = ?
+                 AND COALESCE(kind, 'speaker') = ?
+                 AND audio_path != ?""",
+            (room_id, user_id, track_kind, audio_path),
         )
         conn.commit()
     for row in previous:
@@ -1244,6 +1279,20 @@ def latest_live_signal_id(room_id: int, user_id: int, db_path: str = DB_PATH) ->
         return int(row["max_id"] if row else 0)
 
 
+def claim_room_for_finish(room_id: int, db_path: str = DB_PATH) -> bool:
+    """One request may turn a live or ending room into the saved meeting."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """UPDATE live_rooms
+               SET status = 'saving'
+               WHERE id = ? AND status IN ('live', 'ending')
+                 AND meeting_id IS NULL""",
+            (room_id,),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
 def claim_live_room(room_id: int, db_path: str = DB_PATH) -> bool:
     """Move a live room to ending. False when another request already claimed it."""
     with get_connection(db_path) as conn:
@@ -1263,9 +1312,28 @@ def release_live_room(room_id: int, db_path: str = DB_PATH) -> None:
         conn.execute(
             """UPDATE live_rooms
                SET status = 'live'
-               WHERE id = ? AND status = 'ending'""",
+               WHERE id = ? AND status IN ('ending', 'saving')""",
             (room_id,),
         )
+        conn.commit()
+
+
+def mark_live_members_left(room_id: int, db_path: str = DB_PATH) -> None:
+    """Close every open attendance row when the meeting ends."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """UPDATE live_members
+               SET left_at = datetime('now')
+               WHERE room_id = ? AND left_at IS NULL""",
+            (room_id,),
+        )
+        conn.commit()
+
+
+def delete_tasks_by_meeting(meeting_id: int, db_path: str = DB_PATH) -> None:
+    """Remove extracted tasks so a retry does not add a second copy."""
+    with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM tasks WHERE meeting_id = ?", (meeting_id,))
         conn.commit()
 
 
@@ -1347,8 +1415,8 @@ def insert_meeting_recordings(meeting_id: int, rows: List[Dict],
             conn.execute(
                 """INSERT INTO meeting_recordings
                    (meeting_id, user_id, speaker_name, speaker_email, audio_path,
-                    byte_size, duration_seconds, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    byte_size, duration_seconds, status, kind)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     meeting_id,
                     row.get("user_id"),
@@ -1358,6 +1426,7 @@ def insert_meeting_recordings(meeting_id: int, rows: List[Dict],
                     int(row.get("byte_size") or 0),
                     row.get("duration_seconds"),
                     row.get("status") or "saved",
+                    "mix" if row.get("kind") == "mix" else "speaker",
                 ),
             )
             existing.add(path)
@@ -1388,7 +1457,8 @@ def list_saved_recordings(user_id: int, db_path: str = DB_PATH) -> List[Dict]:
                       r.speaker_name,
                       r.speaker_email,
                       r.byte_size,
-                      r.audio_path
+                      r.audio_path,
+                      COALESCE(r.kind, 'speaker') AS kind
                FROM meeting_recordings r
                JOIN meetings m ON m.id = r.meeting_id
                WHERE r.status = 'saved'
@@ -1439,11 +1509,13 @@ def list_saved_recordings(user_id: int, db_path: str = DB_PATH) -> List[Dict]:
             "speaker_name": item.get("speaker_name") or "Speaker",
             "speaker_email": item.get("speaker_email") or "",
             "byte_size": int(item.get("byte_size") or 0),
+            "kind": item.get("kind") or "speaker",
         })
     return grouped
 
 
 def end_live_room(room_id: int, meeting_id: int, db_path: str = DB_PATH) -> None:
+    mark_live_members_left(room_id, db_path)
     with get_connection(db_path) as conn:
         conn.execute(
             """UPDATE live_rooms

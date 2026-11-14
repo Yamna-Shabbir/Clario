@@ -77,15 +77,36 @@ def saved_recording_rows(recordings: List[Dict[str, Any]]) -> List[Dict[str, Any
         size = os.path.getsize(path)
         if size <= 0:
             continue
+        kind = "mix" if recording.get("kind") == "mix" else "speaker"
         rows.append({
             "user_id": recording.get("user_id"),
-            "speaker_name": recording.get("display_name") or "Speaker",
+            "speaker_name": "Whole meeting" if kind == "mix" else (recording.get("display_name") or "Speaker"),
             "speaker_email": (recording.get("email") or "").strip().lower(),
             "audio_path": path,
             "byte_size": size,
             "status": "saved",
+            "kind": kind,
         })
     return rows
+
+
+def choose_meeting_recordings(rows: List[Dict[str, Any]], host_user_id: int) -> List[Dict[str, Any]]:
+    """Keep every microphone, plus one mix of the whole meeting.
+
+    The host's mix is preferred because that browser hears every connected person.
+    """
+    speakers = [row for row in rows if row.get("kind") != "mix"]
+    mixes = [row for row in rows if row.get("kind") == "mix"]
+    mixes.sort(
+        key=lambda row: (
+            int(row.get("user_id") or 0) == int(host_user_id),
+            int(row.get("byte_size") or 0),
+        ),
+        reverse=True,
+    )
+    if mixes:
+        return speakers + [mixes[0]]
+    return speakers
 
 
 def meeting_participants_from_members(members: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -132,7 +153,8 @@ def transcript_from_recordings(recordings: List[Dict[str, Any]],
 def queue_live_analysis(meeting_id: int, user_id: int, *,
                         db_path: str = DB_PATH,
                         graph_dir: str = GRAPH_DIR,
-                        transcribe: Optional[Callable[[str], str]] = None) -> None:
+                        transcribe: Optional[Callable[[str], str]] = None,
+                        missing_names: Optional[List[str]] = None) -> None:
     """Transcribe saved tracks in the background, then run the meeting pipeline."""
     from services.jobs import CLARIO_SYNC_JOBS, get_executor, submit_pipeline_job
 
@@ -151,10 +173,18 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
             error_message=None,
             db_path=db_path,
         )
-        recordings = [
+        saved = [
             row for row in get_meeting_recordings(meeting_id, db_path)
             if row.get("status") == "saved" and os.path.isfile(row.get("audio_path") or "")
         ]
+        speakers = [row for row in saved if (row.get("kind") or "speaker") != "mix"]
+        # Separate microphones keep who spoke. The mix is only transcribed
+        # when nobody uploaded their own microphone.
+        recordings = speakers or [row for row in saved if row.get("kind") == "mix"]
+        recordings = sorted(
+            recordings,
+            key=lambda row: (row.get("created_at") or "", int(row.get("id") or 0)),
+        )
         speak = transcribe or transcribe_speaker_audio
         turns: List[Dict[str, str]] = []
         errors: List[str] = []
@@ -197,6 +227,22 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
             graph_dir=graph_dir,
             participants=participants,
         )
+        notes: List[str] = []
+        if missing_names:
+            notes.append("No microphone was saved for: " + ", ".join(missing_names) + ".")
+        if errors:
+            notes.append("Some microphones were not transcribed. The saved audio was kept. " + " ".join(errors))
+        if notes:
+            from models.database import get_meeting_status
+            current = get_meeting_status(meeting_id, user_id, db_path) or {}
+            if current.get("status") != "failed":
+                update_meeting_status(
+                    meeting_id,
+                    status="partial",
+                    progress_stage="partial",
+                    error_message=" ".join(notes)[:500],
+                    db_path=db_path,
+                )
 
     if CLARIO_SYNC_JOBS:
         job()
@@ -214,7 +260,7 @@ def finish_live_room(room: Dict[str, Any], *,
     A second call returns the meeting already created for this room.
     """
     from models.database import (
-        claim_live_room,
+        claim_room_for_finish,
         end_live_room,
         get_live_members,
         get_live_recordings,
@@ -229,13 +275,18 @@ def finish_live_room(room: Dict[str, Any], *,
     existing = room.get("meeting_id")
     if room.get("status") == "ended" and existing:
         return int(existing)
-    if not claim_live_room(int(room["id"]), db_path):
+    if room.get("status") in {"live", "ending"} and not claim_room_for_finish(int(room["id"]), db_path):
         current = get_live_room_by_token(room.get("join_token") or "", db_path) or room
         if current.get("meeting_id"):
             return int(current["meeting_id"])
         raise ValueError("This meeting is already being saved.")
+    elif room.get("status") not in {"live", "ending"}:
+        raise ValueError("This meeting is not live.")
 
-    recordings = saved_recording_rows(get_live_recordings(int(room["id"]), db_path))
+    recordings = choose_meeting_recordings(
+        saved_recording_rows(get_live_recordings(int(room["id"]), db_path)),
+        int(room["host_user_id"]),
+    )
     if not recordings:
         release_live_room(int(room["id"]), db_path)
         raise ValueError(
@@ -253,8 +304,18 @@ def finish_live_room(room: Dict[str, Any], *,
         status="queued",
         progress_stage="saved",
     )
+    from models.database import mark_live_members_left
+    mark_live_members_left(int(room["id"]), db_path)
     members = get_live_members(int(room["id"]), db_path, admission="admitted")
     participants = meeting_participants_from_members(members)
+    recorded_ids = {
+        int(row["user_id"]) for row in recordings if row.get("kind") != "mix" and row.get("user_id")
+    }
+    missing = [
+        member.get("display_name") or member.get("email") or "Participant"
+        for member in members
+        if int(member["user_id"]) not in recorded_ids
+    ]
     replace_meeting_participants(meeting_id, participants, db_path)
     update_meeting_platform(meeting_id, "live", room.get("join_token") or "", db_path)
     insert_meeting_recordings(meeting_id, recordings, db_path)
@@ -265,6 +326,7 @@ def finish_live_room(room: Dict[str, Any], *,
         db_path=db_path,
         graph_dir=graph_dir,
         transcribe=transcribe,
+        missing_names=missing,
     )
     return meeting_id
 

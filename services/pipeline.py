@@ -282,6 +282,8 @@ def run_clario_pipeline(
 
             insert_transcript(meeting_id, transcript, db_path)
             insert_summary(meeting_id,    summary,    db_path)
+            from models.database import delete_tasks_by_meeting
+            delete_tasks_by_meeting(meeting_id, db_path)
             if tasks:
                 insert_tasks(meeting_id, tasks, db_path)
             insert_decisions(meeting_id, decisions, db_path)

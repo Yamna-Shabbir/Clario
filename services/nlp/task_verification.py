@@ -110,6 +110,7 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
     """Split a transcript into speaker turns, keeping any timestamps."""
     segments: List[Dict[str, Any]] = []
     speaker = ""
+    speaker_email = ""
     label = ""
     timestamp = ""
     line_id = 0
@@ -133,6 +134,8 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
             speaker = inline.group(1)
             label = speaker
             line = inline.group(2).strip()
+            mail = re.search(r"\(([^)\s]+@[^)]+)\)", raw_line)
+            speaker_email = mail.group(1).strip().lower() if mail else ""
         urdu_inline = _URDU_INLINE_RE.match(line)
         if (
             urdu_inline
@@ -158,6 +161,7 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
                 continue
             segments.append({
                 "speaker": speaker,
+                "speaker_email": speaker_email,
                 "label": label,
                 "timestamp": timestamp,
                 "text": sentence,
@@ -272,6 +276,16 @@ def _vague_acceptance(sentence: str, original: str) -> bool:
         re.search(r"\b(?:kar dunga|bhej dunga|kar dungi|bhej dungi)\b", original, re.IGNORECASE)
         and re.search(r"\b(?:that|it|woh|yeh)\b", expanded, re.IGNORECASE)
     )
+
+
+def _stamp_assigner(task: Dict[str, Any], speaker: str, email: str = "") -> Dict[str, Any]:
+    """Record who spoke the assignment. This is not the person who must do it."""
+    name = (speaker or "").strip()
+    if name and name.casefold() not in {"speaker", "team", "unassigned"}:
+        task["assigned_by"] = name
+    if email and "@" in email:
+        task["assigned_by_email"] = email.strip().lower()
+    return task
 
 
 def _copy_task(task: Dict[str, Any], *, source: str, timestamp: str, context: str) -> Dict[str, Any]:
@@ -595,6 +609,7 @@ def verify_meeting_tasks(
                 "text": sentence,
                 "original": original,
                 "speaker": speaker,
+                "speaker_email": turn.get("speaker_email") or "",
                 "timestamp": timestamp,
                 "assignee": directed,
             }
@@ -622,7 +637,7 @@ def verify_meeting_tasks(
                     review.append(_unclear_assignee(task, clause, original, timestamp))
                     continue
                 _apply_participant(task, participants)
-                confirmed.append(task)
+                confirmed.append(_stamp_assigner(task, speaker, turn.get("speaker_email") or ""))
             continue
         if directed and found:
             # A question waits for the reply. A named "please" is the assignment.
@@ -632,7 +647,7 @@ def verify_meeting_tasks(
             task["description"] = _shown_description(sentence)
             task["assigned_to"] = directed
             _apply_participant(task, participants)
-            confirmed.append(task)
+            confirmed.append(_stamp_assigner(task, speaker, turn.get("speaker_email") or ""))
             continue
         if found and (
             _is_request(sentence)
@@ -680,7 +695,11 @@ def verify_meeting_tasks(
                 if dated and dated[0].get("due_date_iso"):
                     task["due_date_iso"] = dated[0]["due_date_iso"]
                 _apply_participant(task, participants)
-                confirmed.append(task)
+                confirmed.append(_stamp_assigner(
+                    task,
+                    (last_request or {}).get("speaker") or "",
+                    (last_request or {}).get("speaker_email") or "",
+                ))
                 consumed_requests.add(last_request["text"])
                 consumed_requests.add(last_request.get("original") or last_request["text"])
                 last_request = None
@@ -758,7 +777,7 @@ def verify_meeting_tasks(
         else:
             task["assigned_to"] = assignee
         _apply_participant(task, participants)
-        confirmed.append(task)
+        confirmed.append(_stamp_assigner(task, speaker, turn.get("speaker_email") or ""))
 
     confirmed = [
         task for task in confirmed
