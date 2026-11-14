@@ -22,6 +22,81 @@ from services.nlp.participant_matching import ambiguous_matches, match
 from services.notifications import send_meeting_followups
 
 
+def test_unidentified_speech_is_not_given_a_group_or_host_name():
+    from services.live import attribute_unheard_speech
+
+    turns = attribute_unheard_speech(
+        "The notes were discussed.",
+        [],
+        [
+            {"name": "Priya", "email": "priya@example.com"},
+            {"name": "Noah", "email": "noah@example.com"},
+        ],
+    )
+    assert turns[0]["speaker_name"] == "Unknown"
+    assert turns[0]["speaker_email"] == ""
+    assert "notes" in turns[0]["content"]
+
+
+def test_an_admitted_guest_roster_includes_the_other_guest(tmp_path):
+    db = str(tmp_path / "clario.db")
+    app = create_app(test_config={
+        "db_path": db,
+        "secret_key": "test-secret",
+        "TESTING": True,
+        "WTF_CSRF_ENABLED": False,
+    })
+    init_db(db)
+    host_id = insert_user("Host", "host@example.com", generate_password_hash("Password1!"), db_path=db)
+    first_id = insert_user("Priya", "priya@example.com", generate_password_hash("Password1!"), db_path=db)
+    second_id = insert_user("Noah", "noah@example.com", generate_password_hash("Password1!"), db_path=db)
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = host_id
+        sess["username"] = "Host"
+        sess["email"] = "host@example.com"
+    started = client.post("/live/start", data={"title": "Mesh"}, follow_redirects=False)
+    token = started.headers["Location"].rstrip("/").split("/")[-1]
+    assert client.get(f"/live/{token}").status_code == 200
+    for user_id, name, email in (
+        (first_id, "Priya", "priya@example.com"),
+        (second_id, "Noah", "noah@example.com"),
+    ):
+        with client.session_transaction() as sess:
+            sess["user_id"] = user_id
+            sess["username"] = name
+            sess["email"] = email
+        client.post(f"/live/{token}/request", headers={"X-Requested-With": "XMLHttpRequest"})
+        with client.session_transaction() as sess:
+            sess["user_id"] = host_id
+            sess["username"] = "Host"
+            sess["email"] = "host@example.com"
+        admitted = client.post(
+            f"/live/{token}/admit",
+            data={"user_id": user_id},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        assert admitted.status_code == 200
+    with client.session_transaction() as sess:
+        sess["user_id"] = first_id
+        sess["username"] = "Priya"
+        sess["email"] = "priya@example.com"
+    roster = client.get(f"/live/{token}/roster").get_json()
+    emails = {member["email"] for member in roster["members"]}
+    assert emails == {"host@example.com", "priya@example.com", "noah@example.com"}
+    offered = client.post(
+        f"/live/{token}/signal",
+        data={"to_user_id": second_id, "kind": "offer", "payload": '{"type":"offer","sdp":"v=0"}'},
+    )
+    assert offered.status_code == 200
+    with client.session_transaction() as sess:
+        sess["user_id"] = second_id
+        sess["username"] = "Noah"
+        sess["email"] = "noah@example.com"
+    heard = client.get(f"/live/{token}/signal?since=0").get_json()
+    assert any(row["from_user_id"] == first_id and row["kind"] == "offer" for row in heard["signals"])
+
+
 def test_alternating_speakers_stay_in_spoken_order():
     from services.live import order_speech_segments
 

@@ -11,7 +11,10 @@ inside 16-bit range. This does not remove background noise or echo.
 from __future__ import annotations
 
 import os
+import shutil
 import struct
+import subprocess
+import tempfile
 import wave
 from datetime import datetime
 from io import BytesIO
@@ -33,6 +36,7 @@ def mix_wav_files(tracks: List[Dict[str, Any]]) -> bytes:
             frames = handle.readframes(handle.getnframes())
         count = len(frames) // 2
         samples = list(struct.unpack("<" + ("h" * count), frames)) if count else []
+        samples = _balance(samples)
         pad = int(rate * max(int(track.get("offset_ms") or 0), 0) / 1000)
         pieces.append(([0] * pad) + samples)
     if not pieces or not rate:
@@ -55,6 +59,52 @@ def mix_wav_files(tracks: List[Dict[str, Any]]) -> bytes:
     return buffer.getvalue()
 
 
+def _balance(samples: List[int], target: int = 16000) -> List[int]:
+    """Give each microphone a similar peak before the tracks are added together."""
+    peak = max((abs(sample) for sample in samples), default=0)
+    if peak <= 0 or peak == target:
+        return samples
+    scale = target / peak
+    return [int(sample * scale) for sample in samples]
+
+
+def _ffmpeg_exe() -> str:
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return ""
+
+
+def _pcm_wav(path: str) -> Optional[str]:
+    """Return a 16-bit mono WAV path. A WAV that is already that shape is reused."""
+    try:
+        with wave.open(path, "rb") as handle:
+            if handle.getnchannels() == 1 and handle.getsampwidth() == 2:
+                return path
+    except (wave.Error, EOFError, FileNotFoundError):
+        pass
+    exe = _ffmpeg_exe()
+    if not exe:
+        return None
+    handle = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    handle.close()
+    result = subprocess.run(
+        [exe, "-y", "-i", path, "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", handle.name],
+        capture_output=True,
+    )
+    if result.returncode != 0 or not os.path.isfile(handle.name) or os.path.getsize(handle.name) == 0:
+        try:
+            os.remove(handle.name)
+        except OSError:
+            pass
+        return None
+    return handle.name
+
+
 def _offsets_ms(rows: List[Dict[str, Any]]) -> List[int]:
     stamps = []
     for row in rows:
@@ -73,8 +123,8 @@ def build_meeting_mix(meeting_id: int, recordings: List[Dict[str, Any]],
                       db_path: str) -> Optional[str]:
     """Write one full-meeting WAV and store it. Existing mixes are left as they are.
 
-    Returns the new path, or None when a full mix already exists or the
-    saved tracks are not WAV files this mixer can read.
+    Returns the new path, or None when a full mix already exists or a
+    microphone cannot be decoded. Browser mixes are not treated as this file.
     """
     if any(row.get("kind") == "meeting" for row in recordings):
         return None
@@ -85,13 +135,32 @@ def build_meeting_mix(meeting_id: int, recordings: List[Dict[str, Any]],
     ]
     if not speakers:
         return None
-    if any(not str(row.get("audio_path")).lower().endswith(".wav") for row in speakers):
+    decoded: List[str] = []
+    temporary: List[str] = []
+    payload: Optional[bytes] = None
+    try:
+        for row in speakers:
+            wav_path = _pcm_wav(row["audio_path"])
+            if not wav_path:
+                return None
+            decoded.append(wav_path)
+            if os.path.abspath(wav_path) != os.path.abspath(row["audio_path"]):
+                temporary.append(wav_path)
+        offsets = _offsets_ms(speakers)
+        payload = mix_wav_files([
+            {"path": wav_path, "offset_ms": offset}
+            for wav_path, offset in zip(decoded, offsets)
+        ])
+    except ValueError:
+        payload = None
+    finally:
+        for path in temporary:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    if not payload:
         return None
-    offsets = _offsets_ms(speakers)
-    payload = mix_wav_files([
-        {"path": row["audio_path"], "offset_ms": offset}
-        for row, offset in zip(speakers, offsets)
-    ])
     folder = os.path.dirname(speakers[0]["audio_path"]) or "."
     path = os.path.join(folder, f"m{meeting_id}_full.wav")
     with open(path, "wb") as handle:

@@ -93,7 +93,9 @@ _STANDALONE_SPEAKER_RE = re.compile(
 )
 _DIRECTED_REQUEST_RE = re.compile(
     r"^([A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2}),\s*"
-    r"(?:i need you to|can you|could you|will you|would you|please)\b",
+    r"(?:i need you to|can you|could you|will you|would you|please|"
+    r"complete|finish|submit|send|fix|prepare|update|review|check|handle|"
+    r"deliver|create|write|draft|deploy|schedule)\b",
     re.IGNORECASE,
 )
 _DECISION_STATEMENT_RE = re.compile(
@@ -106,6 +108,7 @@ _BAD_ASSIGNEE = {
     "very", "one", "well", "sure", "right", "unknown", "absolutely", "noted",
     "fine", "yeah", "yep", "perfect", "cool", "good", "hi", "hey", "someone",
     "somebody", "bilkul", "theek", "thik", "haan", "han", "ji", "acha", "achha",
+    "and", "but", "or", "our", "other", "others", "participant", "participants",
 }
 _NOT_DIRECTED = {"someone", "somebody", "team", "okay", "ok", "yes", "absolutely"}
 
@@ -295,6 +298,10 @@ def _directed_to_other(sentence: str, speaker: str) -> Optional[str]:
 
 
 def _is_decision_statement(sentence: str) -> bool:
+    from services.nlp.task_detection import _is_schedule_announcement
+
+    if _is_schedule_announcement(sentence):
+        return True
     if _DECISION_STATEMENT_RE.search(sentence) and not re.search(
         r"\b(?:will|please|must|has to|have to|needs to)\b",
         sentence,
@@ -351,12 +358,17 @@ def _has_arabic(token: str) -> bool:
     return arabic_script_ratio(token) >= 0.2
 
 
+_GLUED_NAME_RE = re.compile(r"^[A-Z][a-z]+(?:[A-Z][a-z]+){2,}$")
+
+
 def _unusable_assignee(name: str) -> bool:
-    """Agreement words and leftover Urdu are not people."""
+    """Agreement words, glued transcript words, and leftover Urdu are not people."""
     cleaned = (name or "").strip(" ،,.")
     if not cleaned:
         return True
     if _has_arabic(cleaned):
+        return True
+    if _GLUED_NAME_RE.match(cleaned):
         return True
     return cleaned.casefold() in _BAD_ASSIGNEE
 
@@ -526,6 +538,25 @@ _GREETING_ONLY_RE = re.compile(
 )
 
 
+def _validated_task(task: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Drop invented fields. A date, email, and priority stay in their own fields."""
+    due = str(task.get("due_date") or "").strip()
+    if "@" in due:
+        task["due_date"] = "Not specified"
+        task.pop("due_date_iso", None)
+    iso = str(task.get("due_date_iso") or "")
+    if "@" in iso or (iso and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", iso)):
+        task.pop("due_date_iso", None)
+    email = str(task.get("assigned_email") or "").strip()
+    if email and "@" not in email:
+        task["assigned_email"] = None
+    if task.get("priority") not in {"High", "Medium", "Low"}:
+        task["priority"] = "Low"
+    if _GLUED_NAME_RE.match((task.get("assigned_to") or "").strip()):
+        return None
+    return task
+
+
 def _blocked_task(task: Dict[str, Any]) -> bool:
     """Drop lines that are not an assignment.
 
@@ -538,6 +569,9 @@ def _blocked_task(task: Dict[str, Any]) -> bool:
     if _EMAIL_ONLY_RE.match(description):
         return True
     if _GREETING_ONLY_RE.match(description):
+        return True
+    from services.nlp.task_detection import _is_closing_remark, _is_schedule_announcement
+    if _is_closing_remark(description) or _is_schedule_announcement(description):
         return True
     return False
 
@@ -817,6 +851,9 @@ def verify_meeting_tasks(
         task = _copy_task(found[0], source=original, timestamp=timestamp, context="")
         task["description"] = _shown_description(sentence)
         assignee = (task.get("assigned_to") or "").strip()
+        if directed and (_unusable_assignee(assignee) or assignee.lower() in {"team", "unassigned"}):
+            assignee = directed
+            task["assigned_to"] = directed
         first_person = bool(_FIRST_PERSON_RE.search(_expand(sentence)))
         names_the_group = bool(_GROUP_RE.search(sentence) or re.search(r"\b(we|let's|lets)\b", sentence, re.IGNORECASE))
         if names_the_group or assignee.lower() == "all":
@@ -889,7 +926,8 @@ def verify_meeting_tasks(
                 "confidence": 0.75,
                 "source": turn.get("original") or sentence,
             })
-    confirmed = [task for task in confirmed if not _blocked_task(task)]
+    confirmed = [_validated_task(task) for task in confirmed if not _blocked_task(task)]
+    confirmed = [task for task in confirmed if task]
     decisions = [
         item for item in _unique_decisions(decisions)
         if _accepted_decision(item)

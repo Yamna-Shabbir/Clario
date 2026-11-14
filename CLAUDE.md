@@ -675,6 +675,12 @@ meeting_participants                  (many-to-1 with meetings)
     attributes first-person commitments to the current speaker, collapses
     repeats, and stores uncertain lines in `task_reviews`. It does not invent
     a person's name when the transcript does not say who will do the work.
+    An announcement of when a meeting or call will be is stored as a decision.
+    A remark that the speaker is ending the conversation is not a task.
+    A name is matched to a participant by the roster name or email, including
+    a one-character difference when only one person is that close. An email
+    is never stored as a due date. Words glued together from the transcript
+    are not treated as a person.
     `verify_meeting_tasks(transcript, tasks=None, *, nlp=None, participants=None,
     meeting_date=None, segments=None)` is keyword-only after the transcript.
     `prepare_meeting_turns()` keeps each line's original wording as `source_text`,
@@ -734,7 +740,9 @@ meeting_participants                  (many-to-1 with meetings)
       Signaling is stored in `live_signals` via `GET|POST /live/<token>/signal`.
       `GET` with `bootstrap=1` returns a cursor and does not replay old
       signals; the participant with the lower user id keeps sending a fresh
-      offer until the other side answers. Roster polling uses `GET /live/<token>/roster`.
+      offer until that pair is connected. A peer that is still waiting asks
+      for a new offer. Every admitted person connects to every other admitted
+      person. Roster polling uses `GET /live/<token>/roster`.
       **Waiting room:** guests join as `pending` on `live_members.admission_status`;
       host approval sets `host_admitted_at` (legacy ``admitted`` rows without that
       timestamp count as waiting). Guests POST `/live/<token>/request` to register;
@@ -752,13 +760,14 @@ meeting_participants                  (many-to-1 with meetings)
       person's microphone and, separately, the other people that browser can
       hear. The mix is not labeled with the account that recorded it. Words
       already saved from someone's microphone are left on that account.
-      When every saved microphone is a 16-bit mono WAV, `build_meeting_mix`
-      writes one `kind=meeting` file on a shared timeline and limits the
-      peak so the sum cannot clip. It does not remove noise or echo.
-      Browser WebM tracks are left as separate files. The result page
-      plays the full-meeting file when that row exists. Any
-      remaining speech is given to the attendee who has no microphone, under
-      that attendee's name and email. Each file uploads on an interval,
+      `build_meeting_mix` decodes each person's microphone onto one
+      timeline, balances each track, and limits the peak so the sum
+      cannot clip. It does not remove noise or echo. A browser mix is not
+      used as that file. The result page plays the full-meeting file when
+      that row exists. Speech that is not already on someone's microphone
+      is kept under the one attendee who has no track. If more than one
+      person is missing, that speech is marked Unknown instead of being
+      given a made-up group name or the host's name. Each file uploads on an interval,
       again when the host starts ending, and again if the page closes.
       Uploads are still accepted while the room is `ending` or `saving`,
       before a meeting id exists. The host waits briefly so the other

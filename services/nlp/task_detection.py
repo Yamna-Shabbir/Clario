@@ -215,7 +215,9 @@ _NAME_RE = r"[A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2}"
 _POLITE_PREFIX_RE = (
     r"(?:can you please|could you please|would you please|will you please|"
     r"i need you to|i want you to|i would like you to|i'd like you to|"
-    r"can you|could you|will you|would you|please)"
+    r"can you|could you|will you|would you|please|"
+    r"complete|finish|submit|send|fix|prepare|update|review|check|handle|"
+    r"deliver|create|write|draft|deploy|schedule)"
 )
 _VOCATIVE_RE = re.compile(
     rf"(?:^|(?<=\s))(?:(?i:and|also)\s+)?({_NAME_RE}),\s*(?i:{_POLITE_PREFIX_RE})\b",
@@ -238,6 +240,60 @@ _TRAILING_FOLLOWUP_RE = re.compile(
     r"(?:\s+please)?\s+(?:do|handle|complete|finish)\s+(?:this|that|the)\s+tasks?\b.*$",
     re.IGNORECASE,
 )
+
+_EVENT_NOUN_RE = re.compile(
+    r"\b(?:meetings?|calls?|sessions?|standups?|syncs?|appointments?|workshops?)\b",
+    re.IGNORECASE,
+)
+_SCHEDULE_COPULA_RE = re.compile(
+    r"\b(?:will\s+be|is\s+on|is\s+at|are\s+on|scheduled\s+for)\b",
+    re.IGNORECASE,
+)
+_ACTION_REQUEST_RE = re.compile(
+    r"\b(?:please|must|needs?\s+to|have\s+to|has\s+to|complete|submit|finish|"
+    r"send|fix|prepare|deliver|assigned|responsible|ensure|make\s+sure)\b",
+    re.IGNORECASE,
+)
+_CLOSING_RE = re.compile(
+    r"^(?:(?:okay|ok|alright|so|well|thanks|thank you)[, ]+)?"
+    r"(?:i am|i'm|we are|we're)\s+"
+    r"(?:just\s+)?(?:ending|leaving|stopping|signing off|wrapping up|done|finished)"
+    r"(?:\s+(?:the\s+)?(?:meeting|call|session|recording|now|here))?[.!\s]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_schedule_announcement(sentence: str) -> bool:
+    """A statement of when an event happens, not a request that someone do work."""
+    text = (sentence or "").strip()
+    if not text or _ACTION_REQUEST_RE.search(text):
+        return False
+    if re.search(r"\b(?:can you|could you|will you|would you|please)\b", text, re.IGNORECASE):
+        return False
+    if re.match(
+        r"^(?:please\s+)?(?:schedule|book|arrange|set up|organize|plan)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return False
+    if not _EVENT_NOUN_RE.search(text):
+        return False
+    has_when = bool(
+        _SCHEDULE_COPULA_RE.search(text)
+        or _RELATIVE_DATE_RE.search(text)
+        or _ABSOLUTE_DATE_RE.search(text)
+    )
+    if not has_when:
+        return False
+    if re.search(r"\b[A-Z][a-z]+\s+will\s+(?!be\b)\w+", text):
+        return False
+    return True
+
+
+def _is_closing_remark(sentence: str) -> bool:
+    """Ending the conversation is not an assignment."""
+    return bool(_CLOSING_RE.match((sentence or "").strip()))
+
 
 # "let's get started / move on / wrap up" are pleasantries, NOT tasks
 _PLEASANTRY_LETS_RE = re.compile(
@@ -290,6 +346,8 @@ _PERSON_SKIP = {
     "tomorrow", "tonight", "next", "will", "make", "sure",
     "yes", "so", "okay", "ok", "sorry", "hello", "thanks", "thank", "great",
     "can", "could", "will", "would", "should", "please", "also", "how",
+    "and", "but", "or", "our", "their", "your", "other", "others",
+    "participant", "participants", "ending", "leaving", "meeting",
     "invoice", "deployment", "notification", "dashboard", "checklist",
     "metrics", "release", "budget", "caching", "design", "client", "report",
     "also", "however", "first", "without", "well", "sure", "right", "hi",
@@ -696,6 +754,9 @@ def detect_tasks(
         if _PLEASANTRY_LETS_RE.search(sentence):
             continue
 
+        if _is_closing_remark(sentence) or _is_schedule_announcement(sentence):
+            continue
+
         # --- Keyword matching ---
         matched_keyword = ""
         is_task = False
@@ -788,6 +849,9 @@ def detect_tasks(
             if m:
                 due_date = m.group(0)
                 due_date_iso = _resolve_date(due_date, meeting_date)
+        if "@" in (due_date or "") or re.search(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b", due_date or ""):
+            due_date = "Not specified"
+            due_date_iso = None
 
         # --- Priority ---
         priority = "Low"

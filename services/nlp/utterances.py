@@ -49,6 +49,12 @@ def _sentences(text: str, nlp: Any) -> List[str]:
 def label_sentence(sentence: str) -> Dict[str, Any]:
     """Label one sentence. Named assignments beat collective decisions."""
     text = sentence.strip()
+    from services.nlp.task_detection import _is_closing_remark, _is_schedule_announcement
+
+    if _is_schedule_announcement(text):
+        return {"text": text, "label": LABEL_DECISION, "confidence": 0.75}
+    if _is_closing_remark(text):
+        return {"text": text, "label": LABEL_DISCUSSION, "confidence": 0.6}
     named_match = _NAMED_WILL_RE.search(text)
     # "We will use X" is a decision, not a person being assigned work.
     named_assignment = named_match is not None and not named_match.group(0).lower().startswith("we ")

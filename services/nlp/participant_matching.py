@@ -43,6 +43,23 @@ def _clean_text(s: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def _edit_distance(left: str, right: str) -> int:
+    """Edits between two short labels. Used only to catch a one-letter name slip."""
+    if abs(len(left) - len(right)) > 1:
+        return 2
+    previous = list(range(len(right) + 1))
+    for index, char in enumerate(left, start=1):
+        current = [index]
+        for other_index, other in enumerate(right, start=1):
+            current.append(min(
+                current[-1] + 1,
+                previous[other_index] + 1,
+                previous[other_index - 1] + (char != other),
+            ))
+        previous = current
+    return previous[-1]
+
+
 def _first_name(s: str) -> str:
     """Extract normalized first name."""
     tokens = _clean_text(s).split()
@@ -136,6 +153,44 @@ def _classify_assignee(
         best_ratio = max(ratio_full, ratio_first)
         if best_ratio >= 0.8:
             candidates.append((best_ratio, p))
+
+    if not candidates and len(cleaned_assignee.replace(" ", "")) >= 4:
+        spoken = cleaned_assignee.replace(" ", "")
+        close: List[Dict[str, Any]] = []
+        seen_emails = set()
+        for person in valid_participants:
+            labels = [_clean_text(person.get("name") or "")]
+            local = re.sub(
+                r"[^a-z0-9]",
+                "",
+                (person.get("email") or "").split("@")[0].lower(),
+            )
+            if local:
+                labels.append(local)
+            tokens: List[str] = []
+            for label in labels:
+                tokens.extend(part for part in label.split() if part)
+                tokens.append(label.replace(" ", ""))
+            near = False
+            for token in tokens:
+                if len(spoken) >= 5 and len(token) >= 5 and (spoken in token or token in spoken):
+                    near = True
+                    break
+                if len(token) >= 4 and _edit_distance(spoken, token) <= 1:
+                    near = True
+                    break
+            if not near:
+                continue
+            identity = (person.get("email") or person.get("name") or "").strip().lower()
+            if identity in seen_emails:
+                continue
+            seen_emails.add(identity)
+            close.append(person)
+        if len(close) == 1:
+            return "unique", close[0]
+        if len(close) > 1:
+            return "ambiguous", close
+        return "none", []
 
     if not candidates:
         return "none", []

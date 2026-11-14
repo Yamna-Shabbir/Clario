@@ -230,7 +230,7 @@ def attribute_unheard_speech(mix_text: str,
     content = " ".join(kept)
     if len(missing_people) != 1:
         return [{
-            "speaker_name": "Other participants",
+            "speaker_name": "Unknown",
             "speaker_email": "",
             "content": content,
         }]

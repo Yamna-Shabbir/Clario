@@ -275,6 +275,7 @@
   }
 
   function refreshMixSources() {
+    if (localStream) localStream.getAudioTracks().forEach(connectTrackToMix);
     remoteStreams.forEach((media) => {
       if (media && media.audio) media.audio.getAudioTracks().forEach(connectTrackToMix);
     });
@@ -636,13 +637,8 @@
     window.setInterval(pollMessages, 2500);
     window.setInterval(pollSignals, 800);
     window.setInterval(() => {
-      peers.forEach((pc, id) => {
-        const ice = pc.iceConnectionState;
-        if (pc.connectionState === "failed" || ice === "failed" || ice === "disconnected") {
-          maybeRenegotiate(id);
-        }
-      });
-    }, 8000);
+      maintainMesh();
+    }, 4000);
     pollMessages();
     pollSignals();
   }
@@ -1017,12 +1013,16 @@
     }) || null;
   }
 
-  async function bindLocalToPeer(pc) {
+  async function bindLocalToPeer(pc, remoteId) {
     let needsOffer = false;
+    const politeWaiting = remoteId != null
+      && isPolite(remoteId)
+      && !(pc.remoteDescription && pc.remoteDescription.type);
     for (const kind of ["audio", "video"]) {
       const track = liveTrack(kind);
       let transceiver = findTransceiver(pc, kind);
       if (!transceiver && track && localStream) {
+        if (politeWaiting) continue;
         try {
           pc.addTrack(track, localStream);
           needsOffer = true;
@@ -1066,7 +1066,7 @@
   async function bindAllPeers() {
     const jobs = [];
     peers.forEach((pc, id) => {
-      jobs.push(bindLocalToPeer(pc).then((needs) => ({ id, needs })));
+      jobs.push(bindLocalToPeer(pc, id).then((needs) => ({ id, needs })));
     });
     return Promise.all(jobs);
   }
@@ -1115,11 +1115,28 @@
     const id = Number(remoteId);
     const pc = peers.get(id);
     if (!pc || !peerReady.has(id) || isPolite(id)) return;
-    if (pc.connectionState === "connected") return;
+    if (pc.connectionState === "connected" && pc.iceConnectionState === "connected") return;
     if (Date.now() - (offerSentAt.get(id) || 0) < 3000) return;
     const waitingForAnswer = !(pc.remoteDescription && pc.remoteDescription.type);
-    const failed = pc.connectionState === "failed" || pc.iceConnectionState === "failed";
-    if (waitingForAnswer || failed) negotiate(pc, id);
+    const failed = pc.connectionState === "failed"
+      || pc.iceConnectionState === "failed"
+      || pc.connectionState === "disconnected"
+      || pc.iceConnectionState === "disconnected";
+    const stalled = pc.connectionState === "new" || pc.connectionState === "connecting";
+    if (waitingForAnswer || failed || stalled) negotiate(pc, id);
+  }
+
+  function maintainMesh() {
+    peers.forEach((pc, id) => {
+      if (!peerReady.has(id)) return;
+      const up = pc.connectionState === "connected" || pc.iceConnectionState === "connected";
+      if (up && pc.connectionState !== "failed") return;
+      if (isPolite(id)) {
+        sendSignal(id, "refresh", { at: Date.now() }).catch(() => {});
+        return;
+      }
+      maybeRenegotiate(id);
+    });
   }
 
   async function addCandidate(remoteId, pc, candidate) {
@@ -1256,7 +1273,7 @@
       }
       await pc.setRemoteDescription(new RTCSessionDescription(payload));
       await flushCandidates(fromId, pc);
-      await bindLocalToPeer(pc);
+      await bindLocalToPeer(pc, fromId);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await sendSignal(fromId, "answer", {
@@ -1271,7 +1288,7 @@
       if (pc.signalingState !== "have-local-offer") return;
       await pc.setRemoteDescription(new RTCSessionDescription(payload));
       await flushCandidates(fromId, pc);
-      await bindLocalToPeer(pc);
+      await bindLocalToPeer(pc, fromId);
       refreshTileMedia(fromId);
       resumePlayback();
     } else if (kind === "ice") {

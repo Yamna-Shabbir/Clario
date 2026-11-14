@@ -66,7 +66,7 @@
         <a class="btn btn-outline btn-sm" href="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=rec.id, download=1) }}">Download</a>
       </div>
       {% else %}
-      <p class="text-muted stack-md">Each track is one person's microphone. A single full-meeting file is added when those tracks are WAV recordings.</p>
+      <p class="text-muted stack-md">Each track is one person's microphone. A full-meeting file is added after those tracks can be mixed.</p>
       {% endif %}
       {% for rec in recordings if rec.kind != 'meeting' %}
       <div class="stack-sm">
@@ -253,7 +253,18 @@
     {% endif %}
   {% endfor %}
 
-  {% if attendees %}
+  {% if participants %}
+  <div class="stack-lg">
+    <h2 class="section-heading">{{ icon_user(18, 'icon') }} Meeting attendees</h2>
+    <div class="row-actions">
+      {% for p in participants %}
+      <span class="badge badge-mint attendee-tag badge-clickable" data-name="{{ p.name }}" title="{{ p.email or p.name }}">
+        {{ icon_user(14, 'icon') }} {{ p.name }}{% if p.email %} ({{ p.email }}){% endif %}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+  {% elif attendees %}
   <div class="stack-lg">
     <h2 class="section-heading">{{ icon_user(18, 'icon') }} Meeting attendees</h2>
     <div class="row-actions">

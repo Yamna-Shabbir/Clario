@@ -448,3 +448,48 @@ def test_a_greeting_or_email_address_is_not_a_task():
     )
     assert greeting["tasks"] == []
     assert address["tasks"] == []
+
+
+def test_announcements_are_decisions_and_named_work_keeps_the_roster_email():
+    roster = [
+        {"name": "Priya", "email": "priya@example.com"},
+        {"name": "Noah", "email": "noah@example.com"},
+        {"name": "Lina", "email": "lina@example.com"},
+    ]
+    result = verify_meeting_tasks(
+        "\n".join([
+            "Lina: And the planning meeting will be on Thursday.",
+            "Lina: Okay, I am ending.",
+            "Lina: Priya, complete the checklist by tomorrow.",
+            "Lina: Noah, finish your notes today.",
+            "Noah: I will send the draft by Friday.",
+            "Lina: OtherYamunaAnd will send the notes tomorrow.",
+        ]),
+        participants=roster,
+    )
+    tasks = result["tasks"]
+    blob = " ".join((task.get("description") or "") for task in tasks).lower()
+    assert "planning meeting" not in blob
+    assert "ending" not in blob
+    assert all(task.get("assigned_to") not in {"And", "Other", "OtherYamunaAnd"} for task in tasks)
+    assert all("@" not in str(task.get("due_date") or "") for task in tasks)
+    priya = [task for task in tasks if task.get("assigned_email") == "priya@example.com"]
+    noah = [task for task in tasks if task.get("assigned_email") == "noah@example.com"]
+    assert priya and "checklist" in priya[0]["description"].lower()
+    assert noah and any("draft" in task["description"].lower() or "notes" in task["description"].lower() for task in noah)
+    assert any("meeting" in (item.get("text") or "").lower() for item in result["decisions"])
+
+
+def test_a_one_letter_name_slip_matches_one_participant():
+    from services.nlp.participant_matching import match
+
+    found = match("Priyaa", [
+        {"name": "Priya", "email": "priya@example.com"},
+        {"name": "Omar", "email": "omar@example.com"},
+    ])
+    assert found["email"] == "priya@example.com"
+    contained = match("Aleena", [
+        {"name": "A Shah", "email": "saleena99@example.com"},
+        {"name": "Omar", "email": "omar@example.com"},
+    ])
+    assert contained["email"] == "saleena99@example.com"

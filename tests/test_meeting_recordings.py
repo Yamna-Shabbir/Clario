@@ -478,6 +478,51 @@ def test_full_meeting_wav_keeps_both_voices_on_one_timeline(tmp_path):
     assert build_meeting_mix(meeting_id, stored, db) is None
 
 
+def test_three_microphones_mix_without_clipping_or_dropping_a_voice(tmp_path):
+    import struct
+    import wave
+    from services.audio_mix import build_meeting_mix
+
+    def write_wav(path, samples):
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(8000)
+            handle.writeframes(struct.pack("<" + ("h" * len(samples)), *samples))
+
+    paths = []
+    for name, level in (("a", 4000), ("b", 20000), ("c", 8000)):
+        path = tmp_path / f"{name}.wav"
+        write_wav(path, [level] * 4000)
+        paths.append(path)
+    db = str(tmp_path / "clario.db")
+    init_db(db)
+    owner = insert_user("ada", "ada@example.com", "hash", db_path=db)
+    meeting_id = insert_meeting(owner, title="Three", db_path=db)
+    rows = []
+    for index, path in enumerate(paths):
+        rows.append({
+            "speaker_name": f"Person {index}",
+            "speaker_email": f"p{index}@example.com",
+            "audio_path": str(path),
+            "byte_size": path.stat().st_size,
+            "status": "saved",
+            "kind": "speaker",
+            "created_at": f"2026-11-15T00:00:0{index}",
+        })
+    path = build_meeting_mix(meeting_id, rows, db)
+    assert path
+    with wave.open(path, "rb") as handle:
+        frames = handle.readframes(handle.getnframes())
+        duration = handle.getnframes() / handle.getframerate()
+    samples = struct.unpack("<" + ("h" * (len(frames) // 2)), frames)
+    assert duration == 2.5
+    assert samples[100] != 0
+    assert samples[8000 + 100] != 0
+    assert samples[16000 + 100] != 0
+    assert max(abs(sample) for sample in samples) <= 32767
+
+
 def test_a_status_remark_creates_no_task_or_decision():
     from services.nlp.task_verification import verify_meeting_tasks
 
