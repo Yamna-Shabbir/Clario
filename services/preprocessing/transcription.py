@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Module-level model cache (loaded once per process)
 _whisper_model = None
@@ -337,6 +337,56 @@ def transcribe_audio(audio_path: str,
 
     print(f"Transcription complete ({len(transcript)} chars).")
     return transcript
+
+
+def transcribe_segments(audio_path: str,
+                        model_size: str = "base",
+                        model=None,
+                        **whisper_kwargs: Any) -> List[Dict[str, Any]]:
+    """Transcribe one file into timed segments.
+
+    Each item has ``text``, ``start``, and ``end`` in seconds from the start
+    of this file. Empty text is omitted. When the model returns no timed
+    segments, the full text is returned with ``start`` and ``end`` left empty
+    so the caller can place it from the recording's own clock.
+    """
+    if not os.path.exists(audio_path):
+        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+    if model is None:
+        model = load_whisper(model_size)
+    resolved_size = getattr(model, "name", None) or model_size
+    options = whisper_transcribe_options(model_name=resolved_size or model_size)
+    options.update(whisper_kwargs)
+    result = model.transcribe(audio_path, **options)
+    from services.preprocessing.language import ensure_english_transcript
+
+    translate = options.get("task") == "translate"
+    segments: List[Dict[str, Any]] = []
+    for segment in result.get("segments") or []:
+        text = (segment.get("text") or "").strip()
+        if not text:
+            continue
+        text = ensure_english_transcript(text, threshold=0.05, enabled=True) if translate else ensure_english_transcript(text)
+        text = (text or "").strip()
+        if not text:
+            continue
+        start = segment.get("start")
+        end = segment.get("end")
+        segments.append({
+            "text": text,
+            "start": float(start) if start is not None else None,
+            "end": float(end) if end is not None else (float(start) if start is not None else None),
+        })
+    if segments:
+        return segments
+    whole = (result.get("text") or "").strip()
+    if not whole:
+        return []
+    whole = ensure_english_transcript(whole, threshold=0.05, enabled=True) if translate else ensure_english_transcript(whole)
+    whole = (whole or "").strip()
+    if not whole:
+        return []
+    return [{"text": whole, "start": None, "end": None}]
 
 
 def save_transcript(transcript: str, output_path: str) -> None:

@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,9 @@ def transcribe_speaker_audio(audio_path: str) -> str:
     ) or ""
 
 
+_REAL_SPEAKER_TRANSCRIBE = transcribe_speaker_audio
+
+
 def speaker_lines(recordings: List[Dict[str, Any]],
                   transcribe: Callable[[str], str]) -> List[Dict[str, str]]:
     """Turn recordings into speaker turns. Skips a track with no speech."""
@@ -59,6 +63,37 @@ def speaker_lines(recordings: List[Dict[str, Any]],
     return turns
 
 
+def _recording_offsets(recordings: List[Dict[str, Any]]) -> List[float]:
+    """Seconds from the earliest saved recording. Missing clocks stay at zero."""
+    stamps = []
+    for recording in recordings:
+        raw = str(recording.get("created_at") or "").replace("Z", "+00:00")
+        try:
+            stamps.append(datetime.fromisoformat(raw) if raw else None)
+        except ValueError:
+            stamps.append(None)
+    known = [stamp for stamp in stamps if stamp is not None]
+    if not known:
+        return [0.0 for _ in recordings]
+    start = min(known)
+    return [
+        max((stamp - start).total_seconds(), 0.0) if stamp is not None else 0.0
+        for stamp in stamps
+    ]
+
+
+def _segments_for_track(path: str, speak: Callable[[str], str]) -> List[Dict[str, Any]]:
+    """Timed segments from Whisper, or one untimed block from a test double."""
+    from services.preprocessing.remote_transcription import remote_transcription_configured
+    if speak is _REAL_SPEAKER_TRANSCRIBE and not remote_transcription_configured():
+        from services.preprocessing.transcription import transcribe_segments
+        return transcribe_segments(path)
+    text = (speak(path) or "").strip()
+    if not text:
+        return []
+    return [{"text": text, "start": None, "end": None}]
+
+
 def speaker_label(name: str, email: str = "") -> str:
     """Label a turn with the account. An email is not repeated as the name."""
     cleaned_name = (name or "").strip()
@@ -72,6 +107,75 @@ def speaker_label(name: str, email: str = "") -> str:
     if cleaned_email and cleaned_name:
         return f"{cleaned_name} ({cleaned_email})"
     return cleaned_name or "Speaker"
+
+
+def _split_spoken_sentences(text: str) -> List[str]:
+    parts = re.split(r"(?<=[.!?؟۔])\s+", (text or "").strip())
+    return [part.strip() for part in parts if part.strip()]
+
+
+def order_speech_segments(tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge timed speech into the order it was spoken.
+
+    ``start`` and ``end`` are seconds from the beginning of that microphone.
+    ``offset_seconds`` places the file on the shared meeting clock. Overlapping
+    segments are both kept and ordered by when they start. A missing time uses
+    the recording offset, then the sentences stay in the order they were spoken
+    on that microphone. No words or names are added.
+    """
+    placed: List[Dict[str, Any]] = []
+    sequence = 0
+    for track in tracks:
+        name = (track.get("speaker_name") or "").strip() or "Unclear"
+        email = (track.get("speaker_email") or "").strip().lower()
+        offset = float(track.get("offset_seconds") or 0)
+        duration = track.get("duration_seconds")
+        pending: List[str] = []
+        for segment in track.get("segments") or []:
+            text = (segment.get("text") or "").strip()
+            if not text:
+                continue
+            sentences = _split_spoken_sentences(text)
+            start = segment.get("start")
+            end = segment.get("end")
+            if start is None:
+                pending.extend(sentences)
+                continue
+            start_at = offset + float(start)
+            end_at = offset + float(end if end is not None else start)
+            if end_at < start_at:
+                end_at = start_at
+            span = (end_at - start_at) / max(len(sentences), 1)
+            for index, sentence in enumerate(sentences):
+                placed.append({
+                    "speaker_name": name,
+                    "speaker_email": email,
+                    "content": sentence,
+                    "started_at": start_at + index * span,
+                    "ended_at": start_at + (index + 1) * span,
+                    "sequence": sequence,
+                })
+                sequence += 1
+        if not pending:
+            continue
+        try:
+            span = float(duration) / len(pending) if duration else 0.001
+        except (TypeError, ValueError):
+            span = 0.001
+        if span <= 0:
+            span = 0.001
+        for index, sentence in enumerate(pending):
+            placed.append({
+                "speaker_name": name,
+                "speaker_email": email,
+                "content": sentence,
+                "started_at": offset + index * span,
+                "ended_at": offset + (index + 1) * span,
+                "sequence": sequence,
+            })
+            sequence += 1
+    placed.sort(key=lambda item: (float(item["started_at"]), int(item["sequence"])))
+    return placed
 
 
 def format_speaker_transcript(turns: List[Dict[str, str]]) -> str:
@@ -313,27 +417,31 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
         recordings = tracks_to_transcribe(saved, missing_names=absent)
         used_mix = any((row.get("kind") or "speaker") == "mix" for row in recordings)
         speak = transcribe or transcribe_speaker_audio
-        turns: List[Dict[str, str]] = []
+        tracks: List[Dict[str, Any]] = []
         mix_text: List[str] = []
         errors: List[str] = []
-        for recording in recordings:
+        offsets = _recording_offsets(recordings)
+        for recording, offset in zip(recordings, offsets):
             path = recording.get("audio_path") or ""
-            label = recording.get("speaker_name") or "Speaker"
+            label = recording.get("speaker_name") or "Unclear"
             try:
-                text = (speak(path) or "").strip()
+                segments = _segments_for_track(path, speak)
             except Exception as exc:
                 errors.append(f"{label}: {exc}")
                 continue
-            if not text:
+            if not segments:
                 continue
             if (recording.get("kind") or "speaker") == "mix":
-                mix_text.append(text)
+                mix_text.append(" ".join(segment.get("text") or "" for segment in segments))
                 continue
-            turns.append({
+            tracks.append({
                 "speaker_name": label,
                 "speaker_email": (recording.get("speaker_email") or "").strip().lower(),
-                "content": text,
+                "offset_seconds": offset,
+                "duration_seconds": recording.get("duration_seconds"),
+                "segments": segments,
             })
+        turns = order_speech_segments(tracks)
         for text in mix_text:
             turns.extend(attribute_unheard_speech(text, turns, unheard or []))
         transcript = format_speaker_transcript(turns)

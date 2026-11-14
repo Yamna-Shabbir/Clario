@@ -740,6 +740,13 @@ meeting_participants                  (many-to-1 with meetings)
       timestamp count as waiting). Guests POST `/live/<token>/request` to register;
       host admits via `POST /live/<token>/admit` or denies via `POST /live/<token>/deny`;
       guests poll `GET /live/<token>/admission` until `admitted`.
+      **Record** does not start by itself. The consent box is unchecked, and
+      recording begins only after the person checks it and presses Record.
+      Each saved microphone is transcribed with its segment times. Those
+      segments are merged by time, so a conversation that switches speakers
+      stays in that order instead of grouping one person together. The
+      stored turn keeps `started_at` and `ended_at`. Overlapping lines are
+      both kept. A missing clock uses the recording's start time.
       **Record** saves **each person's own microphone**, not a mix of the room.
       WebRTC lets people hear each other live. Each browser records that
       person's microphone and, separately, the other people that browser can

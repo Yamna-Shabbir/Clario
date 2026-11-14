@@ -656,7 +656,6 @@
     if (mainEl) mainEl.classList.remove("hidden");
     startInMeetingPolls();
     pollRoster();
-    maybeAutoRecord();
   }
 
   function handleAdmissionStatus(status) {
@@ -1380,15 +1379,9 @@
   });
   updateGridCount();
   const consentBox = document.getElementById("record-consent");
-  function maybeAutoRecord() {
-    if (!consentBox || !consentBox.checked) return;
-    if (!meetingActive && !cfg.isHost) return;
-    beginRecording();
-  }
   if (consentBox) {
     consentBox.addEventListener("change", () => {
-      if (consentBox.checked) maybeAutoRecord();
-      else stopRecording();
+      if (!consentBox.checked) stopRecording();
     });
   }
   if (startBtn) {
@@ -1476,7 +1469,7 @@
     body.append("csrf_token", csrfToken());
     navigator.sendBeacon(cfg.urls.leave, body);
   });
-  if (meetingActive || cfg.isHost) maybeAutoRecord();
+  if (meetingActive || cfg.isHost) pollRoster();
 
   if (chatForm) {
     chatForm.addEventListener("submit", async (e) => {

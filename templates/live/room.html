@@ -57,7 +57,7 @@
         {% if already_recorded %}Your microphone is saved for this meeting.{% else %}Not recording yet. Each person records their own microphone. Another person's voice is not inside your file.{% endif %}
       </p>
       <label class="meet-consent text-muted" for="record-consent">
-        <input type="checkbox" id="record-consent" checked>
+        <input type="checkbox" id="record-consent">
         I agree to record my microphone. It is saved under my name. Everyone else records their own.
       </label>
     </section>
@@ -198,5 +198,5 @@
     ]
   };
 </script>
-<script src="{{ url_for('static', filename='js/live-room.js', v='14') }}"></script>
+<script src="{{ url_for('static', filename='js/live-room.js', v='15') }}"></script>
 {% endblock %}

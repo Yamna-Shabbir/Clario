@@ -22,6 +22,51 @@ from services.nlp.participant_matching import ambiguous_matches, match
 from services.notifications import send_meeting_followups
 
 
+def test_alternating_speakers_stay_in_spoken_order():
+    from services.live import order_speech_segments
+
+    turns = order_speech_segments([
+        {
+            "speaker_name": "Yamna",
+            "speaker_email": "yamna@example.com",
+            "offset_seconds": 0,
+            "segments": [
+                {"text": "Hi", "start": 0.0, "end": 0.4},
+                {"text": "How are you?", "start": 2.0, "end": 2.8},
+            ],
+        },
+        {
+            "speaker_name": "Memoona",
+            "speaker_email": "memoona@example.com",
+            "offset_seconds": 0,
+            "segments": [
+                {"text": "Hello", "start": 0.8, "end": 1.3},
+                {"text": "I am well.", "start": 1.4, "end": 1.9},
+            ],
+        },
+    ])
+    text = format_speaker_transcript(turns)
+    assert text.splitlines() == [
+        "Yamna (yamna@example.com): Hi",
+        "Memoona (memoona@example.com): Hello",
+        "Memoona (memoona@example.com): I am well.",
+        "Yamna (yamna@example.com): How are you?",
+    ]
+    overlap = order_speech_segments([
+        {
+            "speaker_name": "Yamna",
+            "speaker_email": "yamna@example.com",
+            "segments": [{"text": "Wait", "start": 1.0, "end": 1.6}],
+        },
+        {
+            "speaker_name": "Memoona",
+            "speaker_email": "memoona@example.com",
+            "segments": [{"text": "Hold on", "start": 1.1, "end": 1.7}],
+        },
+    ])
+    assert [turn["content"] for turn in overlap] == ["Wait", "Hold on"]
+
+
 def test_speaker_transcript_keeps_name_and_email():
     turns = speaker_lines(
         [
@@ -329,7 +374,9 @@ def test_guest_microphone_uploads_after_the_host_starts_ending(tmp_path, monkeyp
         sess["email"] = "yamna@example.com"
     started = client.post("/live/start", data={"title": "Demo"}, follow_redirects=False)
     token = started.headers["Location"].rstrip("/").split("/")[-1]
-    assert client.get(f"/live/{token}").status_code == 200
+    room_page = client.get(f"/live/{token}")
+    assert room_page.status_code == 200
+    assert b'id="record-consent" checked' not in room_page.data
     with client.session_transaction() as sess:
         sess["user_id"] = guest_id
         sess["username"] = "Aisha"

@@ -161,6 +161,8 @@ def init_db(db_path: str = DB_PATH) -> None:
                 speaker_name  TEXT    NOT NULL,
                 speaker_email TEXT,
                 content       TEXT    NOT NULL,
+                started_at    REAL,
+                ended_at      REAL,
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
             );
 
@@ -354,6 +356,11 @@ def init_db(db_path: str = DB_PATH) -> None:
             )
         if "assigned_by" not in task_cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN assigned_by TEXT")
+        turn_cols = _get_columns("meeting_speaker_turns")
+        if turn_cols and "started_at" not in turn_cols:
+            conn.execute("ALTER TABLE meeting_speaker_turns ADD COLUMN started_at REAL")
+        if turn_cols and "ended_at" not in turn_cols:
+            conn.execute("ALTER TABLE meeting_speaker_turns ADD COLUMN ended_at REAL")
 
         conn.commit()
     print(f" DB ready: {db_path}")
@@ -885,14 +892,16 @@ def insert_speaker_turns(meeting_id: int, turns: List[Dict[str, Any]],
         )
         conn.executemany(
             """INSERT INTO meeting_speaker_turns
-               (meeting_id, speaker_name, speaker_email, content)
-               VALUES (?, ?, ?, ?)""",
+               (meeting_id, speaker_name, speaker_email, content, started_at, ended_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
             [
                 (
                     meeting_id,
-                    turn.get("speaker_name") or "Speaker",
+                    turn.get("speaker_name") or "Unclear",
                     (turn.get("speaker_email") or "").strip().lower(),
                     turn.get("content") or "",
+                    turn.get("started_at"),
+                    turn.get("ended_at"),
                 )
                 for turn in turns
                 if (turn.get("content") or "").strip()
@@ -905,7 +914,8 @@ def get_speaker_turns(meeting_id: int, db_path: str = DB_PATH) -> List[Dict]:
     with get_connection(db_path) as conn:
         rows = conn.execute(
             """SELECT * FROM meeting_speaker_turns
-               WHERE meeting_id = ? ORDER BY id""",
+               WHERE meeting_id = ?
+               ORDER BY COALESCE(started_at, id), id""",
             (meeting_id,),
         ).fetchall()
         return [dict(r) for r in rows]
