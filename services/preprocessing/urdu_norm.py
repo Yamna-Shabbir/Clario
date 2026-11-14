@@ -217,6 +217,8 @@ _PHRASES = (
     ("fix کریں", "please fix"),
     ("بہت اچھا", "Very good"),
     ("بہترین", "Great"),
+    ("آپ دونوں یہ کام کر دیں", "Please both of you do this task"),
+    ("دونوں یہ کام کر دیں", "Please both of you do this task"),
     ("ایک اور بات", "One more thing"),
     ("آج کی میٹنگ میں", "In today's meeting"),
     ("موجودہ صورتحال", "the current status"),

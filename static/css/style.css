@@ -318,6 +318,10 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; }
 }
 
 .card-pad { padding: 28px; }
+
+.recording-list { display: grid; gap: 16px; }
+.recording-track { margin-top: 14px; }
+.recording-track audio { display: block; width: 100%; margin-top: 8px; }
 .card-pad-sm { padding: 22px; }
 .card-flush { padding: 0; overflow: hidden; }
 

@@ -187,7 +187,7 @@ Clario/
 ├── routes/
 │   ├── __init__.py         # Empty
 │   ├── auth.py             # Blueprint: landing, register, login, logout
-│   ├── dashboard.py        # Blueprint: /dashboard, /comparison
+│   ├── dashboard.py        # Blueprint: /dashboard, /recordings, /comparison
 │   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
 │   ├── live.py             # Blueprint: /live/start, /live/<token>, recording, invite, end
 │   ├── tasks.py            # Blueprint: /tasks status board and shared-name confirmation
@@ -678,8 +678,13 @@ meeting_participants                  (many-to-1 with meetings)
     is saved for that person even when nobody answers; a question still waits
     for the reply. Agreement words (`بالکل`, `ٹھیک ہے`, okay, absolutely) are
     never assignees or speaker names. A later please-line from the same speaker
-    keeps the person just named when the line itself has no new name. A line
-    that is still in Arabic script goes to review instead of becoming a task.
+    keeps the person just named when the line itself has no new name.  A line
+ that is still in Arabic script goes to review instead of becoming a task.
+ One sentence that addresses different people, or repeats an action verb for
+ the same person, is stored as one task per action. A later reminder such as
+ "please both of you do this task" does not add another task or change those
+ assignees. The saved description drops the request wrapper ("can you please",
+ "I need you to"); `source_text` keeps the spoken sentence.
     Code-switched imperatives such as `add کریں` and `fix کریں` become
     please-add and please-fix. Marian runs only when Arabic script remains
     and text translation is enabled.
@@ -726,12 +731,24 @@ meeting_participants                  (many-to-1 with meetings)
       timestamp count as waiting). Guests POST `/live/<token>/request` to register;
       host admits via `POST /live/<token>/admit` or denies via `POST /live/<token>/deny`;
       guests poll `GET /live/<token>/admission` until `admitted`.
-      **Record** saves **microphone audio only** (for Whisper); live camera is not
-      uploaded unless present in the audio file format.
-      The name saved on the room page is the speaker label. Everyone who joined
-      is stored as a participant, even if they did not speak. The host ends the
-      room; `services/live.py` transcribes each track, prefixes `Name (email):`,
-      and submits that transcript to the existing pipeline.
+      **Record** saves **each person's own microphone**, not a mix of the room.
+      WebRTC lets people hear each other live. A browser cannot fold remote
+      audio into the host's file, so the meeting recording is the set of
+      consented microphone tracks. Recording starts only after the consent
+      checkbox and the browser microphone permission. An empty upload does not
+      replace a saved track. Leaving sets `live_members.left_at`.
+      The host ends the room once (`claim_live_room`). Each non-empty track is
+      copied into `meeting_recordings` before transcription. The background job
+      transcribes with the existing hybrid path, then runs the pipeline.
+      A failed transcription keeps the files and sets `failed`; 
+      `POST /meeting/<id>/retry-transcription` tries again and does not add a
+      second copy of the same file. The owner, a participant with the same
+      email, or an admitted live member can play and download a track from
+      `/meeting/<id>/recording/<recording_id>`. Other accounts get 404.
+      `GET /recordings` lists those saved tracks for the same people, with
+      playback and download. A missing file is left off that list.
+      Render free disk is ephemeral, so recordings survive only until that
+      instance restarts unless a persistent disk is attached.
     - The upload form collects `attendee_name` / `attendee_email` rows.
       `roster_from_pairs()` stores them as meeting participants before the
       pipeline runs, and those addresses are what task matching uses.

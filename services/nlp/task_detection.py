@@ -202,6 +202,35 @@ _RELATIVE_DATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "Name, can you please … and Other, please …" is more than one request.
+_NAME_RE = r"[A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2}"
+_POLITE_PREFIX_RE = (
+    r"(?:can you please|could you please|would you please|will you please|"
+    r"i need you to|i want you to|i would like you to|i'd like you to|"
+    r"can you|could you|will you|would you|please)"
+)
+_VOCATIVE_RE = re.compile(
+    rf"(?:^|(?<=\s))(?:(?i:and|also)\s+)?({_NAME_RE}),\s*(?i:{_POLITE_PREFIX_RE})\b",
+)
+_NEXT_ACTION_RE = re.compile(
+    r"\s+and\s+(?:also\s+|then\s+)?(?=(?:please\s+|kindly\s+)?"
+    r"(?:send|check|review|fix|update|prepare|write|share|complete|finish|"
+    r"schedule|create|draft|test|deploy|publish|build|document|ensure|"
+    r"submit|deliver|coordinate|handle|follow|make|look)\b)",
+    re.IGNORECASE,
+)
+_GROUP_FOLLOWUP_RE = re.compile(
+    r"^(?:please\s+)?(?:both of you|all of you|you both|the two of you|everyone|you all)"
+    r"(?:,)?(?:\s+please)?(?:\s+(?:do|handle|complete|finish|take care of))?"
+    r"(?:\s+(?:this|that|these|the))?(?:\s+tasks?)?$",
+    re.IGNORECASE,
+)
+_TRAILING_FOLLOWUP_RE = re.compile(
+    r"(?:[.]\s*|\s+)(?:please\s+)?(?:both of you|all of you|you both|the two of you)\b"
+    r"(?:\s+please)?\s+(?:do|handle|complete|finish)\s+(?:this|that|the)\s+tasks?\b.*$",
+    re.IGNORECASE,
+)
+
 # "let's get started / move on / wrap up" are pleasantries, NOT tasks
 _PLEASANTRY_LETS_RE = re.compile(
     r"\blet['']?s\s+(?:get\s+started|begin\b|start\b|move\s+on|wrap\s+up|"
@@ -281,6 +310,106 @@ def _guess_person(sentence: str) -> str:
         if match.group(0).lower() not in _PERSON_SKIP:
             return match.group(0)
     return "Team"
+
+
+def _is_group_followup(sentence: str) -> bool:
+    """True when a line only repeats work already given to named people."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip().rstrip(".!"))
+    return bool(text and _GROUP_FOLLOWUP_RE.match(text))
+
+
+def _acceptable_addressee(name: str) -> bool:
+    return bool(name) and name.casefold() not in _PERSON_SKIP and name.casefold() not in {
+        "and", "also", "both", "please", "can", "could",
+    }
+
+
+def _polish_action(text: str) -> str:
+    """Shorten a request without dropping a second requirement in the same action."""
+
+    def meeting_noun(match: re.Match) -> str:
+        return f"the meeting {match.group(1).lower()}"
+
+    text = re.sub(
+        r"\bthe ([A-Za-z]+) of (?:this|the) meeting\b",
+        meeting_noun,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bcheck if\b", "check whether", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bthis meeting\b", "the meeting", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bthis$", "it", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip(" ,")
+
+
+def concise_action(sentence: str) -> str:
+    """Drop the name and the request wrapper, leaving the action."""
+    text = re.sub(r"\s+", " ", (sentence or "").strip().rstrip(".!?"))
+    text = _TRAILING_FOLLOWUP_RE.sub("", text).strip(" ,")
+    text = re.sub(rf"^(?:and\s+|also\s+)?{_NAME_RE},\s*", "", text, count=1)
+    text = re.sub(
+        rf"^(?:{_POLITE_PREFIX_RE})\s+",
+        "",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"^(?:also|just|kindly)\s+", "", text, count=1, flags=re.IGNORECASE)
+    text = re.sub(r"\bsend\s+me\s+", "send ", text, count=1, flags=re.IGNORECASE)
+    text = _polish_action(text)
+    if not text:
+        return (sentence or "").strip()
+    return text[:1].upper() + text[1:]
+
+
+def _expand_same_assignee(clauses: List[str]) -> List[str]:
+    """Give a repeated action verb its own clause, keeping the same addressee."""
+    expanded: List[str] = []
+    for clause in clauses:
+        match = _VOCATIVE_RE.match(clause.strip())
+        assignee = match.group(1) if match and _acceptable_addressee(match.group(1)) else ""
+        parts = [part.strip(" ,") for part in _NEXT_ACTION_RE.split(clause) if part.strip(" ,")]
+        if len(parts) <= 1 or not assignee:
+            expanded.append(clause.strip(" ,"))
+            continue
+        expanded.append(parts[0])
+        for part in parts[1:]:
+            if re.match(r"(?i)please\b", part):
+                expanded.append(f"{assignee}, {part}")
+            else:
+                expanded.append(f"{assignee}, please {part}")
+    return expanded
+
+
+def split_coordinated_requests(sentence: str) -> List[str]:
+    """
+    Split one sentence into one clause per addressed action.
+
+    A single request is returned unchanged. A reminder such as
+    "both of you do this task" is removed instead of becoming a clause.
+    """
+    text = _TRAILING_FOLLOWUP_RE.sub("", (sentence or "").strip()).strip(" ,")
+    if not text:
+        return [sentence.strip()] if sentence and sentence.strip() else []
+    matches = [
+        match for match in _VOCATIVE_RE.finditer(text)
+        if _acceptable_addressee(match.group(1))
+    ]
+    if len(matches) >= 2:
+        clauses: List[str] = []
+        for index, match in enumerate(matches):
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            clause = text[match.start():end]
+            clause = re.sub(r"^(?:and|also)\s+", "", clause.strip(), count=1, flags=re.IGNORECASE)
+            clause = clause.strip(" ,")
+            if clause:
+                clauses.append(clause)
+        expanded = _expand_same_assignee(clauses)
+        return expanded if len(expanded) > 1 else [sentence.strip()]
+    if len(matches) == 1:
+        expanded = _expand_same_assignee([text])
+        return expanded if len(expanded) > 1 else [sentence.strip()]
+    return [sentence.strip()] if sentence and sentence.strip() else []
 
 
 def _action_verb_is_verbal(pattern: str, sent_doc) -> bool:
@@ -394,8 +523,11 @@ def _dep_parse_is_task(sent_doc) -> bool:
     if has_modal and meaningful_subj:
         return True
 
-    # Named subject + present-tense action verb (no modal needed for proper names)
+    # Named subject + present-tense action verb (no modal needed for proper names).
+    # "I think the team is worried" is an opinion, not an assignment.
     if meaningful_subj and has_subj and root.tag_ in ("VB", "VBZ", "VBP", "VBG"):
+        if root.lemma_.lower() in {"think", "believe", "feel", "seem", "know", "guess"} and not has_modal:
+            return False
         return True
 
     return False
@@ -511,10 +643,21 @@ def detect_tasks(
         doc = loaded_nlp(text)
         sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
 
+    pieces: List[tuple] = []
     for sentence in sentences:
+        clauses = split_coordinated_requests(sentence)
+        if len(clauses) > 1:
+            pieces.extend((clause, True) for clause in clauses)
+        else:
+            pieces.append((sentence, False))
+
+    for sentence, split_clause in pieces:
         sl = sentence.lower()
         from services.preprocessing.language import arabic_script_ratio
         if arabic_script_ratio(sentence) >= 0.12:
+            continue
+
+        if _is_group_followup(sentence):
             continue
 
         # --- Guard: negation ---
@@ -590,12 +733,15 @@ def detect_tasks(
         if not is_task:
             continue
 
-        # Assignee: first PERSON entity; fall back to a capitalised name, then "Team"
+        # Assignee: the addressed name, else the first PERSON entity, else "Team"
         assigned_to = "Team"
         _pronoun_set = {"i", "we", "they", "he", "she", "it", "you",
                         "i'll", "we'll", "they'll"}
+        addressed = _VOCATIVE_RE.match(sentence.strip())
+        if addressed and _person_token_ok(addressed.group(1), _pronoun_set):
+            assigned_to = addressed.group(1)
         sent_doc = loaded_nlp(sentence) if loaded_nlp is not None else None
-        if sent_doc is not None:
+        if assigned_to == "Team" and sent_doc is not None:
             for ent in sent_doc.ents:
                 if ent.label_ == "PERSON" and _person_token_ok(ent.text, _pronoun_set):
                     assigned_to = ent.text
@@ -665,9 +811,10 @@ def detect_tasks(
                     priority = "Medium"
                     break
 
+        description = concise_action(sentence) if split_clause else sentence
         task_data: Dict[str, Any] = {
             "id":          len(tasks) + 1,
-            "description": sentence,
+            "description": description,
             "assigned_to": assigned_to,
             "due_date":    due_date,
             "keyword":     matched_keyword,

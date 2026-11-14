@@ -266,3 +266,136 @@ def test_urdu_agreement_words_are_not_assignees():
     ]
     assert monday
     assert all("ٹھیک" not in (item.get("assigned_to") or "") for item in monday)
+
+
+def _pending(tasks, assignee, fragment):
+    matches = [
+        task for task in tasks
+        if task["assigned_to"] == assignee and fragment in task["description"].lower()
+    ]
+    assert len(matches) == 1
+    assert matches[0]["status"] == "pending"
+    return matches[0]
+
+
+def test_one_request_keeps_every_requirement_for_that_person():
+    transcript = (
+        "Lina Ahmed, can you please send me the summary of this meeting and Omar, "
+        "can you please check if this meeting is archived and future users can access this."
+    )
+    result = verify_meeting_tasks(transcript)
+    assert len(result["tasks"]) == 2
+    summary = _pending(result["tasks"], "Lina Ahmed", "meeting summary")
+    access = _pending(result["tasks"], "Omar", "archived")
+    assert summary["description"] == "Send the meeting summary"
+    assert "future users" in access["description"].lower()
+    assert "access it" in access["description"].lower()
+    assert access["description"].lower().startswith("check whether")
+    assert summary["source_text"] == transcript
+    assert access["source_text"] == transcript
+
+
+def test_one_sentence_assigns_different_work_to_two_people():
+    transcript = (
+        "Host:\n"
+        "Hina Qureshi, can you please send the meeting notes and Farah, "
+        "can you please check whether the recording is saved and later readers can open it. "
+        "Please both of you do this task."
+    )
+    result = verify_meeting_tasks(transcript, segments=prepare_meeting_turns(transcript))
+    notes = _pending(result["tasks"], "Hina Qureshi", "notes")
+    recording = _pending(result["tasks"], "Farah", "recording")
+    assert "can you please" not in notes["description"].lower()
+    assert "can you please" not in recording["description"].lower()
+    assert "farah" not in notes["description"].lower()
+    assert "hina" not in recording["description"].lower()
+    assert "both of you" not in notes["description"].lower()
+    assert "both of you" not in recording["description"].lower()
+    assert len(result["tasks"]) == 2
+    assert all(task["assigned_to"] != "Team" for task in result["tasks"])
+    assert "send the meeting notes" in notes["source_text"].lower()
+    assert "Host" in result["transcript"]
+
+
+def test_one_sentence_can_give_one_person_two_tasks():
+    transcript = "Nadia, please draft the agenda and send the calendar invite."
+    result = verify_meeting_tasks(transcript)
+    draft = _pending(result["tasks"], "Nadia", "agenda")
+    invite = _pending(result["tasks"], "Nadia", "invite")
+    assert "please" not in draft["description"].lower()
+    assert draft["source_text"] == transcript
+    assert invite["source_text"] == transcript
+    assert len(result["tasks"]) == 2
+
+
+def test_one_sentence_can_name_three_assignees():
+    transcript = (
+        "Adeel, please book the room, Sana, please send the agenda, "
+        "and Noor, please share the notes."
+    )
+    result = verify_meeting_tasks(transcript)
+    assert len(result["tasks"]) == 3
+    _pending(result["tasks"], "Adeel", "room")
+    _pending(result["tasks"], "Sana", "agenda")
+    _pending(result["tasks"], "Noor", "notes")
+    assert {task["assigned_to"] for task in result["tasks"]} == {"Adeel", "Sana", "Noor"}
+
+
+def test_a_request_without_a_name_is_not_given_a_guessed_assignee():
+    result = verify_meeting_tasks("Please archive the signed contract with the vendor.")
+    assert result["tasks"] == []
+    assert result["review"]
+    assert result["review"][0]["assigned_to"] == "Unassigned"
+
+
+def test_a_group_reminder_does_not_duplicate_named_tasks():
+    transcript = (
+        "Hina, please send the meeting notes and Farah, please check the recording. "
+        "Please both of you do this task."
+    )
+    result = verify_meeting_tasks(transcript)
+    assert len(result["tasks"]) == 2
+    assert {task["assigned_to"] for task in result["tasks"]} == {"Hina", "Farah"}
+    blob = " ".join(task["description"] for task in result["tasks"]).lower()
+    assert "both of you" not in blob
+    assert "do this task" not in blob
+
+
+def test_roman_urdu_splits_two_named_requests():
+    transcript = "Hina, notes bhej dena aur Farah, recording check kar lo."
+    result = verify_meeting_tasks(transcript, segments=prepare_meeting_turns(transcript, translate=False))
+    assert len(result["tasks"]) == 2
+    _pending(result["tasks"], "Hina", "notes")
+    _pending(result["tasks"], "Farah", "recording")
+    assert all(task["source_text"] == transcript for task in result["tasks"])
+
+
+def test_urdu_script_splits_two_named_requests():
+    transcript = "احمد، نوٹس بھیج دیں اور سارہ، بجٹ چیک کر دیں۔"
+    result = verify_meeting_tasks(
+        transcript,
+        segments=prepare_meeting_turns(transcript, translate=False),
+    )
+    assert len(result["tasks"]) == 2
+    descriptions = " ".join(task["description"] for task in result["tasks"]).lower()
+    assert "notes" in descriptions
+    assert "budget" in descriptions
+    assert len({task["assigned_to"] for task in result["tasks"]}) == 2
+    assert all("اور" not in task["description"] for task in result["tasks"])
+
+
+def test_split_tasks_are_stored_as_separate_rows(tmp_path):
+    transcript = (
+        "Adeel, please book the room, Sana, please send the agenda, "
+        "and Noor, please share the notes."
+    )
+    result = verify_meeting_tasks(transcript)
+    db_path = str(tmp_path / "clario.db")
+    init_db(db_path)
+    user_id = insert_user("ada", "ada@example.com", "hash", db_path=db_path)
+    meeting_id = insert_meeting(user_id, "Split", db_path=db_path)
+    insert_tasks(meeting_id, result["tasks"], db_path=db_path)
+    stored = get_tasks_by_meeting(meeting_id, db_path)
+    assert len(stored) == 3
+    assert {row["assigned_to"] for row in stored} == {"Adeel", "Sana", "Noor"}
+    assert all(row["status"] == "pending" for row in stored)

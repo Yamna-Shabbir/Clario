@@ -563,6 +563,53 @@ def _assemble(raw: str) -> Optional[str]:
     return line
 
 
+_GROUP_FOLLOWUP_ROMAN = re.compile(
+    r"^(?:aap\s+)?dono\s+(?:yeh|ye)\s+kaam\s+kar\s+(?:do|dein|den|dena)\.?$",
+    re.IGNORECASE,
+)
+_URDU_REQUEST_HINT = re.compile(
+    r"(?:بھیج دیں|بھیج دینا|بھیج دو|چیک کر دیں|چیک کر دو|لکھ دیں|مکمل کر دیں|"
+    r"کر دیں|کر دو|کر دینا)"
+)
+
+
+def _later_clause_names_someone(part: str, *, urdu: bool) -> bool:
+    """True when a following clause starts by addressing a person."""
+    part = part.strip()
+    if urdu:
+        return bool(re.match(r"^[\u0600-\u06FF]{2,}[،,]", part))
+    return bool(re.match(r"^[A-Z][\w'.-]+,", part))
+
+
+def coordinated_clauses(text: str) -> List[str]:
+    """Split one line when a later clause addresses a different person."""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    if arabic_script_ratio(raw) >= 0.12:
+        parts = [part.strip(" ،,") for part in re.split(r"\s+اور\s+", raw) if part.strip(" ،,")]
+        if (
+            len(parts) > 1
+            and all(_URDU_REQUEST_HINT.search(part) for part in parts)
+            and all(_later_clause_names_someone(part, urdu=True) for part in parts[1:])
+        ):
+            return parts
+        return [raw]
+    if looks_roman_urdu(raw):
+        parts = [
+            part.strip(" ,")
+            for part in re.split(r"\s+aur\s+", raw, flags=re.IGNORECASE)
+            if part.strip(" ,")
+        ]
+        if (
+            len(parts) > 1
+            and all(looks_roman_urdu(part) for part in parts)
+            and all(_later_clause_names_someone(part, urdu=False) for part in parts[1:])
+        ):
+            return parts
+    return [raw]
+
+
 def utterance_to_english(text: str) -> str:
     """
     Return an English meeting line.
@@ -571,6 +618,26 @@ def utterance_to_english(text: str) -> str:
     rewritten with the meeting lexicon. The caller keeps *text* as evidence.
     """
     raw = (text or "").strip()
+    if not raw:
+        return ""
+    if _GROUP_FOLLOWUP_ROMAN.match(raw) or raw in {
+        "آپ دونوں یہ کام کر دیں",
+        "آپ دونوں یہ کام کر دیں۔",
+        "دونوں یہ کام کر دیں",
+        "دونوں یہ کام کر دیں۔",
+    }:
+        return "Please both of you do this task."
+    clauses = coordinated_clauses(raw)
+    if len(clauses) > 1:
+        glosses = [_utterance_clause_to_english(clause) for clause in clauses]
+        glosses = [gloss for gloss in glosses if gloss and gloss not in {"Noted."}]
+        if len(glosses) >= 2:
+            return " ".join(gloss if gloss[-1] in ".?!" else gloss + "." for gloss in glosses)
+    return _utterance_clause_to_english(raw)
+
+
+def _utterance_clause_to_english(raw: str) -> str:
+    """Rewrite one clause. Callers split coordinated requests before this."""
     if not raw:
         return ""
     if arabic_script_ratio(raw) >= 0.12:

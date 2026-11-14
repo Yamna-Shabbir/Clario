@@ -88,7 +88,8 @@ _STANDALONE_SPEAKER_RE = re.compile(
     r"(?:\s*\([^)]*\))?\s*:\s*$"
 )
 _DIRECTED_REQUEST_RE = re.compile(
-    r"^([A-Z][\w'.-]+),\s*(?:please|can you|could you|will you|would you)\b",
+    r"^([A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2}),\s*"
+    r"(?:i need you to|can you|could you|will you|would you|please)\b",
     re.IGNORECASE,
 )
 _DECISION_STATEMENT_RE = re.compile(
@@ -433,15 +434,10 @@ def prepare_meeting_turns(transcript: str, *, translate: bool = True) -> List[Di
     lexicon still runs when it is false, which is the free-hosting path.
     """
     from services.preprocessing.language import arabic_script_ratio, ensure_english_transcript
-    from services.preprocessing.roman_urdu import utterance_to_english
+    from services.preprocessing.roman_urdu import coordinated_clauses, utterance_to_english
     from services.preprocessing.urdu_norm import render_urdu_line, speaker_names
 
-    names = speaker_names(transcript)
-    turns = segment_transcript(transcript)
-    known_speakers = _known_latin_speakers(turns)
-    for turn in turns:
-        original = turn.get("text") or ""
-        turn["original"] = original
+    def _render_clause(original: str) -> str:
         if arabic_script_ratio(original) >= 0.12:
             phrase = render_urdu_line(original, names)
             lexicon = utterance_to_english(original)
@@ -450,12 +446,87 @@ def prepare_meeting_turns(transcript: str, *, translate: bool = True) -> List[Di
             english = utterance_to_english(original)
         if translate and arabic_script_ratio(english or "") >= 0.12:
             english = ensure_english_transcript(english)
+        return english or original
+
+    names = speaker_names(transcript)
+    turns = segment_transcript(transcript)
+    known_speakers = _known_latin_speakers(turns)
+    for turn in turns:
+        original = turn.get("text") or ""
+        turn["original"] = original
+        clauses = coordinated_clauses(original)
+        if len(clauses) > 1:
+            rendered = []
+            for clause in clauses:
+                gloss = _render_clause(clause).strip()
+                if not gloss:
+                    continue
+                rendered.append(gloss if gloss[-1] in ".?!" else gloss + ".")
+            english = " ".join(rendered) if len(rendered) >= 2 else _render_clause(original)
+        else:
+            english = _render_clause(original)
         turn["text"] = _align_known_names(english or original, known_speakers)
     return _carry_addressee(_explode_gloss(turns))
 
 
 def _looks_like_decision_only(sentence: str) -> bool:
     return bool(_LETS_DECISION_RE.search(sentence))
+
+
+_WORK_NOUNS = {
+    "invoice", "deployment", "notification", "dashboard", "checklist",
+    "metrics", "design", "client", "report", "api", "release", "budget",
+}
+
+
+def _shown_description(sentence: str) -> str:
+    """Keep a commitment sentence, but drop the request wrapper from an address."""
+    from services.nlp.task_detection import _VOCATIVE_RE, concise_action
+
+    text = (sentence or "").strip()
+    if _VOCATIVE_RE.match(text):
+        return concise_action(text)
+    return text
+
+
+def _unclear_assignee(
+    task: Dict[str, Any],
+    description: str,
+    original: str,
+    timestamp: str,
+) -> Dict[str, Any]:
+    return {
+        "kind": "unclear_assignee",
+        "description": description,
+        "assigned_to": "Unassigned",
+        "due_date": task.get("due_date") or "Not specified",
+        "source_text": original,
+        "source_context": "",
+        "evidence_time": timestamp,
+        "reason": "A commitment is here, but nobody is named. It was not assigned to a guessed person.",
+    }
+
+
+def _accept_assignee(task: Dict[str, Any], sentence: str, speaker: str) -> bool:
+    """Set the assignee. Return False when the clause has to be reviewed."""
+    assignee = (task.get("assigned_to") or "").strip()
+    first_person = bool(_FIRST_PERSON_RE.search(_expand(sentence)))
+    names_the_group = bool(
+        _GROUP_RE.search(sentence) or re.search(r"\b(we|let's|lets)\b", sentence, re.IGNORECASE)
+    )
+    if names_the_group or assignee.lower() == "all":
+        task["assigned_to"] = "Team"
+        return True
+    if first_person and speaker:
+        task["assigned_to"] = speaker
+        return True
+    if _unusable_assignee(assignee) or assignee.lower() in _WORK_NOUNS or not assignee:
+        if speaker and (first_person or assignee.lower() in _WORK_NOUNS):
+            task["assigned_to"] = speaker
+            return True
+        return False
+    task["assigned_to"] = assignee
+    return True
 
 
 def verify_meeting_tasks(
@@ -492,6 +563,9 @@ def verify_meeting_tasks(
         speaker = (turn.get("speaker") or "").strip()
         timestamp = turn.get("timestamp") or ""
         if not sentence or _is_ack(sentence):
+            continue
+        from services.nlp.task_detection import _is_group_followup
+        if _is_group_followup(sentence):
             continue
         from services.preprocessing.language import arabic_script_ratio
         if arabic_script_ratio(sentence) >= 0.12:
@@ -540,12 +614,22 @@ def verify_meeting_tasks(
             participants=participants,
             meeting_date=meeting_date,
         )
+        if len(found) > 1:
+            for item in found:
+                task = _copy_task(item, source=original, timestamp=timestamp, context="")
+                clause = task.get("description") or sentence
+                if not _accept_assignee(task, clause, speaker):
+                    review.append(_unclear_assignee(task, clause, original, timestamp))
+                    continue
+                _apply_participant(task, participants)
+                confirmed.append(task)
+            continue
         if directed and found:
             # A question waits for the reply. A named "please" is the assignment.
             if sentence.rstrip().endswith("?"):
                 continue
             task = _copy_task(found[0], source=original, timestamp=timestamp, context="")
-            task["description"] = sentence
+            task["description"] = _shown_description(sentence)
             task["assigned_to"] = directed
             _apply_participant(task, participants)
             confirmed.append(task)
@@ -642,7 +726,7 @@ def verify_meeting_tasks(
             continue
 
         task = _copy_task(found[0], source=original, timestamp=timestamp, context="")
-        task["description"] = sentence
+        task["description"] = _shown_description(sentence)
         assignee = (task.get("assigned_to") or "").strip()
         first_person = bool(_FIRST_PERSON_RE.search(_expand(sentence)))
         names_the_group = bool(_GROUP_RE.search(sentence) or re.search(r"\b(we|let's|lets)\b", sentence, re.IGNORECASE))

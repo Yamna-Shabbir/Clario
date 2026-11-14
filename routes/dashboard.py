@@ -52,6 +52,20 @@ def index():
         all_tasks      = all_tasks,
     )
 
+@dashboard_bp.route("/recordings")
+@login_required
+def recordings():
+    """Saved meeting audio the current account is allowed to hear."""
+    from models.database import list_saved_recordings
+
+    init_db(DB_PATH)
+    return render_template(
+        "dashboard/recordings.html",
+        user=current_user(),
+        meetings=list_saved_recordings(session["user_id"], DB_PATH),
+    )
+
+
 @dashboard_bp.route("/comparison")
 @login_required
 def comparison():

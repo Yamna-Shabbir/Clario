@@ -51,6 +51,25 @@
     {% endif %}
   </p>
 
+  {% if recordings %}
+  <section class="stack-lg">
+    <h2 class="section-heading">{{ icon_mic(18, 'icon') }} Recording</h2>
+    <div class="card card-pad">
+      <p class="text-muted stack-md">Each person who consented recorded their own microphone. Those tracks are the meeting recording. Other people are not mixed into the host's file.</p>
+      {% for rec in recordings %}
+      <div class="stack-sm">
+        <strong>{{ rec.speaker_name }}</strong>
+        {% if rec.speaker_email %}<span class="text-muted">{{ rec.speaker_email }}</span>{% endif %}
+        <span class="badge badge-mint">{{ rec.status }}</span>
+        <span class="text-muted">{{ rec.byte_size }} bytes</span>
+        <audio controls preload="none" src="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=rec.id) }}"></audio>
+        <a class="btn btn-outline btn-sm" href="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=rec.id, download=1) }}">Download</a>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   {% if meeting.status in ['queued', 'processing'] %}
   <div id="processing-container"
        class="card processing-panel"
@@ -62,8 +81,14 @@
     </div>
     <h2 id="processing-title" class="processing-title">Processing your meeting</h2>
     <p id="processing-stage-text" class="text-muted stack-md">
-      {% if meeting.progress_stage == 'transcribing' %}
-        Transcribing audio recording (Whisper AI)...
+      {% if meeting.progress_stage == 'saved' %}
+        Recording saved. Waiting to transcribe...
+      {% elif meeting.progress_stage == 'uploading' %}
+        Uploading the recording...
+      {% elif meeting.progress_stage == 'transcribing' %}
+        Transcribing audio recording...
+      {% elif meeting.progress_stage == 'analyzing' %}
+        Analyzing the transcript...
       {% elif meeting.progress_stage == 'detecting_tasks' %}
         Labelling decisions and action items...
       {% elif meeting.progress_stage == 'summarizing' %}
@@ -89,7 +114,13 @@
       {{ meeting.error_message or "An unexpected error occurred during processing." }}
     </p>
     <div class="row-actions">
-      <a href="{{ url_for('meeting.upload') }}" class="btn btn-primary">Upload again</a>
+      {% if recordings %}
+      <form method="POST" action="{{ url_for('meeting.retry_transcription', meeting_id=meeting.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn btn-primary">Retry transcription</button>
+      </form>
+      {% endif %}
+      <a href="{{ url_for('meeting.upload') }}" class="btn btn-outline">Upload again</a>
       <a href="{{ url_for('dashboard.index') }}" class="btn btn-outline">Back to dashboard</a>
     </div>
   </div>
@@ -106,6 +137,39 @@
       <div class="transcript-box">{{ meeting.transcript or "No transcript available." }}</div>
     </div>
   </div>
+
+  <div class="card card-pad stack-lg">
+    <h2 class="section-heading">Meeting details</h2>
+    <p><strong>Title.</strong> {{ meeting.title }}</p>
+    <p><strong>Date.</strong> {{ meeting.meeting_date or meeting.created_at }}</p>
+    <p><strong>Status.</strong> {{ meeting.status }}</p>
+    {% if meeting.platform %}<p><strong>Source.</strong> {{ meeting.platform }}</p>{% endif %}
+  </div>
+
+  {% if highlights.points or highlights.questions %}
+  <div class="result-grid-2 stack-lg">
+    <div class="card card-pad">
+      <h2 class="section-heading">Discussion points</h2>
+      {% if highlights.points %}
+      <ul>
+        {% for point in highlights.points %}<li>{{ point }}</li>{% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted">No separate discussion points were found.</p>
+      {% endif %}
+    </div>
+    <div class="card card-pad">
+      <h2 class="section-heading">Unresolved questions</h2>
+      {% if highlights.questions %}
+      <ul>
+        {% for question in highlights.questions %}<li>{{ question }}</li>{% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted">No unanswered questions were found in the transcript.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
   {% if confirmations %}
   <h2 class="section-heading">Confirm who receives this task</h2>

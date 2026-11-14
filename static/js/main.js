@@ -114,7 +114,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // ── Stage-driven Progress Poller for meeting results ───────────────────────
   const STAGE_CONFIG = {
     'queued':            { pct: 15, text: 'Queued for processing...' },
-    'transcribing':      { pct: 35, text: 'Transcribing audio (Whisper)...' },
+    'recording':         { pct: 10, text: 'Recording...' },
+    'uploading':         { pct: 20, text: 'Uploading the recording...' },
+    'saved':             { pct: 25, text: 'Recording saved. Waiting to transcribe...' },
+    'transcribing':      { pct: 40, text: 'Transcribing audio recording...' },
+    'analyzing':         { pct: 60, text: 'Analyzing the transcript...' },
     'detecting_tasks':   { pct: 55, text: 'Labelling decisions and action items...' },
     'summarizing':       { pct: 75, text: 'Generating meeting summary (BART)...' },
     'saving':            { pct: 85, text: 'Saving results...' },

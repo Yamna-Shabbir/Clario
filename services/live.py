@@ -11,6 +11,7 @@ and joined into one transcript for the normal pipeline.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 from config import DB_PATH, GRAPH_DIR, WHISPER_MODEL
@@ -66,30 +67,181 @@ def format_speaker_transcript(turns: List[Dict[str, str]]) -> str:
     return "\n".join(lines).strip()
 
 
+def saved_recording_rows(recordings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Tracks that exist on disk and are not empty. Missing files are not saved."""
+    rows = []
+    for recording in recordings:
+        path = recording.get("audio_path") or ""
+        if not path or not os.path.isfile(path):
+            continue
+        size = os.path.getsize(path)
+        if size <= 0:
+            continue
+        rows.append({
+            "user_id": recording.get("user_id"),
+            "speaker_name": recording.get("display_name") or "Speaker",
+            "speaker_email": (recording.get("email") or "").strip().lower(),
+            "audio_path": path,
+            "byte_size": size,
+            "status": "saved",
+        })
+    return rows
+
+
+def meeting_participants_from_members(members: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Admitted accounts become meeting participants, with join and leave times."""
+    people = []
+    seen = set()
+    for member in members:
+        email = (member.get("email") or "").strip().lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        people.append({
+            "name": member.get("display_name") or email,
+            "email": email,
+            "source": "live",
+            "joined_at": member.get("joined_at") or "",
+            "left_at": member.get("left_at") or "",
+        })
+    return people
+
+
+def transcript_from_recordings(recordings: List[Dict[str, Any]],
+                               transcribe: Callable[[str], str]) -> tuple:
+    """Transcribe each saved track. A failed track does not delete the file."""
+    turns: List[Dict[str, str]] = []
+    errors: List[str] = []
+    for recording in recordings:
+        path = recording.get("audio_path") or ""
+        try:
+            text = (transcribe(path) or "").strip()
+        except Exception as exc:
+            errors.append(f"{recording.get('speaker_name') or 'Speaker'}: {exc}")
+            continue
+        if not text:
+            continue
+        turns.append({
+            "speaker_name": recording.get("speaker_name") or "Speaker",
+            "speaker_email": (recording.get("speaker_email") or "").strip().lower(),
+            "content": text,
+        })
+    return format_speaker_transcript(turns), errors
+
+
+def queue_live_analysis(meeting_id: int, user_id: int, *,
+                        db_path: str = DB_PATH,
+                        graph_dir: str = GRAPH_DIR,
+                        transcribe: Optional[Callable[[str], str]] = None) -> None:
+    """Transcribe saved tracks in the background, then run the meeting pipeline."""
+    from services.jobs import CLARIO_SYNC_JOBS, get_executor, submit_pipeline_job
+
+    def job() -> None:
+        from models.database import (
+            get_meeting_participants,
+            get_meeting_recordings,
+            insert_speaker_turns,
+            update_meeting_status,
+        )
+
+        update_meeting_status(
+            meeting_id,
+            status="processing",
+            progress_stage="transcribing",
+            error_message=None,
+            db_path=db_path,
+        )
+        recordings = [
+            row for row in get_meeting_recordings(meeting_id, db_path)
+            if row.get("status") == "saved" and os.path.isfile(row.get("audio_path") or "")
+        ]
+        speak = transcribe or transcribe_speaker_audio
+        turns: List[Dict[str, str]] = []
+        errors: List[str] = []
+        for recording in recordings:
+            path = recording.get("audio_path") or ""
+            label = recording.get("speaker_name") or "Speaker"
+            try:
+                text = (speak(path) or "").strip()
+            except Exception as exc:
+                errors.append(f"{label}: {exc}")
+                continue
+            if not text:
+                continue
+            turns.append({
+                "speaker_name": label,
+                "speaker_email": (recording.get("speaker_email") or "").strip().lower(),
+                "content": text,
+            })
+        transcript = format_speaker_transcript(turns)
+        if not transcript:
+            detail = " ".join(errors) or "No speech was transcribed."
+            update_meeting_status(
+                meeting_id,
+                status="failed",
+                progress_stage="failed",
+                error_message=(
+                    "Transcription failed. The recording was kept and can be retried. "
+                    + detail
+                )[:500],
+                db_path=db_path,
+            )
+            return
+        insert_speaker_turns(meeting_id, turns, db_path)
+        participants = get_meeting_participants(meeting_id, db_path)
+        submit_pipeline_job(
+            meeting_id=meeting_id,
+            user_id=user_id,
+            text_input=transcript,
+            db_path=db_path,
+            graph_dir=graph_dir,
+            participants=participants,
+        )
+
+    if CLARIO_SYNC_JOBS:
+        job()
+        return
+    get_executor().submit(job)
+
+
 def finish_live_room(room: Dict[str, Any], *,
                      db_path: str = DB_PATH,
                      graph_dir: str = GRAPH_DIR,
                      transcribe: Optional[Callable[[str], str]] = None) -> int:
-    """Create the pipeline meeting for a live room and queue processing.
+    """Save each person's recording, then queue transcription.
 
     Raises ValueError when nobody has a usable recording.
+    A second call returns the meeting already created for this room.
     """
     from models.database import (
+        claim_live_room,
         end_live_room,
         get_live_members,
         get_live_recordings,
+        get_live_room_by_token,
         insert_meeting,
-        insert_speaker_turns,
+        insert_meeting_recordings,
+        release_live_room,
         replace_meeting_participants,
         update_meeting_platform,
     )
-    from services.jobs import submit_pipeline_job
 
-    recordings = get_live_recordings(int(room["id"]), db_path)
-    turns = speaker_lines(recordings, transcribe or transcribe_speaker_audio)
-    transcript = format_speaker_transcript(turns)
-    if not transcript:
-        raise ValueError("Record at least one person's microphone before ending the meeting.")
+    existing = room.get("meeting_id")
+    if room.get("status") == "ended" and existing:
+        return int(existing)
+    if not claim_live_room(int(room["id"]), db_path):
+        current = get_live_room_by_token(room.get("join_token") or "", db_path) or room
+        if current.get("meeting_id"):
+            return int(current["meeting_id"])
+        raise ValueError("This meeting is already being saved.")
+
+    recordings = saved_recording_rows(get_live_recordings(int(room["id"]), db_path))
+    if not recordings:
+        release_live_room(int(room["id"]), db_path)
+        raise ValueError(
+            "No complete microphone recording was saved. "
+            "An empty or missing track is not marked as saved."
+        )
 
     meeting_id = insert_meeting(
         user_id=int(room["host_user_id"]),
@@ -99,33 +251,84 @@ def finish_live_room(room: Dict[str, Any], *,
         platform="live",
         external_meeting_id=room.get("join_token"),
         status="queued",
-        progress_stage="queued",
+        progress_stage="saved",
     )
-    members_as_participants = []
-    seen = set()
-    for member in get_live_members(int(room["id"]), db_path, admission="admitted"):
-        email = (member.get("email") or "").strip().lower()
-        if not email or email in seen:
-            continue
-        seen.add(email)
-        members_as_participants.append({
-            "name": member.get("display_name") or email,
-            "email": email,
-            "source": "live",
-        })
-    replace_meeting_participants(meeting_id, members_as_participants, db_path)
+    members = get_live_members(int(room["id"]), db_path, admission="admitted")
+    participants = meeting_participants_from_members(members)
+    replace_meeting_participants(meeting_id, participants, db_path)
     update_meeting_platform(meeting_id, "live", room.get("join_token") or "", db_path)
-    insert_speaker_turns(meeting_id, turns, db_path)
+    insert_meeting_recordings(meeting_id, recordings, db_path)
     end_live_room(int(room["id"]), meeting_id, db_path)
-    submit_pipeline_job(
-        meeting_id=meeting_id,
-        user_id=int(room["host_user_id"]),
-        text_input=transcript,
+    queue_live_analysis(
+        meeting_id,
+        int(room["host_user_id"]),
         db_path=db_path,
         graph_dir=graph_dir,
-        participants=members_as_participants,
+        transcribe=transcribe,
     )
     return meeting_id
+
+
+_DISCUSSION_CUE = re.compile(
+    r"\b(please|will|must|need to|has to|action item|can you)\b",
+    re.IGNORECASE,
+)
+
+
+def meeting_highlights(transcript: str) -> Dict[str, List[str]]:
+    """Questions and longer remarks taken from the transcript itself.
+
+    Nothing is added that the transcript does not already say.
+    """
+    questions: List[str] = []
+    points: List[str] = []
+    for raw in re.split(r"(?<=[.?!])\s+", transcript or ""):
+        sentence = " ".join(raw.split()).strip()
+        if len(sentence) < 12:
+            continue
+        if sentence.endswith("?"):
+            if sentence not in questions:
+                questions.append(sentence)
+        elif not _DISCUSSION_CUE.search(sentence) and len(sentence.split()) >= 8:
+            if sentence not in points:
+                points.append(sentence)
+    return {"questions": questions[:8], "points": points[:6]}
+
+
+def retry_live_transcription(meeting_id: int, user_id: int, *,
+                              db_path: str = DB_PATH,
+                              graph_dir: str = GRAPH_DIR) -> Optional[str]:
+    """Queue transcription again. Returns an error string when retry is refused."""
+    from models.database import (
+        get_accessible_meeting_detail,
+        get_meeting_recordings,
+        get_meeting_status,
+        update_meeting_status,
+        user_can_access_meeting,
+    )
+
+    if not user_can_access_meeting(meeting_id, user_id, db_path):
+        return "Meeting not found."
+    meeting = get_accessible_meeting_detail(meeting_id, user_id, db_path) or {}
+    owner_id = int(meeting.get("user_id") or user_id)
+    current = get_meeting_status(meeting_id, user_id, db_path) or {}
+    if current.get("status") in {"queued", "processing"}:
+        return "This meeting is already being processed."
+    saved = [
+        row for row in get_meeting_recordings(meeting_id, db_path)
+        if row.get("status") == "saved" and os.path.isfile(row.get("audio_path") or "")
+    ]
+    if not saved:
+        return "There is no saved recording to transcribe."
+    update_meeting_status(
+        meeting_id,
+        status="queued",
+        progress_stage="saved",
+        error_message=None,
+        db_path=db_path,
+    )
+    queue_live_analysis(meeting_id, owner_id, db_path=db_path, graph_dir=graph_dir)
+    return None
 
 
 def link_task_assigners(results: Dict[str, Any]) -> None:

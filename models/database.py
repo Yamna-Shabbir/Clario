@@ -227,6 +227,22 @@ def init_db(db_path: str = DB_PATH) -> None:
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             );
 
+            -- Per-person microphone tracks kept with the finished meeting.
+            -- One row per speaker. Remote audio is not mixed into the host file.
+            CREATE TABLE IF NOT EXISTS meeting_recordings (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id       INTEGER NOT NULL,
+                user_id          INTEGER,
+                speaker_name     TEXT    NOT NULL,
+                speaker_email    TEXT,
+                audio_path       TEXT    NOT NULL,
+                byte_size        INTEGER NOT NULL DEFAULT 0,
+                duration_seconds REAL,
+                status           TEXT    NOT NULL DEFAULT 'saved',
+                created_at       TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS live_messages (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 room_id      INTEGER NOT NULL,
@@ -324,6 +340,8 @@ def init_db(db_path: str = DB_PATH) -> None:
             conn.execute(
                 "ALTER TABLE live_members ADD COLUMN host_admitted_at TEXT",
             )
+        if "left_at" not in member_cols:
+            conn.execute("ALTER TABLE live_members ADD COLUMN left_at TEXT")
 
         conn.commit()
     print(f" DB ready: {db_path}")
@@ -431,18 +449,23 @@ def update_meeting_progress(meeting_id: int, progress_stage: str,
 
 def get_meeting_status(meeting_id: int, user_id: int,
                        db_path: str = DB_PATH) -> Optional[Dict[str, Any]]:
-    """Return status, stage, error for a meeting owned by user_id, or None if not found/unauthorized."""
+    """Return status, stage, and error when the user may open this meeting."""
+    if not user_can_access_meeting(meeting_id, user_id, db_path):
+        return None
     with get_connection(db_path) as conn:
         row = conn.execute(
-            "SELECT status, progress_stage, error_message FROM meetings WHERE id = ? AND user_id = ?",
-            (meeting_id, user_id),
+            """SELECT status,
+                      progress_stage AS stage,
+                      error_message AS error
+               FROM meetings WHERE id = ?""",
+            (meeting_id,),
         ).fetchone()
         if not row:
             return None
         return {
             "status": row["status"] or "completed",
-            "stage": row["progress_stage"],
-            "error": row["error_message"],
+            "stage": row["stage"],
+            "error": row["error"],
         }
 
 
@@ -504,9 +527,17 @@ def get_meetings_by_user(user_id: int,
             LEFT JOIN summaries   s  ON s.meeting_id = m.id
             LEFT JOIN tasks       tk ON tk.meeting_id = m.id
             WHERE   m.user_id = ?
+               OR m.id IN (
+                    SELECT p.meeting_id
+                    FROM meeting_participants p
+                    JOIN users u
+                      ON lower(u.email) = lower(COALESCE(p.email, ''))
+                    WHERE u.id = ?
+                      AND COALESCE(p.email, '') != ''
+               )
             GROUP BY m.id
             ORDER BY m.created_at DESC
-        """, (user_id,)).fetchall()
+        """, (user_id, user_id)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -1028,6 +1059,7 @@ def add_live_member(room_id: int, user_id: int, display_name: str, email: str,
                ON CONFLICT(room_id, user_id) DO UPDATE SET
                  {name_update}
                  email = excluded.email,
+                 left_at = NULL,
                  admission_status = CASE
                    WHEN live_members.host_admitted_at IS NOT NULL THEN 'admitted'
                    WHEN excluded.admission_status = 'denied' THEN 'denied'
@@ -1093,18 +1125,32 @@ def get_live_members(room_id: int, db_path: str = DB_PATH, *,
 
 def add_live_recording(room_id: int, user_id: int, audio_path: str,
                        db_path: str = DB_PATH) -> None:
-    """Keep the newest recording for each person in the room."""
+    """Replace a person's track only after the new file is non-empty."""
+    if not audio_path or not os.path.isfile(audio_path) or os.path.getsize(audio_path) <= 0:
+        raise ValueError("The recording was empty and was not saved.")
     with get_connection(db_path) as conn:
-        conn.execute(
-            "DELETE FROM live_recordings WHERE room_id = ? AND user_id = ?",
+        previous = conn.execute(
+            "SELECT audio_path FROM live_recordings WHERE room_id = ? AND user_id = ?",
             (room_id, user_id),
-        )
+        ).fetchall()
         conn.execute(
             """INSERT INTO live_recordings (room_id, user_id, audio_path)
                VALUES (?, ?, ?)""",
             (room_id, user_id, audio_path),
         )
+        conn.execute(
+            """DELETE FROM live_recordings
+               WHERE room_id = ? AND user_id = ? AND audio_path != ?""",
+            (room_id, user_id, audio_path),
+        )
         conn.commit()
+    for row in previous:
+        old = row["audio_path"]
+        if old and old != audio_path and os.path.isfile(old):
+            try:
+                os.remove(old)
+            except OSError:
+                pass
 
 
 def get_live_recordings(room_id: int, db_path: str = DB_PATH) -> List[Dict]:
@@ -1196,6 +1242,205 @@ def latest_live_signal_id(room_id: int, user_id: int, db_path: str = DB_PATH) ->
             (room_id, user_id),
         ).fetchone()
         return int(row["max_id"] if row else 0)
+
+
+def claim_live_room(room_id: int, db_path: str = DB_PATH) -> bool:
+    """Move a live room to ending. False when another request already claimed it."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """UPDATE live_rooms
+               SET status = 'ending'
+               WHERE id = ? AND status = 'live'""",
+            (room_id,),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def release_live_room(room_id: int, db_path: str = DB_PATH) -> None:
+    """Return a room to live when ending stopped before a meeting existed."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """UPDATE live_rooms
+               SET status = 'live'
+               WHERE id = ? AND status = 'ending'""",
+            (room_id,),
+        )
+        conn.commit()
+
+
+def mark_live_member_left(room_id: int, user_id: int, db_path: str = DB_PATH) -> None:
+    """Record when someone leaves. Joining again clears the departure time."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """UPDATE live_members
+               SET left_at = datetime('now')
+               WHERE room_id = ? AND user_id = ?""",
+            (room_id, user_id),
+        )
+        conn.commit()
+
+
+def user_can_access_meeting(meeting_id: int, user_id: int,
+                            db_path: str = DB_PATH) -> bool:
+    """Owner, invited participant, or admitted live member may open the meeting."""
+    with get_connection(db_path) as conn:
+        owner = conn.execute(
+            "SELECT 1 FROM meetings WHERE id = ? AND user_id = ?",
+            (meeting_id, user_id),
+        ).fetchone()
+        if owner:
+            return True
+        participant = conn.execute(
+            """SELECT 1
+               FROM meeting_participants p
+               JOIN users u ON lower(u.email) = lower(COALESCE(p.email, ''))
+               WHERE p.meeting_id = ? AND u.id = ? AND COALESCE(p.email, '') != ''""",
+            (meeting_id, user_id),
+        ).fetchone()
+        if participant:
+            return True
+        member = conn.execute(
+            """SELECT 1
+               FROM live_members m
+               JOIN live_rooms r ON r.id = m.room_id
+               WHERE r.meeting_id = ? AND m.user_id = ?
+                 AND m.admission_status = 'admitted'""",
+            (meeting_id, user_id),
+        ).fetchone()
+        return member is not None
+
+
+def get_accessible_meeting_detail(meeting_id: int, user_id: int,
+                                  db_path: str = DB_PATH) -> Optional[Dict]:
+    """Meeting detail for an owner or an authorized participant."""
+    if not user_can_access_meeting(meeting_id, user_id, db_path):
+        return None
+    with get_connection(db_path) as conn:
+        row = conn.execute("""
+            SELECT  m.*,
+                    t.content AS transcript,
+                    s.content AS summary
+            FROM    meetings    m
+            LEFT JOIN transcripts t ON t.meeting_id = m.id
+            LEFT JOIN summaries   s ON s.meeting_id = m.id
+            WHERE   m.id = ?
+        """, (meeting_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def insert_meeting_recordings(meeting_id: int, rows: List[Dict],
+                              db_path: str = DB_PATH) -> None:
+    """Store speaker tracks. Existing rows for the meeting are left in place."""
+    with get_connection(db_path) as conn:
+        existing = {
+            row["audio_path"]
+            for row in conn.execute(
+                "SELECT audio_path FROM meeting_recordings WHERE meeting_id = ?",
+                (meeting_id,),
+            ).fetchall()
+        }
+        for row in rows:
+            path = row.get("audio_path") or ""
+            if not path or path in existing:
+                continue
+            conn.execute(
+                """INSERT INTO meeting_recordings
+                   (meeting_id, user_id, speaker_name, speaker_email, audio_path,
+                    byte_size, duration_seconds, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    meeting_id,
+                    row.get("user_id"),
+                    row.get("speaker_name") or "Speaker",
+                    row.get("speaker_email") or "",
+                    path,
+                    int(row.get("byte_size") or 0),
+                    row.get("duration_seconds"),
+                    row.get("status") or "saved",
+                ),
+            )
+            existing.add(path)
+        conn.commit()
+
+
+def get_meeting_recordings(meeting_id: int, db_path: str = DB_PATH) -> List[Dict]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT * FROM meeting_recordings
+               WHERE meeting_id = ?
+               ORDER BY id""",
+            (meeting_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def list_saved_recordings(user_id: int, db_path: str = DB_PATH) -> List[Dict]:
+    """Meetings this account may hear, with each saved microphone track."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """SELECT m.id AS meeting_id,
+                      m.title,
+                      m.meeting_date,
+                      m.created_at,
+                      m.status,
+                      r.id AS recording_id,
+                      r.speaker_name,
+                      r.speaker_email,
+                      r.byte_size,
+                      r.audio_path
+               FROM meeting_recordings r
+               JOIN meetings m ON m.id = r.meeting_id
+               WHERE r.status = 'saved'
+                 AND (
+                      m.user_id = ?
+                      OR m.id IN (
+                           SELECT p.meeting_id
+                           FROM meeting_participants p
+                           JOIN users u
+                             ON lower(u.email) = lower(COALESCE(p.email, ''))
+                           WHERE u.id = ?
+                             AND COALESCE(p.email, '') != ''
+                      )
+                      OR m.id IN (
+                           SELECT rooms.meeting_id
+                           FROM live_members mem
+                           JOIN live_rooms rooms ON rooms.id = mem.room_id
+                           WHERE mem.user_id = ?
+                             AND mem.admission_status = 'admitted'
+                             AND rooms.meeting_id IS NOT NULL
+                      )
+                 )
+               ORDER BY m.created_at DESC, r.id""",
+            (user_id, user_id, user_id),
+        ).fetchall()
+    grouped: List[Dict] = []
+    index: Dict[int, Dict] = {}
+    for row in rows:
+        item = dict(row)
+        path = item.get("audio_path") or ""
+        if not path or not os.path.isfile(path):
+            continue
+        meeting_id = int(item["meeting_id"])
+        group = index.get(meeting_id)
+        if group is None:
+            group = {
+                "id": meeting_id,
+                "title": item.get("title") or "Untitled Meeting",
+                "meeting_date": item.get("meeting_date") or "",
+                "created_at": item.get("created_at") or "",
+                "status": item.get("status") or "",
+                "tracks": [],
+            }
+            index[meeting_id] = group
+            grouped.append(group)
+        group["tracks"].append({
+            "id": int(item["recording_id"]),
+            "speaker_name": item.get("speaker_name") or "Speaker",
+            "speaker_email": item.get("speaker_email") or "",
+            "byte_size": int(item.get("byte_size") or 0),
+        })
+    return grouped
 
 
 def end_live_room(room_id: int, meeting_id: int, db_path: str = DB_PATH) -> None:

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% from "macros/icons.html" import icon_mic, icon_arrow_left %}
+
+{% block title %}Recordings{% endblock %}
+
+{% block content %}
+<div class="page-body">
+<div class="container">
+
+  <a href="{{ url_for('dashboard.index') }}" class="back-link">{{ icon_arrow_left() }} Back to dashboard</a>
+
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Meeting recordings</h1>
+      <p class="page-lead">Play a saved meeting here. Each person who recorded is a separate track, in the order they were stored.</p>
+    </div>
+  </div>
+
+  {% if meetings %}
+  <div class="recording-list">
+    {% for meeting in meetings %}
+    <article class="card card-pad">
+      <div class="row-between">
+        <div>
+          <h2 class="section-heading">{{ meeting.title }}</h2>
+          <p class="text-muted">
+            {{ meeting.meeting_date or (meeting.created_at[:10] if meeting.created_at else "") }}
+            · {{ meeting.tracks|length }} track{{ 's' if meeting.tracks|length != 1 else '' }}
+            · {{ meeting.status }}
+          </p>
+        </div>
+        <a href="{{ url_for('meeting.result', meeting_id=meeting.id) }}" class="btn btn-outline btn-sm">Open meeting</a>
+      </div>
+      <div class="stack-sm">
+        <button type="button" class="btn btn-primary btn-sm" data-play-meeting="{{ meeting.id }}">Play meeting</button>
+        <audio id="meeting-player-{{ meeting.id }}" controls preload="none"></audio>
+      </div>
+      {% for track in meeting.tracks %}
+      <div class="recording-track">
+        <strong>{{ track.speaker_name }}</strong>
+        {% if track.speaker_email %}<span class="text-muted">{{ track.speaker_email }}</span>{% endif %}
+        <audio controls preload="none" src="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=track.id) }}"></audio>
+        <a class="btn btn-outline btn-sm" href="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=track.id, download=1) }}">Download</a>
+      </div>
+      {% endfor %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card empty-state">
+    <div class="empty-state__icon">{{ icon_mic(28, 'icon') }}</div>
+    <p class="empty-state__title">No recordings yet</p>
+    <p class="empty-state__lead">When a host ends a live meeting, each saved microphone appears here for the people who were in it.</p>
+    <a href="{{ url_for('live.start') }}" class="btn btn-primary btn-sm">Start meeting</a>
+  </div>
+  {% endif %}
+
+</div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+  document.querySelectorAll("[data-play-meeting]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = button.closest("article");
+      const player = document.getElementById("meeting-player-" + button.getAttribute("data-play-meeting"));
+      if (!card || !player) return;
+      const sources = Array.from(card.querySelectorAll(".recording-track audio"))
+        .map((audio) => audio.getAttribute("src"))
+        .filter(Boolean);
+      if (!sources.length) return;
+      let index = 0;
+      const playNext = () => {
+        if (index >= sources.length) return;
+        player.src = sources[index];
+        index += 1;
+        player.play();
+      };
+      player.onended = playNext;
+      playNext();
+    });
+  });
+</script>
+{% endblock %}

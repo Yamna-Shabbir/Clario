@@ -266,7 +266,8 @@ def result(meeting_id: int):
     init_db(DB_PATH)
 
     # Ownership-enforced fetch: abort(404) prevents meeting ID enumeration
-    meeting = get_meeting_detail(meeting_id, user_id, DB_PATH)
+    from models.database import get_accessible_meeting_detail, get_meeting_recordings
+    meeting = get_accessible_meeting_detail(meeting_id, user_id, DB_PATH)
     if not meeting:
         abort(404)
 
@@ -283,6 +284,9 @@ def result(meeting_id: int):
     followups = get_meeting_emails(meeting_id, DB_PATH)
     confirmations = get_pending_confirmations(meeting_id, DB_PATH)
     reviews = get_task_reviews(meeting_id, DB_PATH)
+    recordings = get_meeting_recordings(meeting_id, DB_PATH)
+    from services.live import meeting_highlights
+    highlights = meeting_highlights(meeting.get("transcript") or "")
 
     from models.database import TASK_STATUSES
 
@@ -303,10 +307,73 @@ def result(meeting_id: int):
         followups     = followups,
         confirmations = confirmations,
         reviews       = reviews,
+        recordings    = recordings,
+        highlights    = highlights,
         statuses      = TASK_STATUSES,
         status_labels = _status_labels,
         my_email      = (session.get("email") or "").strip().lower(),
     )
+
+
+@meeting_bp.route("/meeting/<int:meeting_id>/recording/<int:recording_id>")
+@login_required
+def recording_file(meeting_id: int, recording_id: int):
+    """Play or download one speaker track for an authorized participant."""
+    from flask import send_file
+    from models.database import get_meeting_recordings, user_can_access_meeting
+
+    init_db(DB_PATH)
+    if not user_can_access_meeting(meeting_id, session["user_id"], DB_PATH):
+        abort(404)
+    match = next(
+        (
+            row for row in get_meeting_recordings(meeting_id, DB_PATH)
+            if int(row["id"]) == int(recording_id) and row.get("status") == "saved"
+        ),
+        None,
+    )
+    if not match:
+        abort(404)
+    root = os.path.abspath(UPLOAD_DIR)
+    target = os.path.abspath(match.get("audio_path") or "")
+    try:
+        inside = os.path.commonpath([root, target]) == root
+    except ValueError:
+        inside = False
+    if not inside or not os.path.isfile(target):
+        abort(404)
+    download = request.args.get("download") == "1"
+    mime = {
+        ".webm": "audio/webm",
+        ".ogg": "audio/ogg",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".mp4": "audio/mp4",
+    }.get(os.path.splitext(target)[1].lower(), "application/octet-stream")
+    return send_file(
+        target,
+        mimetype=mime,
+        as_attachment=download,
+        download_name=os.path.basename(target),
+    )
+
+
+@meeting_bp.route("/meeting/<int:meeting_id>/retry-transcription", methods=["POST"])
+@login_required
+def retry_transcription(meeting_id: int):
+    """Transcribe saved tracks again. The audio files are not deleted."""
+    from services.live import retry_live_transcription
+
+    init_db(DB_PATH)
+    error = retry_live_transcription(meeting_id, session["user_id"], db_path=DB_PATH)
+    if error == "Meeting not found.":
+        abort(404)
+    if error:
+        flash(error, "error")
+    else:
+        flash("Transcription started again. The recording was kept.", "success")
+    return redirect(url_for("meeting.result", meeting_id=meeting_id))
 
 
 # ── Mark task complete ──────────────────────────────────────────────────────────────

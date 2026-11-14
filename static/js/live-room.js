@@ -248,7 +248,7 @@
     const body = new FormData();
     body.append("audio", blob, "speaker." + extension);
     body.append("csrf_token", csrfToken());
-    if (stateEl) stateEl.textContent = "Saving your microphone recording...";
+    if (stateEl) stateEl.textContent = "Uploading your microphone recording...";
     const response = await fetch(cfg.urls.recording, {
       method: "POST",
       body,
@@ -265,7 +265,7 @@
       return false;
     }
     recordChunks = [];
-    if (stateEl) stateEl.textContent = "Microphone recording saved for the transcript.";
+    if (stateEl) stateEl.textContent = "Saved. Your microphone track is stored with this meeting.";
     pollRoster();
     return true;
   }
@@ -299,7 +299,7 @@
     if (startBtn) startBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
     if (stateEl) {
-      stateEl.textContent = "Recording your microphone (camera is not required).";
+      stateEl.textContent = "Recording your microphone. Other people record their own. Status: Recording.";
     }
     if (selfTile) selfTile.classList.add("meet-tile--recording");
   }
@@ -558,6 +558,7 @@
     if (mainEl) mainEl.classList.remove("hidden");
     startInMeetingPolls();
     pollRoster();
+    maybeAutoRecord();
   }
 
   function handleAdmissionStatus(status) {
@@ -1269,8 +1270,67 @@
     if (meetingActive || cfg.isHost) resumePlayback();
   });
   updateGridCount();
-  if (startBtn) startBtn.addEventListener("click", beginRecording);
+  const consentBox = document.getElementById("record-consent");
+  function maybeAutoRecord() {
+    if (!consentBox || !consentBox.checked) return;
+    if (!meetingActive && !cfg.isHost) return;
+    beginRecording();
+  }
+  if (consentBox) {
+    consentBox.addEventListener("change", () => {
+      if (consentBox.checked) maybeAutoRecord();
+      else stopRecording();
+    });
+  }
+  if (startBtn) {
+    startBtn.addEventListener("click", () => {
+      if (consentBox && !consentBox.checked) {
+        if (stateEl) stateEl.textContent = "Agree to record your microphone before recording starts.";
+        return;
+      }
+      beginRecording();
+    });
+  }
   if (stopBtn) stopBtn.addEventListener("click", stopRecording);
+
+  const endForm = document.querySelector(".meet-end-form");
+  if (endForm) {
+    endForm.addEventListener("submit", (event) => {
+      if (!recorder || recorder.state !== "recording") return;
+      event.preventDefault();
+      recorder.onstop = async () => {
+        const saved = await uploadRecording();
+        if (!saved) {
+          if (stateEl) stateEl.textContent = "The recording was not saved, so the meeting was not ended.";
+          return;
+        }
+        endForm.submit();
+      };
+      recorder.stop();
+    });
+  }
+  window.addEventListener("pagehide", () => {
+    if (recorder && recorder.state === "recording") {
+      recorder.onstop = () => {};
+      try { recorder.requestData(); } catch (err) { /* flush is best-effort */ }
+      try { recorder.stop(); } catch (err) { /* the page is going away */ }
+    }
+    if (recordChunks.length && cfg.urls.recording && navigator.sendBeacon) {
+      const type = (recorder && recorder.mimeType) || "audio/webm";
+      const blob = new Blob(recordChunks, { type });
+      if (blob.size) {
+        const audioBody = new FormData();
+        audioBody.append("csrf_token", csrfToken());
+        audioBody.append("audio", blob, type.includes("ogg") ? "speaker.ogg" : "speaker.webm");
+        navigator.sendBeacon(cfg.urls.recording, audioBody);
+      }
+    }
+    if (!cfg.urls.leave || !navigator.sendBeacon) return;
+    const body = new FormData();
+    body.append("csrf_token", csrfToken());
+    navigator.sendBeacon(cfg.urls.leave, body);
+  });
+  if (meetingActive || cfg.isHost) maybeAutoRecord();
 
   if (chatForm) {
     chatForm.addEventListener("submit", async (e) => {

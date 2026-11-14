@@ -213,7 +213,10 @@ def room(token: str):
     if not found:
         abort(404)
     if found["status"] != "live":
-        if found.get("meeting_id") and found["host_user_id"] == session["user_id"]:
+        from models.database import user_can_access_meeting
+        if found.get("meeting_id") and user_can_access_meeting(
+            int(found["meeting_id"]), session["user_id"], DB_PATH,
+        ):
             return redirect(url_for("meeting.result", meeting_id=found["meeting_id"]))
         flash("This meeting has ended. Open Tasks to see what was assigned.", "info")
         return redirect(url_for("tasks.index"))
@@ -343,11 +346,13 @@ def recording(token: str):
         return jsonify({"ok": False, "error": space_error}), 507
     path = safe_recording_path(UPLOAD_DIR, token, session["user_id"], ext)
     audio.save(path)
-    if os.path.getsize(path) <= 0:
-        os.remove(path)
-        return jsonify({"ok": False, "error": "The recording was empty."}), 400
-    add_live_recording(found["id"], session["user_id"], path, DB_PATH)
-    return jsonify({"ok": True})
+    try:
+        add_live_recording(found["id"], session["user_id"], path, DB_PATH)
+    except ValueError as exc:
+        if os.path.isfile(path):
+            os.remove(path)
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "status": "saved"})
 
 
 @live_bp.route("/live/<token>/messages")
@@ -558,6 +563,22 @@ def webrtc_signal(token: str):
     if not sig_id:
         return jsonify({"ok": False, "error": "Could not store signal."}), 400
     return jsonify({"ok": True, "id": sig_id})
+
+
+@live_bp.route("/live/<token>/leave", methods=["POST"])
+@login_required
+def leave(token: str):
+    """Record the time the current participant left. The host still ends the meeting."""
+    from models.database import mark_live_member_left
+
+    init_db(DB_PATH)
+    found = get_live_room_by_token(token, DB_PATH)
+    if not found or found["status"] != "live":
+        return jsonify({"ok": False}), 404
+    if not get_live_member(found["id"], session["user_id"], DB_PATH):
+        return jsonify({"ok": False}), 404
+    mark_live_member_left(found["id"], session["user_id"], DB_PATH)
+    return jsonify({"ok": True})
 
 
 @live_bp.route("/live/<token>/end", methods=["POST"])
