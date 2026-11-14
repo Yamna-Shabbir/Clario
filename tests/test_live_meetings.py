@@ -294,3 +294,78 @@ def test_end_after_ending_claim_saves_the_meeting(tmp_path, monkeypatch):
     ended = client.post(f"/live/{token}/end")
     assert ended.status_code == 302
     assert "/result/" in ended.headers["Location"]
+
+
+def test_guest_microphone_uploads_after_the_host_starts_ending(tmp_path, monkeypatch):
+    """The other person's final upload happens after the room is already ending."""
+    db = str(tmp_path / "app.db")
+    upload = str(tmp_path / "uploads")
+    os.makedirs(upload, exist_ok=True)
+    app = create_app(test_config={
+        "db_path": db,
+        "upload_dir": upload,
+        "secret_key": "test-secret",
+        "TESTING": True,
+        "WTF_CSRF_ENABLED": False,
+    })
+    init_db(db)
+    host_id = insert_user("Yamna", "yamna@example.com", generate_password_hash("Password1!"), db_path=db)
+    guest_id = insert_user("Aisha", "aisha@example.com", generate_password_hash("Password1!"), db_path=db)
+    client = app.test_client()
+    captured = {}
+
+    def speak(path):
+        if f"u{host_id}_" in os.path.basename(path):
+            return "Yamna will ask for the task."
+        return "Aisha will send the notes by Friday."
+
+    monkeypatch.setattr("services.live.transcribe_speaker_audio", speak)
+    monkeypatch.setattr("services.jobs.submit_pipeline_job", lambda **kwargs: captured.update(kwargs))
+    with client.session_transaction() as sess:
+        sess["user_id"] = host_id
+        sess["username"] = "Yamna"
+        sess["email"] = "yamna@example.com"
+    started = client.post("/live/start", data={"title": "Demo"}, follow_redirects=False)
+    token = started.headers["Location"].rstrip("/").split("/")[-1]
+    assert client.get(f"/live/{token}").status_code == 200
+    with client.session_transaction() as sess:
+        sess["user_id"] = guest_id
+        sess["username"] = "Aisha"
+        sess["email"] = "aisha@example.com"
+    assert client.get(f"/live/{token}").status_code == 200
+    with client.session_transaction() as sess:
+        sess["user_id"] = host_id
+        sess["username"] = "Yamna"
+        sess["email"] = "yamna@example.com"
+    assert client.post(
+        f"/live/{token}/admit",
+        data={"user_id": guest_id},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    ).status_code == 200
+    host_audio = client.post(
+        f"/live/{token}/recording",
+        data={"audio": (BytesIO(b"RIFFhost"), "speaker.webm"), "role": "speaker"},
+        content_type="multipart/form-data",
+    )
+    assert host_audio.status_code == 200
+    assert client.post(f"/live/{token}/ending").status_code == 200
+    with client.session_transaction() as sess:
+        sess["user_id"] = guest_id
+        sess["username"] = "Aisha"
+        sess["email"] = "aisha@example.com"
+    guest_audio = client.post(
+        f"/live/{token}/recording",
+        data={"audio": (BytesIO(b"RIFFguest"), "speaker.webm"), "role": "speaker"},
+        content_type="multipart/form-data",
+    )
+    assert guest_audio.status_code == 200
+    with client.session_transaction() as sess:
+        sess["user_id"] = host_id
+        sess["username"] = "Yamna"
+        sess["email"] = "yamna@example.com"
+    ended = client.post(f"/live/{token}/end")
+    assert ended.status_code == 302
+    text = captured["text_input"]
+    assert "Yamna (yamna@example.com):" in text
+    assert "Aisha (aisha@example.com):" in text
+    assert "send the notes" in text

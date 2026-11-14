@@ -128,6 +128,25 @@ def meeting_participants_from_members(members: List[Dict[str, Any]]) -> List[Dic
     return people
 
 
+def tracks_to_transcribe(saved: List[Dict[str, Any]], *,
+                         missing_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Every person's microphone, plus the mixed recording when one is missing.
+
+    The mix is what a browser heard from the other people. It is transcribed
+    only when a separate microphone never arrived, so those words are not
+    dropped from the transcript, tasks, and decisions.
+    """
+    speakers = [row for row in saved if (row.get("kind") or "speaker") != "mix"]
+    mixes = [row for row in saved if (row.get("kind") or "speaker") == "mix"]
+    speakers.sort(key=lambda row: (row.get("created_at") or "", int(row.get("id") or 0)))
+    mixes.sort(key=lambda row: int(row.get("byte_size") or 0), reverse=True)
+    if speakers and not missing_names:
+        return speakers
+    if mixes:
+        return speakers + [mixes[0]]
+    return speakers
+
+
 def transcript_from_recordings(recordings: List[Dict[str, Any]],
                                transcribe: Callable[[str], str]) -> tuple:
     """Transcribe each saved track. A failed track does not delete the file."""
@@ -177,14 +196,21 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
             row for row in get_meeting_recordings(meeting_id, db_path)
             if row.get("status") == "saved" and os.path.isfile(row.get("audio_path") or "")
         ]
-        speakers = [row for row in saved if (row.get("kind") or "speaker") != "mix"]
-        # Separate microphones keep who spoke. The mix is only transcribed
-        # when nobody uploaded their own microphone.
-        recordings = speakers or [row for row in saved if row.get("kind") == "mix"]
-        recordings = sorted(
-            recordings,
-            key=lambda row: (row.get("created_at") or "", int(row.get("id") or 0)),
-        )
+        absent = missing_names
+        if absent is None:
+            participants = get_meeting_participants(meeting_id, db_path)
+            heard = {
+                (row.get("speaker_email") or "").strip().lower()
+                for row in saved
+                if (row.get("kind") or "speaker") != "mix" and row.get("speaker_email")
+            }
+            absent = [
+                person.get("name") or person.get("email") or "Participant"
+                for person in participants
+                if (person.get("email") or "").strip().lower() not in heard
+            ]
+        recordings = tracks_to_transcribe(saved, missing_names=absent)
+        used_mix = any((row.get("kind") or "speaker") == "mix" for row in recordings)
         speak = transcribe or transcribe_speaker_audio
         turns: List[Dict[str, str]] = []
         errors: List[str] = []
@@ -228,8 +254,8 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
             participants=participants,
         )
         notes: List[str] = []
-        if missing_names:
-            notes.append("No microphone was saved for: " + ", ".join(missing_names) + ".")
+        if absent and not used_mix:
+            notes.append("No microphone was saved for: " + ", ".join(absent) + ".")
         if errors:
             notes.append("Some microphones were not transcribed. The saved audio was kept. " + " ".join(errors))
         if notes:

@@ -324,7 +324,8 @@ def recording(token: str):
     """Store the current user's microphone recording for this room."""
     init_db(DB_PATH)
     found = get_live_room_by_token(token, DB_PATH)
-    if not found or found["status"] != "live":
+    # Guests upload when the host has already moved the room to "ending".
+    if not found or found["status"] not in {"live", "ending", "saving"} or found.get("meeting_id"):
         return jsonify({"ok": False, "error": "This meeting is not live."}), 404
     if not get_live_member(found["id"], session["user_id"], DB_PATH):
         return jsonify({"ok": False, "error": "Join the meeting before recording."}), 403

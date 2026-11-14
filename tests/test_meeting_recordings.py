@@ -19,7 +19,7 @@ from models.database import (
     insert_user,
     replace_meeting_participants,
 )
-from services.live import finish_live_room, meeting_highlights
+from services.live import finish_live_room, meeting_highlights, tracks_to_transcribe
 
 
 def _room_with_track(db_path, upload_dir, *, speech="Aisha Khan, please send the notes."):
@@ -301,6 +301,60 @@ def test_both_microphones_are_saved_and_transcribed_in_order(tmp_path):
     again = finish_live_room(get_live_room_by_token("room-token", db), db_path=db, transcribe=speak)
     assert again == meeting_id
     assert len(get_meeting_recordings(meeting_id, db)) == 2
+
+
+def test_a_missing_microphone_uses_the_meeting_mix(tmp_path):
+    from models.database import get_accessible_meeting_detail, get_speaker_turns
+
+    db = str(tmp_path / "clario.db")
+    init_db(db)
+    upload = tmp_path / "uploads"
+    upload.mkdir()
+    host_id, guest_id, path = _room_with_track(db, str(upload))
+    room = get_live_room_by_token("room-token", db)
+    from models.database import get_connection
+    with get_connection(db) as conn:
+        conn.execute(
+            "DELETE FROM live_recordings WHERE room_id = ? AND user_id = ?",
+            (room["id"], guest_id),
+        )
+        conn.commit()
+    host_path = os.path.join(str(upload), "host-only.webm")
+    mix_path = os.path.join(str(upload), "everyone.webm")
+    with open(host_path, "wb") as handle:
+        handle.write(b"host-only-audio")
+    with open(mix_path, "wb") as handle:
+        handle.write(b"everyone-in-the-room")
+    add_live_recording(room["id"], host_id, host_path, db, kind="speaker")
+    add_live_recording(room["id"], host_id, mix_path, db, kind="mix")
+
+    def speak(audio_path):
+        if os.path.basename(audio_path) == "everyone.webm":
+            return "Aisha Khan will send the budget by Friday."
+        return "I asked who will send the budget."
+
+    meeting_id = finish_live_room(
+        room, db_path=db, graph_dir=str(tmp_path), transcribe=speak,
+    )
+    turns = get_speaker_turns(meeting_id, db)
+    assert [turn["speaker_name"] for turn in turns] == ["Host", "Whole meeting"]
+    text = (get_accessible_meeting_detail(meeting_id, host_id, db) or {}).get("transcript") or ""
+    assert "Aisha Khan will send the budget" in text
+    assert "I asked who will send the budget" in text
+    status = get_meeting_status(meeting_id, host_id, db)
+    assert status["status"] != "partial"
+
+
+def test_tracks_skip_the_mix_when_every_microphone_arrived():
+    saved = [
+        {"kind": "speaker", "id": 1, "speaker_email": "a@example.com", "byte_size": 10},
+        {"kind": "mix", "id": 2, "byte_size": 50},
+        {"kind": "speaker", "id": 3, "speaker_email": "b@example.com", "byte_size": 12},
+    ]
+    chosen = tracks_to_transcribe(saved, missing_names=[])
+    assert [row["id"] for row in chosen] == [1, 3]
+    covered = tracks_to_transcribe(saved, missing_names=["Aisha"])
+    assert [row["id"] for row in covered] == [1, 3, 2]
 
 
 def test_a_missing_microphone_is_partial_not_complete(tmp_path):

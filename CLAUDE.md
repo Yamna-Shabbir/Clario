@@ -732,9 +732,13 @@ meeting_participants                  (many-to-1 with meetings)
       host admits via `POST /live/<token>/admit` or denies via `POST /live/<token>/deny`;
       guests poll `GET /live/<token>/admission` until `admitted`.
       **Record** saves **each person's own microphone**, not a mix of the room.
-      WebRTC lets people hear each other live. Each browser records only
-      that person's microphone and uploads it on an interval, again when
-      the host starts ending, and again if the page closes. The host waits
+      WebRTC lets people hear each other live. Each browser records that
+      person's microphone and a mix of everyone they can hear. Both upload
+      on an interval, again when the host starts ending, and again if the
+      page closes. Uploads are still accepted while the room is `ending`
+      or `saving`, before a meeting id exists. The transcript uses every
+      microphone. When one person's file is missing, the mix is transcribed
+      too so their words still become tasks and decisions. The host waits
       briefly so the other uploads can finish. A meeting with a missing
       microphone or a failed transcription is `partial`, and the files that
       did arrive are kept. Tracks are transcribed in the order they were

@@ -174,6 +174,7 @@
     }
     syncPeersFromLastRoster();
     resumePlayback();
+    if (mixRecorder && mixRecorder.state === "recording") refreshMixSources();
   }
 
   function updateLocalPreview() {
@@ -280,6 +281,33 @@
     });
   }
 
+  function startMixRecorder() {
+    refreshMixSources();
+    const dest = ensureMixDestination();
+    if (!dest || !dest.stream.getAudioTracks().length) return;
+    if (mixRecorder && mixRecorder.state === "recording") return;
+    const mime = pickAudioMimeType();
+    mixChunks = [];
+    try {
+      mixRecorder = mime
+        ? new MediaRecorder(dest.stream, { mimeType: mime, audioBitsPerSecond: 128000 })
+        : new MediaRecorder(dest.stream);
+    } catch (err) {
+      try {
+        mixRecorder = new MediaRecorder(dest.stream);
+      } catch (again) {
+        return;
+      }
+    }
+    mixRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size) mixChunks.push(event.data);
+    };
+    mixRecorder.onstop = () => {
+      uploadMix();
+    };
+    mixRecorder.start(1000);
+  }
+
   async function uploadBlob(chunks, mimeType, role, keepChunks) {
     if (!chunks.length) return false;
     const type = mimeType || "audio/webm";
@@ -355,6 +383,7 @@
       uploadRecording();
     };
     recorder.start(1000);
+    startMixRecorder();
     if (startBtn) startBtn.disabled = true;
     if (stopBtn) stopBtn.disabled = false;
     if (stateEl) {
@@ -362,8 +391,12 @@
     }
     if (!uploadTimer) {
       uploadTimer = window.setInterval(() => {
-        if (!recorder || recorder.state !== "recording" || !recordChunks.length) return;
-        uploadBlob(recordChunks.slice(), recorder.mimeType, "speaker", true);
+        if (recorder && recorder.state === "recording" && recordChunks.length) {
+          uploadBlob(recordChunks.slice(), recorder.mimeType, "speaker", true);
+        }
+        if (mixRecorder && mixRecorder.state === "recording" && mixChunks.length) {
+          uploadBlob(mixChunks.slice(), mixRecorder.mimeType, "mix", true);
+        }
       }, 12000);
     }
     if (selfTile) selfTile.classList.add("meet-tile--recording");
