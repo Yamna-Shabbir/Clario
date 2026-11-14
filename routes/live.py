@@ -212,7 +212,8 @@ def room(token: str):
     found = get_live_room_by_token(token, DB_PATH)
     if not found:
         abort(404)
-    if found["status"] != "live":
+    # "ending" has no meeting yet: the host still needs this page to finish saving.
+    if found.get("meeting_id") or found["status"] not in {"live", "ending", "saving"}:
         from models.database import user_can_access_meeting
         if found.get("meeting_id") and user_can_access_meeting(
             int(found["meeting_id"]), session["user_id"], DB_PATH,
@@ -628,7 +629,7 @@ def begin_end(token: str):
     return jsonify({"ok": True, "status": "ending"})
 
 
-@live_bp.route("/live/<token>/end", methods=["POST"])
+@live_bp.route("/live/<token>/end", methods=["GET", "POST"])
 @login_required
 def end(token: str):
     """Host ends the room and starts the normal meeting pipeline."""
@@ -636,7 +637,15 @@ def end(token: str):
     found = get_live_room_by_token(token, DB_PATH)
     if not found or found["host_user_id"] != session["user_id"]:
         abort(404)
-    if found["status"] != "live":
+    if request.method == "GET":
+        if found.get("meeting_id"):
+            return redirect(url_for("meeting.result", meeting_id=found["meeting_id"]))
+        if found["status"] in {"live", "ending", "saving"}:
+            return redirect(url_for("live.room", token=token))
+        abort(404)
+    # The End button first posts to /ending, which moves the room to
+    # "ending" before this form is submitted. Both states can still be saved.
+    if found["status"] not in {"live", "ending"}:
         if found.get("meeting_id"):
             return redirect(url_for("meeting.result", meeting_id=found["meeting_id"]))
         abort(404)

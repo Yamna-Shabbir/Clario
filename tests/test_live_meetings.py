@@ -251,3 +251,46 @@ def test_live_room_records_named_audio_and_task_board(tmp_path, monkeypatch):
     assert blocked.status_code == 302
     statuses = {task["assigned_email"]: task["status"] for task in get_tasks_by_meeting(meeting_id, db)}
     assert statuses["yamna@example.com"] == "pending"
+
+
+def test_end_after_ending_claim_saves_the_meeting(tmp_path, monkeypatch):
+    """The End button claims the room, then posts /end. That second step must not 404."""
+    db = str(tmp_path / "app.db")
+    upload = str(tmp_path / "uploads")
+    os.makedirs(upload, exist_ok=True)
+    app = create_app(test_config={
+        "db_path": db,
+        "upload_dir": upload,
+        "secret_key": "test-secret",
+        "TESTING": True,
+        "WTF_CSRF_ENABLED": False,
+    })
+    init_db(db)
+    host_id = insert_user("Yamna", "yamna@example.com", generate_password_hash("Password1!"), db_path=db)
+    client = app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = host_id
+        sess["username"] = "Yamna"
+        sess["email"] = "yamna@example.com"
+    started = client.post("/live/start", data={"title": "Demo"}, follow_redirects=False)
+    token = started.headers["Location"].rstrip("/").split("/")[-1]
+    assert client.get(f"/live/{token}").status_code == 200
+    saved = client.post(
+        f"/live/{token}/recording",
+        data={"audio": (BytesIO(b"RIFFdemo"), "speaker.webm")},
+        content_type="multipart/form-data",
+    )
+    assert saved.status_code == 200
+    monkeypatch.setattr("services.live.transcribe_speaker_audio", lambda path: "Yamna will send the notes.")
+    monkeypatch.setattr("services.jobs.submit_pipeline_job", lambda **kwargs: None)
+    claimed = client.post(f"/live/{token}/ending")
+    assert claimed.status_code == 200
+    assert claimed.get_json()["status"] == "ending"
+    still_open = client.get(f"/live/{token}")
+    assert still_open.status_code == 200
+    opened = client.get(f"/live/{token}/end")
+    assert opened.status_code == 302
+    assert opened.headers["Location"].rstrip("/").endswith(f"/live/{token}")
+    ended = client.post(f"/live/{token}/end")
+    assert ended.status_code == 302
+    assert "/result/" in ended.headers["Location"]

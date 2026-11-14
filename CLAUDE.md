@@ -743,7 +743,9 @@ meeting_participants                  (many-to-1 with meetings)
       stays `assigned_to`. Recording starts only after the consent
       checkbox and the browser microphone permission. An empty upload does not
       replace a saved track. Leaving sets `live_members.left_at`.
-      The host ends the room once (`claim_live_room`). Each non-empty track is
+      The host ends the room once (`claim_live_room` sets status `ending`,
+      then `POST /live/<token>/end` accepts `live` or `ending` and saves it).
+      Each non-empty track is
       copied into `meeting_recordings` before transcription. The background job
       transcribes with the existing hybrid path, then runs the pipeline.
       A failed transcription keeps the files and sets `failed`; 
