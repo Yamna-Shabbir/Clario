@@ -354,6 +354,12 @@ services/jobs.py  _run_pipeline_job()
   4. Run post-completion hooks. send_meeting_followups emails each
      assignee their tasks and attaches a PDF of the summary, decisions,
      and the full task list. The meeting owner receives the PDF too.
+     A task email goes only to an assignee whose address is on the meeting
+     roster or in the users table. The body names the task, assignee,
+     assigner, meeting title and date, due date, priority, status, and a
+     link to `/result/<id>`. A name or a spoken sentence is not an address.
+     Ambiguous names still wait for confirmation. A later run does not send
+     again after a row is already `sent`; a `failed` row stays failed.
      The From address is the meeting owner's account. The display name is
      their username, and Reply-To is the same address. Summary mail and
      per-assignee task mail both use that host. Live invitations pass
@@ -738,7 +744,12 @@ meeting_participants                  (many-to-1 with meetings)
       WebRTC lets people hear each other live. Each browser records that
       person's microphone and, separately, the other people that browser can
       hear. The mix is not labeled with the account that recorded it. Words
-      already saved from someone's microphone are left on that account. Any
+      already saved from someone's microphone are left on that account.
+      When every saved microphone is a 16-bit mono WAV, `build_meeting_mix`
+      writes one `kind=meeting` file on a shared timeline and limits the
+      peak so the sum cannot clip. It does not remove noise or echo.
+      Browser WebM tracks are left as separate files. The result page
+      plays the full-meeting file when that row exists. Any
       remaining speech is given to the attendee who has no microphone, under
       that attendee's name and email. Each file uploads on an interval,
       again when the host starts ending, and again if the page closes.

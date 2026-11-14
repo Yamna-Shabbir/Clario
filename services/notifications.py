@@ -113,7 +113,9 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
     title = meeting.get("title") or "Meeting"
     summary = results.get("summary") or meeting.get("summary") or ""
     pdf = build_summary_pdf(title, summary, decisions, tasks)
-    recipients = _recipients(owner, participants, tasks, match)
+    recipients = _recipients(
+        owner, participants, tasks, match, db_path=db_path,
+    )
 
     log: List[Dict[str, str]] = []
     if not recipients:
@@ -127,7 +129,9 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
     host_name = (owner.get("username") or "the host").strip() or "the host"
     reply_to = _reply_header(host_name, host_email)
     for person in recipients:
-        subject, body = _message_copy(title, person)
+        subject, body = _message_copy(
+            title, person, meeting=meeting, meeting_id=int(meeting_id),
+        )
         if host_email:
             body = (
                 f"{body}\n\nThis meeting was hosted by {host_name} ({host_email}). "
@@ -178,16 +182,19 @@ def build_summary_pdf(
 
 
 def _recipients(owner: Dict[str, Any], participants: List[Dict[str, Any]],
-                tasks: List[Dict[str, Any]], match_fn) -> List[Dict[str, Any]]:
-    """One entry per email. Owner and attendees get the brief; assignees get tasks."""
+                tasks: List[Dict[str, Any]], match_fn, *,
+                db_path: str = "") -> List[Dict[str, Any]]:
+    """One entry per known email. A name or a spoken sentence is never an address."""
     people: Dict[str, Dict[str, Any]] = {}
 
     def add(email: str, name: str) -> Optional[Dict[str, Any]]:
-        cleaned = (email or "").strip().lower()
-        if not cleaned or "@" not in cleaned:
+        cleaned = _clean_email(email)
+        if not cleaned:
             return None
-        person = people.setdefault(cleaned, {"email": cleaned, "name": name or cleaned, "tasks": []})
-        if name and person["name"] == cleaned:
+        person = people.setdefault(cleaned.lower(), {
+            "email": cleaned.lower(), "name": name or cleaned.lower(), "tasks": [],
+        })
+        if name and person["name"] == cleaned.lower():
             person["name"] = name
         return person
 
@@ -196,27 +203,79 @@ def _recipients(owner: Dict[str, Any], participants: List[Dict[str, Any]],
         add(participant.get("email") or "", participant.get("name") or "")
 
     for task in tasks:
-        email = task.get("assigned_email") or ""
-        if not email:
-            matched = match_fn(task.get("assigned_to") or "", participants)
-            if matched:
-                email = matched.get("email") or ""
-        person = add(email, task.get("assigned_to") or "")
+        who = (task.get("assigned_to") or "").strip()
+        if who.casefold() in {"", "team", "unassigned", "unknown"}:
+            continue
+        email = _task_recipient(task, participants, owner, match_fn, db_path)
+        person = add(email, who)
         if person is not None:
             person["tasks"].append(task)
     return list(people.values())
 
 
-def _message_copy(title: str, person: Dict[str, Any]) -> Tuple[str, str]:
+def _task_recipient(task: Dict[str, Any], participants: List[Dict[str, Any]],
+                    owner: Dict[str, Any], match_fn, db_path: str) -> str:
+    """Email of the assignee, only when a participant or user record has it."""
+    candidate = _clean_email(task.get("assigned_email") or "")
+    if not candidate:
+        candidate = _clean_email(task.get("assigned_to") or "")
+    if not candidate:
+        matched = match_fn(task.get("assigned_to") or "", participants)
+        candidate = _clean_email((matched or {}).get("email") or "")
+    if not candidate or not _known_address(candidate, participants, owner, db_path):
+        return ""
+    return candidate.lower()
+
+
+def _known_address(email: str, participants: List[Dict[str, Any]],
+                   owner: Dict[str, Any], db_path: str) -> bool:
+    wanted = _clean_email(email).lower()
+    if not wanted:
+        return False
+    known = {_clean_email(owner.get("email") or "").lower()}
+    known.update(_clean_email(person.get("email") or "").lower() for person in participants)
+    known.discard("")
+    if wanted in known:
+        return True
+    if not db_path:
+        return False
+    from models.database import get_user_by_email
+    return get_user_by_email(wanted, db_path) is not None
+
+
+def _meeting_link(meeting_id: int) -> str:
+    from config import OAUTH_REDIRECT_BASE
+    base = (OAUTH_REDIRECT_BASE or "http://127.0.0.1:5000").rstrip("/")
+    return f"{base}/result/{meeting_id}"
+
+
+def _message_copy(title: str, person: Dict[str, Any], *,
+                  meeting: Optional[Dict[str, Any]] = None,
+                  meeting_id: int = 0) -> Tuple[str, str]:
     name = person.get("name") or "there"
     own = person.get("tasks") or []
+    meeting = meeting or {}
+    when = meeting.get("meeting_date") or (meeting.get("created_at") or "")[:10]
     if own:
         subject = f"Your tasks from {title}"
-        lines = [f"Hello {name},", "", "These tasks were assigned to you:", ""]
+        lines = [f"Hello {name},", "", f"Meeting: {title}", f"Date: {when or 'Not specified'}", ""]
         for task in own:
             due = task.get("due_date") or "Not specified"
-            lines.append(f"- {task.get('description', '')} (due {due})")
-        lines.extend(["", "The attached PDF includes the meeting summary and the other tasks."])
+            spoken = (task.get("evidence_time") or "").strip()
+            if spoken and spoken not in due:
+                due = f"{due} (mentioned at {spoken})"
+            lines.extend([
+                f"Task: {task.get('description', '')}",
+                f"Assigned to: {name}",
+                f"Assigned by: {task.get('assigned_by') or 'the host'}",
+                f"Due: {due}",
+                f"Priority: {task.get('priority') or 'Low'}",
+                f"Status: {task.get('status') or 'pending'}",
+                "",
+            ])
+        if meeting_id:
+            lines.append(f"Open the meeting in Clario: {_meeting_link(meeting_id)}")
+        lines.append("The attached PDF includes the meeting summary and the other tasks.")
     else:
         subject = f"Summary of {title}"
         lines = [

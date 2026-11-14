@@ -16,6 +16,7 @@ from models.database import (
     replace_task_reviews,
 )
 from services.nlp.task_detection import detect_tasks
+from services.nlp.utterances import label_sentence
 from services.nlp.task_verification import (
     prepare_meeting_turns,
     segment_transcript,
@@ -399,3 +400,51 @@ def test_split_tasks_are_stored_as_separate_rows(tmp_path):
     assert len(stored) == 3
     assert {row["assigned_to"] for row in stored} == {"Adeel", "Sana", "Noor"}
     assert all(row["status"] == "pending" for row in stored)
+
+
+def test_urdu_sentence_marks_split_the_transcript():
+    from services.nlp.utterances import classify_utterances
+
+    rows = classify_utterances("پہلا جملہ۔ دوسرا جملہ؟")
+    assert len(rows) == 2
+    assert rows[1]["text"].endswith("؟")
+    assert rows[1]["label"] != "Decision"
+
+
+def test_a_question_is_not_stored_as_a_decision():
+    assert label_sentence("Should we use React?")["label"] != "Decision"
+    agreed = label_sentence("We decided to use React.")
+    assert agreed["label"] == "Decision"
+    checked = verify_meeting_tasks("Should we use React?\nWe decided to use React.")
+    texts = [item.get("text") or "" for item in checked["decisions"]]
+    assert any("decided to use React" in text for text in texts)
+    assert all(not text.endswith("?") for text in texts)
+
+
+def test_mixed_english_keeps_a_real_assignment_and_drops_the_question():
+    result = verify_meeting_tasks(
+        "Ada: Hello.\n"
+        "Ada: Sara, please send the notes by Friday.\n"
+        "Sara: Should we redesign the homepage?\n"
+        "Ada: We decided to keep the current homepage.\n",
+        participants=[{"name": "Sara Khan", "email": "sara@example.com"}],
+    )
+    descriptions = [task.get("description") or "" for task in result["tasks"]]
+    assert any("notes" in item.lower() for item in descriptions)
+    assert all(not item.lower().startswith("hello") for item in descriptions)
+    decisions = [item.get("text") or "" for item in result["decisions"]]
+    assert any("keep the current homepage" in item for item in decisions)
+    assert all(not item.endswith("?") for item in decisions)
+
+
+def test_a_greeting_or_email_address_is_not_a_task():
+    greeting = verify_meeting_tasks(
+        "Hello.",
+        tasks=[{"description": "Hello.", "assigned_to": "Sara"}],
+    )
+    address = verify_meeting_tasks(
+        "sara@example.com",
+        tasks=[{"description": "sara@example.com", "assigned_to": "Sara"}],
+    )
+    assert greeting["tasks"] == []
+    assert address["tasks"] == []

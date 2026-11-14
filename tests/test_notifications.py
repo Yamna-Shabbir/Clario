@@ -556,3 +556,128 @@ def test_invite_without_transport_names_the_https_setup(monkeypatch, tmp_path):
     results = send_invite_emails(["guest@example.com"], "https://x/live/t", "Planning", "Ada")
     assert results[0]["status"] == "saved"
     assert "CLARIO_BREVO_API_KEY" in results[0]["detail"]
+
+
+def test_assignee_mail_includes_the_assignment_and_is_not_repeated(tmp_path):
+    db = _db()
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self):
+            return None
+
+        def login(self, user, password):
+            return None
+
+        def send_message(self, message):
+            sent.append(message)
+
+    try:
+        owner_id = insert_user("Ada", "ada@example.com", "hash", db_path=db)
+        meeting_id = insert_meeting(owner_id, title="Planning", db_path=db)
+        insert_participants(meeting_id, [
+            {"name": "Sara Khan", "email": "sara@example.com"},
+        ], db_path=db)
+        insert_tasks(meeting_id, [{
+            "description": "Sara will design the logo.",
+            "assigned_to": "Sara Khan",
+            "assigned_email": "sara@example.com",
+            "assigned_by": "Ada",
+            "due_date": "Friday 3pm",
+            "status": "pending",
+            "keyword": "will",
+            "priority": "High",
+            "evidence_time": "00:01:10",
+        }], db_path=db)
+        with patch("services.notifications.BREVO_API_KEY", ""), \
+             patch("services.notifications.RESEND_API_KEY", ""), \
+             patch("services.notifications.SMTP_HOST", "smtp.example.com"), \
+             patch("services.notifications.SMTP_FROM", "clario@example.com"), \
+             patch("services.notifications.SMTP_USER", "clario@example.com"), \
+             patch("services.notifications.SMTP_PASSWORD", "secret"), \
+             patch("services.notifications.EMAIL_DIR", ""), \
+             patch("services.notifications.smtplib.SMTP", FakeSMTP):
+            payload = {
+                "summary": "Notes.",
+                "stats": {"meeting_id": meeting_id, "user_id": owner_id, "db_path": db},
+            }
+            send_meeting_followups(payload)
+            first = len(sent)
+            send_meeting_followups(payload)
+        sara = next(item for item in sent if item["To"] == "sara@example.com")
+        body = sara.get_body(preferencelist=("plain",)).get_content()
+        assert "Sara will design the logo." in body
+        assert "Assigned to: Sara Khan" in body
+        assert "Assigned by: Ada" in body
+        assert "Planning" in body
+        assert "Friday 3pm" in body
+        assert "00:01:10" in body
+        assert "Priority: High" in body
+        assert "Status: pending" in body
+        assert f"/result/{meeting_id}" in body
+        assert "ada@example.com" in str(sara["From"]).lower()
+        assert len(sent) == first
+        rows = get_meeting_emails(meeting_id, db)
+        assert all(row["status"] == "sent" for row in rows)
+    finally:
+        os.remove(db)
+
+
+def test_a_spoken_sentence_is_not_used_as_an_email_address(tmp_path):
+    db = _db()
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self):
+            return None
+
+        def login(self, *args):
+            return None
+
+        def send_message(self, message):
+            sent.append(str(message["To"]))
+
+    try:
+        owner_id = insert_user("Ada", "ada@example.com", "hash", db_path=db)
+        meeting_id = insert_meeting(owner_id, title="Planning", db_path=db)
+        insert_tasks(meeting_id, [{
+            "description": "Please send the notes by Friday.",
+            "assigned_to": "Please send the notes by Friday.",
+            "due_date": "Friday",
+            "status": "pending",
+            "keyword": "please",
+            "priority": "Low",
+        }], db_path=db)
+        with patch("services.notifications.BREVO_API_KEY", ""), \
+             patch("services.notifications.RESEND_API_KEY", ""), \
+             patch("services.notifications.SMTP_HOST", "smtp.example.com"), \
+             patch("services.notifications.SMTP_FROM", "ada@example.com"), \
+             patch("services.notifications.SMTP_USER", "ada@example.com"), \
+             patch("services.notifications.SMTP_PASSWORD", "secret"), \
+             patch("services.notifications.EMAIL_DIR", ""), \
+             patch("services.notifications.smtplib.SMTP", FakeSMTP):
+            send_meeting_followups({
+                "summary": "Notes.",
+                "stats": {"meeting_id": meeting_id, "user_id": owner_id, "db_path": db},
+            })
+        assert sent == ["ada@example.com"]
+    finally:
+        os.remove(db)

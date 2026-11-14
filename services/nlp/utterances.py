@@ -34,7 +34,9 @@ _TASK_RE = re.compile(
 )
 # Newlines split speaker labels from the next sentence. Without that,
 # "Sarah\nWe decided …" is one sentence when spaCy is unavailable.
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+# Urdu uses ۔ and ؟ as sentence marks. Splitting on them keeps each speaker's
+# sentence separate when the transcript has no Latin punctuation.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?؟۔])\s+|\n+")
 
 
 def _sentences(text: str, nlp: Any) -> List[str]:
@@ -51,7 +53,8 @@ def label_sentence(sentence: str) -> Dict[str, Any]:
     # "We will use X" is a decision, not a person being assigned work.
     named_assignment = named_match is not None and not named_match.group(0).lower().startswith("we ")
     task_cue = _TASK_RE.search(text) is not None or named_assignment
-    decision_cue = _DECISION_RE.search(text) is not None
+    # A question is not an agreed decision, even when it contains "we will".
+    decision_cue = _DECISION_RE.search(text) is not None and not text.endswith(("?", "؟"))
 
     if task_cue and (named_assignment or not decision_cue):
         label = LABEL_TASK

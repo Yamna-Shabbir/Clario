@@ -420,6 +420,64 @@ def test_a_missing_microphone_is_partial_not_complete(tmp_path):
     assert os.path.isfile(host_path)
 
 
+def test_full_meeting_wav_keeps_both_voices_on_one_timeline(tmp_path):
+    import struct
+    import wave
+    from services.audio_mix import build_meeting_mix
+
+    def write_wav(path, samples):
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(8000)
+            handle.writeframes(struct.pack("<" + ("h" * len(samples)), *samples))
+
+    first = tmp_path / "a.wav"
+    second = tmp_path / "b.wav"
+    write_wav(first, [10000] * 8000)
+    write_wav(second, [12000] * 8000)
+    db = str(tmp_path / "clario.db")
+    init_db(db)
+    owner = insert_user("ada", "ada@example.com", "hash", db_path=db)
+    meeting_id = insert_meeting(owner, title="Live", db_path=db)
+    rows = [
+        {
+            "speaker_name": "Ada",
+            "speaker_email": "ada@example.com",
+            "audio_path": str(first),
+            "byte_size": first.stat().st_size,
+            "status": "saved",
+            "kind": "speaker",
+            "created_at": "2026-11-15T00:00:00",
+        },
+        {
+            "speaker_name": "Sara",
+            "speaker_email": "sara@example.com",
+            "audio_path": str(second),
+            "byte_size": second.stat().st_size,
+            "status": "saved",
+            "kind": "speaker",
+            "created_at": "2026-11-15T00:00:01",
+        },
+    ]
+    insert_meeting_recordings(meeting_id, rows, db)
+    path = build_meeting_mix(meeting_id, rows, db)
+    assert path and os.path.isfile(path)
+    with wave.open(path, "rb") as handle:
+        frames = handle.readframes(handle.getnframes())
+        duration = handle.getnframes() / handle.getframerate()
+    samples = struct.unpack("<" + ("h" * (len(frames) // 2)), frames)
+    assert duration == 2
+    assert samples[100] != 0
+    assert samples[8000 + 100] != 0
+    assert max(abs(sample) for sample in samples) <= 32767
+    stored = get_meeting_recordings(meeting_id, db)
+    full = next(row for row in stored if row["kind"] == "meeting")
+    assert full["speaker_name"] == "Full meeting"
+    assert {row["kind"] for row in stored if row["kind"] == "speaker"} == {"speaker"}
+    assert build_meeting_mix(meeting_id, stored, db) is None
+
+
 def test_a_status_remark_creates_no_task_or_decision():
     from services.nlp.task_verification import verify_meeting_tasks
 

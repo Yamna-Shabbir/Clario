@@ -519,6 +519,37 @@ def prepare_meeting_turns(transcript: str, *, translate: bool = True) -> List[Di
     return _carry_addressee(_explode_gloss(turns))
 
 
+_EMAIL_ONLY_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
+_GREETING_ONLY_RE = re.compile(
+    r"^(?:hi|hello|hey|thanks|thank you|salam|assalam(?:u| o) alaikum|السلام علیکم)[.!]*$",
+    re.IGNORECASE,
+)
+
+
+def _blocked_task(task: Dict[str, Any]) -> bool:
+    """Drop lines that are not an assignment.
+
+    An email address, a greeting, or a casual thanks is not a task. A real
+    question that also names work is left for the detector's own guards.
+    """
+    description = (task.get("description") or "").strip()
+    if not description:
+        return True
+    if _EMAIL_ONLY_RE.match(description):
+        return True
+    if _GREETING_ONLY_RE.match(description):
+        return True
+    return False
+
+
+def _accepted_decision(item: Dict[str, Any]) -> bool:
+    """Keep an agreement. A question is not a decision."""
+    text = (item.get("text") or item.get("content") or "").strip()
+    if not text or text.endswith("?") or text.endswith("؟"):
+        return False
+    return True
+
+
 def _looks_like_decision_only(sentence: str) -> bool:
     return bool(_LETS_DECISION_RE.search(sentence))
 
@@ -858,7 +889,11 @@ def verify_meeting_tasks(
                 "confidence": 0.75,
                 "source": turn.get("original") or sentence,
             })
-    decisions = _unique_decisions(decisions)
+    confirmed = [task for task in confirmed if not _blocked_task(task)]
+    decisions = [
+        item for item in _unique_decisions(decisions)
+        if _accepted_decision(item)
+    ]
 
     return {
         "tasks": confirmed,

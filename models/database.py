@@ -1426,7 +1426,7 @@ def insert_meeting_recordings(meeting_id: int, rows: List[Dict],
                     int(row.get("byte_size") or 0),
                     row.get("duration_seconds"),
                     row.get("status") or "saved",
-                    "mix" if row.get("kind") == "mix" else "speaker",
+                    row.get("kind") if row.get("kind") in {"mix", "speaker", "meeting"} else "speaker",
                 ),
             )
             existing.add(path)

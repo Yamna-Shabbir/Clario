@@ -10,9 +10,12 @@ and joined into one transcript for the normal pipeline.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from config import DB_PATH, GRAPH_DIR, WHISPER_MODEL
 
@@ -211,7 +214,7 @@ def tracks_to_transcribe(saved: List[Dict[str, Any]], *,
     only when a separate microphone never arrived, so those words are not
     dropped from the transcript, tasks, and decisions.
     """
-    speakers = [row for row in saved if (row.get("kind") or "speaker") != "mix"]
+    speakers = [row for row in saved if (row.get("kind") or "speaker") == "speaker"]
     mixes = [row for row in saved if (row.get("kind") or "speaker") == "mix"]
     speakers.sort(key=lambda row: (row.get("created_at") or "", int(row.get("id") or 0)))
     mixes.sort(key=lambda row: int(row.get("byte_size") or 0), reverse=True)
@@ -272,13 +275,18 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
             row for row in get_meeting_recordings(meeting_id, db_path)
             if row.get("status") == "saved" and os.path.isfile(row.get("audio_path") or "")
         ]
+        from services.audio_mix import build_meeting_mix
+        try:
+            build_meeting_mix(meeting_id, saved, db_path)
+        except Exception:
+            logger.exception("The full meeting recording was not written. Speaker tracks were kept.")
         absent = missing_names
         if absent is None:
             participants = get_meeting_participants(meeting_id, db_path)
             heard = {
                 (row.get("speaker_email") or "").strip().lower()
                 for row in saved
-                if (row.get("kind") or "speaker") != "mix" and row.get("speaker_email")
+                if (row.get("kind") or "speaker") == "speaker" and row.get("speaker_email")
             }
             absent = [
                 person.get("name") or person.get("email") or "Participant"
@@ -291,7 +299,7 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
             heard = {
                 (row.get("speaker_email") or "").strip().lower()
                 for row in saved
-                if (row.get("kind") or "speaker") != "mix" and row.get("speaker_email")
+                if (row.get("kind") or "speaker") == "speaker" and row.get("speaker_email")
             }
             unheard = [
                 person for person in roster

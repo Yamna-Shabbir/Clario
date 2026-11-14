@@ -55,8 +55,20 @@
   <section class="stack-lg">
     <h2 class="section-heading">{{ icon_mic(18, 'icon') }} Recording</h2>
     <div class="card card-pad">
-      <p class="text-muted stack-md">Each track is one person's microphone. Play them separately. A missing person is named in the warning above the transcript.</p>
-      {% for rec in recordings %}
+      {% set full = recordings | selectattr('kind', 'equalto', 'meeting') | list %}
+      {% if full %}
+      {% set rec = full[0] %}
+      <p class="text-muted stack-md">This is the full meeting, with each saved microphone on one timeline. Source tracks stay available underneath.</p>
+      <div class="stack-sm">
+        <strong>Full meeting</strong>
+        {% if rec.duration_seconds %}<span class="text-muted">{{ rec.duration_seconds }} seconds</span>{% endif %}
+        <audio controls preload="metadata" src="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=rec.id) }}"></audio>
+        <a class="btn btn-outline btn-sm" href="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=rec.id, download=1) }}">Download</a>
+      </div>
+      {% else %}
+      <p class="text-muted stack-md">Each track is one person's microphone. A single full-meeting file is added when those tracks are WAV recordings.</p>
+      {% endif %}
+      {% for rec in recordings if rec.kind != 'meeting' %}
       <div class="stack-sm">
         <strong>{{ rec.speaker_name }}</strong>
         {% if rec.speaker_email %}<span class="text-muted">{{ rec.speaker_email }}</span>{% endif %}
