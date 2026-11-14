@@ -337,12 +337,48 @@ def test_a_missing_microphone_uses_the_meeting_mix(tmp_path):
         room, db_path=db, graph_dir=str(tmp_path), transcribe=speak,
     )
     turns = get_speaker_turns(meeting_id, db)
-    assert [turn["speaker_name"] for turn in turns] == ["Host", "Whole meeting"]
+    assert [turn["speaker_name"] for turn in turns] == ["Host", "Aisha Khan"]
+    assert turns[1]["speaker_email"] == "guest@example.com"
     text = (get_accessible_meeting_detail(meeting_id, host_id, db) or {}).get("transcript") or ""
     assert "Aisha Khan will send the budget" in text
     assert "I asked who will send the budget" in text
     status = get_meeting_status(meeting_id, host_id, db)
     assert status["status"] != "partial"
+
+
+def test_email_labels_are_not_repeated_and_other_speech_keeps_its_speaker():
+    from services.live import attribute_unheard_speech, format_speaker_transcript
+    from services.nlp.task_verification import verify_meeting_tasks
+
+    text = format_speaker_transcript([
+        {"speaker_name": "yumnashabbir5@gmail.com", "speaker_email": "yumnashabbir5@gmail.com", "content": "Give me any task."},
+        {"speaker_name": "mona@gmail.com", "speaker_email": "mona@gmail.com", "content": "I will make the tea by Friday."},
+    ])
+    assert text == (
+        "yumnashabbir5@gmail.com: Give me any task.\n"
+        "mona@gmail.com: I will make the tea by Friday."
+    )
+    turns = attribute_unheard_speech(
+        "Give me any task. I will make the tea by Friday.",
+        [{"content": "Give me any task."}],
+        [{"display_name": "mona@gmail.com", "email": "mona@gmail.com"}],
+    )
+    assert turns[0]["speaker_email"] == "mona@gmail.com"
+    assert "make the tea" in turns[0]["content"]
+    assert "Give me any task" not in turns[0]["content"]
+    people = [
+        {"name": "yumnashabbir5@gmail.com", "email": "yumnashabbir5@gmail.com"},
+        {"name": "mona@gmail.com", "email": "mona@gmail.com"},
+    ]
+    checked = verify_meeting_tasks(
+        "yumnashabbir5@gmail.com: Mona, please make the tea by Friday.\n"
+        "mona@gmail.com: I will make the tea by Friday.",
+        participants=people,
+    )
+    tasks = checked["tasks"]
+    assert tasks
+    given = next(task for task in tasks if task.get("assigned_by_email") == "yumnashabbir5@gmail.com")
+    assert given["assigned_email"] == "mona@gmail.com"
 
 
 def test_tracks_skip_the_mix_when_every_microphone_arrived():

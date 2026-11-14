@@ -56,15 +56,90 @@ def speaker_lines(recordings: List[Dict[str, Any]],
     return turns
 
 
+def speaker_label(name: str, email: str = "") -> str:
+    """Label a turn with the account. An email is not repeated as the name."""
+    cleaned_name = (name or "").strip()
+    cleaned_email = (email or "").strip()
+    if cleaned_email and (
+        not cleaned_name
+        or "@" in cleaned_name
+        or cleaned_name.lower() == cleaned_email.lower()
+    ):
+        return cleaned_email
+    if cleaned_email and cleaned_name:
+        return f"{cleaned_name} ({cleaned_email})"
+    return cleaned_name or "Speaker"
+
+
 def format_speaker_transcript(turns: List[Dict[str, str]]) -> str:
-    """Prefix each turn so the name stays tied to the account email."""
+    """Prefix each turn so the account email stays on that person's words."""
     lines = []
     for turn in turns:
-        name = turn.get("speaker_name") or "Speaker"
-        email = (turn.get("speaker_email") or "").strip()
-        label = f"{name} ({email})" if email else name
+        label = speaker_label(
+            turn.get("speaker_name") or "",
+            turn.get("speaker_email") or "",
+        )
         lines.append(f"{label}: {turn.get('content', '').strip()}")
     return "\n".join(lines).strip()
+
+
+def _speech_sentences(text: str) -> List[str]:
+    return [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text or "")
+        if sentence.strip()
+    ]
+
+
+def _same_sentence(left: str, right: str) -> bool:
+    from difflib import SequenceMatcher
+    a = " ".join((left or "").lower().split())
+    b = " ".join((right or "").lower().split())
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return SequenceMatcher(None, a, b).ratio() >= 0.84
+
+
+def attribute_unheard_speech(mix_text: str,
+                             known_turns: List[Dict[str, str]],
+                             missing_people: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Give words that are not already in someone's microphone to the person who has none.
+
+    One missing attendee receives that speech under their own name and email.
+    Several missing attendees stay unnamed rather than being assigned to the
+    person whose browser recorded the mix.
+    """
+    known = []
+    for turn in known_turns:
+        known.extend(_speech_sentences(turn.get("content") or ""))
+    kept = [
+        sentence for sentence in _speech_sentences(mix_text)
+        if not any(_same_sentence(sentence, prior) for prior in known)
+    ]
+    if not kept or not missing_people:
+        return []
+    content = " ".join(kept)
+    if len(missing_people) != 1:
+        return [{
+            "speaker_name": "Other participants",
+            "speaker_email": "",
+            "content": content,
+        }]
+    person = missing_people[0]
+    email = (person.get("email") or "").strip().lower()
+    name = (
+        person.get("display_name")
+        or person.get("name")
+        or email
+        or "Speaker"
+    )
+    return [{
+        "speaker_name": name,
+        "speaker_email": email,
+        "content": content,
+    }]
 
 
 def saved_recording_rows(recordings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -173,7 +248,8 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
                         db_path: str = DB_PATH,
                         graph_dir: str = GRAPH_DIR,
                         transcribe: Optional[Callable[[str], str]] = None,
-                        missing_names: Optional[List[str]] = None) -> None:
+                        missing_names: Optional[List[str]] = None,
+                        missing_participants: Optional[List[Dict[str, Any]]] = None) -> None:
     """Transcribe saved tracks in the background, then run the meeting pipeline."""
     from services.jobs import CLARIO_SYNC_JOBS, get_executor, submit_pipeline_job
 
@@ -209,10 +285,28 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
                 for person in participants
                 if (person.get("email") or "").strip().lower() not in heard
             ]
+        unheard = missing_participants
+        if unheard is None:
+            roster = get_meeting_participants(meeting_id, db_path)
+            heard = {
+                (row.get("speaker_email") or "").strip().lower()
+                for row in saved
+                if (row.get("kind") or "speaker") != "mix" and row.get("speaker_email")
+            }
+            unheard = [
+                person for person in roster
+                if (person.get("email") or "").strip().lower() not in heard
+            ]
+        if absent is None:
+            absent = [
+                person.get("display_name") or person.get("name") or person.get("email") or "Participant"
+                for person in unheard
+            ]
         recordings = tracks_to_transcribe(saved, missing_names=absent)
         used_mix = any((row.get("kind") or "speaker") == "mix" for row in recordings)
         speak = transcribe or transcribe_speaker_audio
         turns: List[Dict[str, str]] = []
+        mix_text: List[str] = []
         errors: List[str] = []
         for recording in recordings:
             path = recording.get("audio_path") or ""
@@ -224,11 +318,16 @@ def queue_live_analysis(meeting_id: int, user_id: int, *,
                 continue
             if not text:
                 continue
+            if (recording.get("kind") or "speaker") == "mix":
+                mix_text.append(text)
+                continue
             turns.append({
                 "speaker_name": label,
                 "speaker_email": (recording.get("speaker_email") or "").strip().lower(),
                 "content": text,
             })
+        for text in mix_text:
+            turns.extend(attribute_unheard_speech(text, turns, unheard or []))
         transcript = format_speaker_transcript(turns)
         if not transcript:
             detail = " ".join(errors) or "No speech was transcribed."
@@ -337,10 +436,13 @@ def finish_live_room(room: Dict[str, Any], *,
     recorded_ids = {
         int(row["user_id"]) for row in recordings if row.get("kind") != "mix" and row.get("user_id")
     }
+    missing_members = [
+        member for member in members
+        if int(member["user_id"]) not in recorded_ids
+    ]
     missing = [
         member.get("display_name") or member.get("email") or "Participant"
-        for member in members
-        if int(member["user_id"]) not in recorded_ids
+        for member in missing_members
     ]
     replace_meeting_participants(meeting_id, participants, db_path)
     update_meeting_platform(meeting_id, "live", room.get("join_token") or "", db_path)
@@ -353,6 +455,7 @@ def finish_live_room(room: Dict[str, Any], *,
         graph_dir=graph_dir,
         transcribe=transcribe,
         missing_names=missing,
+        missing_participants=missing_members,
     )
     return meeting_id
 

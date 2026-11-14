@@ -15,6 +15,10 @@ from typing import Any, Dict, List, Optional
 from services.preprocessing.cleaning import clean_transcript
 
 _TIME_RE = re.compile(r"[\[(](\d{1,2}:\d{2}(?::\d{2})?)[\])]")
+_EMAIL_SPEAKER_RE = re.compile(
+    r"^([^\s:()]+@[^\s:()]+)(?:\s*\([^)]*\))?\s*:\s+(.+)$",
+    re.IGNORECASE,
+)
 _INLINE_SPEAKER_RE = re.compile(
     r"^(?:Speaker\s+\d+\s*[–\-—:]\s*)?"
     r"([A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2})"
@@ -128,8 +132,15 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
         if any_header:
             speaker = _display_name(any_header.group(1))
             label = line.rstrip(".")
+            speaker_email = ""
             continue
-        inline = _INLINE_SPEAKER_RE.match(line)
+        email_line = _EMAIL_SPEAKER_RE.match(line)
+        if email_line:
+            speaker_email = email_line.group(1).strip().lower()
+            speaker = speaker_email
+            label = speaker_email
+            line = email_line.group(2).strip()
+        inline = _INLINE_SPEAKER_RE.match(line) if not email_line else None
         if inline and inline.group(1).lower() not in _NOT_A_NAME:
             speaker = inline.group(1)
             label = speaker
@@ -202,6 +213,31 @@ def _expand(sentence: str) -> str:
     for pattern, replacement in _CONTRACTIONS:
         expanded = pattern.sub(replacement, expanded)
     return expanded
+
+
+def _speaker_token(speaker: str, email: str,
+                   participants: Optional[List[Dict[str, Any]]]) -> str:
+    """Use the roster name for 'I will', including when the label is an email."""
+    mail = (email or "").strip().lower()
+    if not mail and "@" in (speaker or ""):
+        mail = speaker.strip().lower()
+    if mail and participants:
+        for person in participants:
+            if (person.get("email") or "").strip().lower() != mail:
+                continue
+            name = (person.get("name") or "").strip()
+            if name and "@" not in name:
+                return name
+            local = re.sub(r"[^A-Za-z0-9]", "", mail.split("@", 1)[0])
+            if local:
+                return local[:1].upper() + local[1:]
+    if speaker and "@" not in speaker:
+        return speaker
+    if mail:
+        local = re.sub(r"[^A-Za-z0-9]", "", mail.split("@", 1)[0])
+        if local:
+            return local[:1].upper() + local[1:]
+    return speaker
 
 
 def _for_detector(sentence: str, speaker: str) -> str:
@@ -622,7 +658,10 @@ def verify_meeting_tasks(
             })
             continue
 
-        contextual = _for_detector(sentence, speaker)
+        contextual = _for_detector(
+            sentence,
+            _speaker_token(speaker, turn.get("speaker_email") or "", participants),
+        )
         found = detect_tasks(
             contextual,
             nlp=nlp,
@@ -867,6 +906,16 @@ def _collapse_repeats(
             "evidence_time": previous.get("evidence_time") or "",
             "reason": reason,
         })
+        # The person who asked stays the assigner when the assignee later agrees.
+        previous_by = (previous.get("assigned_by_email") or "").strip().lower()
+        previous_to = (previous.get("assigned_email") or "").strip().lower()
+        later_by = (task.get("assigned_by_email") or "").strip().lower()
+        later_to = (task.get("assigned_email") or "").strip().lower()
+        if previous_by and previous_by != previous_to and later_by == later_to:
+            task["assigned_by"] = previous.get("assigned_by") or task.get("assigned_by")
+            task["assigned_by_email"] = previous.get("assigned_by_email")
+            if previous.get("source_text"):
+                task["source_context"] = previous.get("source_text")
         kept[match_at] = task
     return kept, review
 

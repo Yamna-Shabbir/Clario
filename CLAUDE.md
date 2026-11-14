@@ -733,16 +733,17 @@ meeting_participants                  (many-to-1 with meetings)
       guests poll `GET /live/<token>/admission` until `admitted`.
       **Record** saves **each person's own microphone**, not a mix of the room.
       WebRTC lets people hear each other live. Each browser records that
-      person's microphone and a mix of everyone they can hear. Both upload
-      on an interval, again when the host starts ending, and again if the
-      page closes. Uploads are still accepted while the room is `ending`
-      or `saving`, before a meeting id exists. The transcript uses every
-      microphone. When one person's file is missing, the mix is transcribed
-      too so their words still become tasks and decisions. The host waits
-      briefly so the other uploads can finish. A meeting with a missing
-      microphone or a failed transcription is `partial`, and the files that
-      did arrive are kept. Tracks are transcribed in the order they were
-      saved and labelled with the account that uploaded them. The speaker of an assignment is stored
+      person's microphone and, separately, the other people that browser can
+      hear. The mix is not labeled with the account that recorded it. Words
+      already saved from someone's microphone are left on that account. Any
+      remaining speech is given to the attendee who has no microphone, under
+      that attendee's name and email. Each file uploads on an interval,
+      again when the host starts ending, and again if the page closes.
+      Uploads are still accepted while the room is `ending` or `saving`,
+      before a meeting id exists. The host waits briefly so the other
+      uploads can finish. A meeting with a missing microphone or a failed
+      transcription is `partial`, and the files that did arrive are kept.
+      Each microphone is labelled with the account that spoke. The speaker of an assignment is stored
       as `assigned_by` / `assigned_by_email`; the person who must do the work
       stays `assigned_to`. Recording starts only after the consent
       checkbox and the browser microphone permission. An empty upload does not

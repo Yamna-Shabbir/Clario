@@ -62,6 +62,17 @@ def _classify_assignee(
     if not assignee_name or not participants:
         return "none", []
 
+    if "@" in assignee_name:
+        email = assignee_name.strip().lower()
+        email_matches = [
+            p for p in participants
+            if p and (p.get("email") or "").strip().lower() == email
+        ]
+        if len(email_matches) == 1:
+            return "unique", email_matches[0]
+        if len(email_matches) > 1:
+            return "ambiguous", email_matches
+
     cleaned_assignee = _clean_text(assignee_name)
     if not cleaned_assignee or cleaned_assignee in IGNORED_ASSIGNEES:
         return "none", []
@@ -96,6 +107,21 @@ def _classify_assignee(
         return "unique", first_name_matches[0]
     if len(first_name_matches) > 1:
         return "ambiguous", first_name_matches
+
+    if len(assignee_tokens) == 1 and len(assignee_first) >= 3:
+        local_matches = []
+        for person in valid_participants:
+            local = re.sub(
+                r"[^a-z0-9]",
+                "",
+                (person.get("email") or "").split("@")[0].lower(),
+            )
+            if local and local == re.sub(r"[^a-z0-9]", "", assignee_first):
+                local_matches.append(person)
+        if len(local_matches) == 1:
+            return "unique", local_matches[0]
+        if len(local_matches) > 1:
+            return "ambiguous", local_matches
 
     candidates = []
     for p in valid_participants:

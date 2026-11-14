@@ -275,7 +275,6 @@
   }
 
   function refreshMixSources() {
-    if (localStream) localStream.getAudioTracks().forEach(connectTrackToMix);
     remoteStreams.forEach((media) => {
       if (media && media.audio) media.audio.getAudioTracks().forEach(connectTrackToMix);
     });
@@ -974,7 +973,10 @@
     refreshTileMedia(id);
     if (track.kind === "audio") {
       watchSpeaking(id, media.audio);
-      if (mixRecorder && mixRecorder.state === "recording") connectTrackToMix(track);
+      if (recorder && recorder.state === "recording") {
+        connectTrackToMix(track);
+        startMixRecorder();
+      }
     }
   }
 
