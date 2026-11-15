@@ -450,11 +450,16 @@ meeting_emails                        (many-to-1 with meetings)
   created_at TEXT DEFAULT datetime('now')
 
 decisions                             (many-to-1 with meetings)
-  id          INTEGER PK AUTOINCREMENT
-  meeting_id  INTEGER NOT NULL → meetings.id ON DELETE CASCADE
-  content     TEXT NOT NULL
-  confidence  REAL DEFAULT 0.8
-  source_text TEXT
+  id               INTEGER PK AUTOINCREMENT
+  meeting_id       INTEGER NOT NULL → meetings.id ON DELETE CASCADE
+  content          TEXT NOT NULL
+  confidence       REAL DEFAULT 0.8
+  source_text      TEXT (the spoken line, not the whole transcript)
+  evidence_speaker TEXT
+  evidence_email   TEXT
+  evidence_start   REAL (seconds; empty when the line had no timestamp)
+  evidence_end     REAL
+  speaker_turn_id  INTEGER (meeting_speaker_turns.id when that row matched)
 
 tasks                                 (many-to-1 with meetings)
   id             INTEGER PK AUTOINCREMENT
@@ -470,6 +475,11 @@ tasks                                 (many-to-1 with meetings)
   source_text       TEXT (spoken sentence; evidence, not a paraphrase)
   evidence_time     TEXT (timestamp from the transcript, when one was present)
   source_context    TEXT (earlier line a short reply was answering)
+  evidence_speaker  TEXT
+  evidence_email    TEXT
+  evidence_start    REAL (seconds; empty when the line had no timestamp)
+  evidence_end      REAL
+  speaker_turn_id   INTEGER (meeting_speaker_turns.id when that row matched)
 
 task_reviews                          (many-to-1 with meetings)
   Commitments that are not saved as tasks because the assignee, deadline,
@@ -700,14 +710,23 @@ meeting_participants                  (many-to-1 with meetings)
     breath are stored separately. The agreement is saved as "Use …", and a
     trailing "I am ending the meeting now" stays off that decision. "Yes, do
     the outline by Wednesday" is an instruction to the other person. A question
-    that only asks whether anyone has tasks, and a remark that the meeting is
-    being recorded, are not tasks or unresolved questions. "Tell me anything", "give me any task",
+    that only asks whether anyone has tasks or decisions, and a remark that the meeting is
+    being recorded, are not tasks or unresolved questions. "I will end the meeting"
+    is the same kind of closing as "I am ending the meeting". A line whose only
+    object is the word "task" is not an assignment; a numbered task still is.
+    "I have decided that we will …" is a decision when nobody is named to do it. "Tell me anything", "give me any task",
     "can you give me any task?", and "I turned on the meeting, you can speak
     now" are not tasks. When a speaker line is only an email, the stored
     transcript and the assigner use that account's roster name. A relative
     deadline is resolved from the meeting's calendar day. A lowercase `name (email):` line starts a new speaker. The stored
     transcript shows a readable name, with a blank line between speakers, and
     an email-shaped account name is shown from the mailbox instead of twice.
+    Each saved task and decision keeps the spoken line, the speaker on that
+    line, and the start and end times when those times were already on the
+    segment. A missing time stays empty. The result page opens that line with
+    View Evidence and seeks the full meeting recording with Play Evidence.
+    Status changes do not clear the link. Meeting delete removes it with the
+    task. Audio is served only to someone who can already open the meeting.
     The same decision is stored once when the only difference is a leading
     "okay" or "and". When a summary only repeats the transcript, it is replaced
     with the decisions and the tasks. Urdu and Roman Urdu split on

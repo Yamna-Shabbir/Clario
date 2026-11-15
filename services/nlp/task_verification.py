@@ -380,11 +380,20 @@ def _is_decision_statement(sentence: str) -> bool:
         return True
     if _CHOICE_RE.search(sentence):
         return True
-    if _DECISION_STATEMENT_RE.search(sentence) and not re.search(
-        r"\b(?:will|please|must|has to|have to|needs to)\b",
-        sentence,
-        re.IGNORECASE,
-    ):
+    if _DECISION_STATEMENT_RE.search(sentence):
+        # "We decided Sara will send the notes" is still an assignment.
+        # "I have decided that we will use a board" is the agreement itself.
+        if re.search(
+            r"\b(?:please|can you|could you|i want you to|i need you to|"
+            r"must|has to|have to|needs to)\b",
+            sentence,
+            re.IGNORECASE,
+        ):
+            return False
+        if re.search(r"\bI\s+will\b|\bI'll\b", sentence, re.IGNORECASE):
+            return False
+        if re.search(r"\b(?!we\b)[A-Z][\w'.-]+\s+will\b", sentence):
+            return False
         return True
     return bool(_looks_like_decision_only(sentence))
 
@@ -424,12 +433,171 @@ def _stamp_assigner(task: Dict[str, Any], speaker: str, email: str = "") -> Dict
     return task
 
 
-def _copy_task(task: Dict[str, Any], *, source: str, timestamp: str, context: str) -> Dict[str, Any]:
+def _clock_seconds(value: str) -> Optional[float]:
+    """Turn a timestamp that was already on the line into seconds."""
+    text = (value or "").strip()
+    parts = text.split(":")
+    if len(parts) not in {2, 3}:
+        return None
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if any(number < 0 for number in numbers):
+        return None
+    if len(numbers) == 2:
+        return numbers[0] * 60 + numbers[1]
+    return numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+
+
+def _format_clock(value: float) -> str:
+    total = max(int(round(float(value))), 0)
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
+def _stamp_evidence(item: Dict[str, Any], turn: Optional[Dict[str, Any]]) -> None:
+    """Copy the source line's speaker and times. Missing fields stay empty."""
+    if not turn:
+        return
+    speaker = (turn.get("speaker") or turn.get("speaker_name") or "").strip()
+    if speaker:
+        item["evidence_speaker"] = speaker
+    email = (turn.get("speaker_email") or "").strip().lower()
+    if "@" in email:
+        item["evidence_email"] = email
+    start = turn.get("started_at")
+    if start is None:
+        start = turn.get("evidence_start")
+    if start is None and turn.get("timestamp"):
+        start = _clock_seconds(str(turn.get("timestamp")))
+    end = turn.get("ended_at")
+    if end is None:
+        end = turn.get("evidence_end")
+    if isinstance(start, (int, float)):
+        item["evidence_start"] = float(start)
+    if isinstance(end, (int, float)) and (
+        item.get("evidence_start") is None or float(end) >= float(item["evidence_start"])
+    ):
+        item["evidence_end"] = float(end)
+    turn_id = turn.get("turn_id") or turn.get("id")
+    if turn_id:
+        item["speaker_turn_id"] = int(turn_id)
+    clock = (turn.get("timestamp") or "").strip()
+    if clock:
+        item["evidence_time"] = clock
+    elif item.get("evidence_start") is not None:
+        shown = _format_clock(item["evidence_start"])
+        if item.get("evidence_end") is not None and item["evidence_end"] != item["evidence_start"]:
+            shown = f"{shown}–{_format_clock(item['evidence_end'])}"
+        item["evidence_time"] = shown
+
+
+def _copy_task(
+    task: Dict[str, Any],
+    *,
+    source: str,
+    timestamp: str,
+    context: str,
+    turn: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     copied = dict(task)
     copied["source_text"] = source
     copied["evidence_time"] = timestamp or ""
     copied["source_context"] = context or ""
+    _stamp_evidence(copied, turn)
     return copied
+
+
+def _norm_line(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").casefold()).strip()
+
+
+def attach_recorded_evidence(
+    segments: List[Dict[str, Any]],
+    stored_turns: List[Dict[str, Any]],
+) -> None:
+    """Copy start, end, and turn id from the stored line with the same words.
+
+    A stored line is used once, and only when the speaker also agrees.
+    A line that does not match is left without a timestamp.
+    """
+    pending = [turn for turn in stored_turns if (turn.get("content") or "").strip()]
+    for segment in segments:
+        keys = {
+            _norm_line(segment.get("original") or ""),
+            _norm_line(segment.get("text") or ""),
+        }
+        keys.discard("")
+        found = None
+        for turn in pending:
+            if _norm_line(turn.get("content") or "") not in keys:
+                continue
+            segment_speaker = _norm_line(segment.get("speaker") or "")
+            turn_speaker = _norm_line(turn.get("speaker_name") or turn.get("speaker") or "")
+            segment_email = (segment.get("speaker_email") or "").strip().lower()
+            turn_email = (turn.get("speaker_email") or "").strip().lower()
+            speaker_ok = (
+                not segment_speaker
+                or not turn_speaker
+                or segment_speaker == turn_speaker
+                or (segment_email and segment_email == turn_email)
+            )
+            if not speaker_ok:
+                continue
+            found = turn
+            break
+        if not found:
+            continue
+        turn_email = (found.get("speaker_email") or "").strip().lower()
+        segment_email = (segment.get("speaker_email") or "").strip().lower()
+        pending.remove(found)
+        if found.get("started_at") is not None:
+            segment["started_at"] = found["started_at"]
+        if found.get("ended_at") is not None:
+            segment["ended_at"] = found["ended_at"]
+        if found.get("id"):
+            segment["turn_id"] = found["id"]
+        if turn_email and not segment_email:
+            segment["speaker_email"] = turn_email
+        if not segment.get("speaker") and (found.get("speaker_name") or found.get("speaker")):
+            segment["speaker"] = found.get("speaker_name") or found.get("speaker")
+
+
+def _link_decision_evidence(
+    decisions: List[Dict[str, Any]],
+    turns: List[Dict[str, Any]],
+) -> None:
+    """Point each agreement at the line that said it, once."""
+    pending = list(turns)
+    for decision in decisions:
+        if decision.get("evidence_speaker") or decision.get("evidence_start") is not None:
+            continue
+        needles = {
+            _norm_line(decision.get("source") or ""),
+            _norm_line(decision.get("source_text") or ""),
+            _norm_line(decision.get("text") or decision.get("content") or ""),
+        }
+        needles.discard("")
+        found = None
+        for turn in pending:
+            spoken = {
+                _norm_line(turn.get("original") or ""),
+                _norm_line(turn.get("text") or ""),
+            }
+            spoken.discard("")
+            if needles & spoken:
+                found = turn
+                break
+        if not found:
+            continue
+        pending.remove(found)
+        _stamp_evidence(decision, found)
+        if not decision.get("source"):
+            decision["source"] = found.get("original") or found.get("text") or ""
 
 
 def _apply_participant(task: Dict[str, Any], participants: Optional[List[Dict[str, Any]]]) -> None:
@@ -950,11 +1118,13 @@ def verify_meeting_tasks(
             continue
 
         if _is_decision_statement(sentence):
-            decision_snippets.append({
+            snippet = {
                 "text": sentence,
                 "confidence": 0.8,
                 "source": original,
-            })
+            }
+            _stamp_evidence(snippet, turn)
+            decision_snippets.append(snippet)
             continue
 
         contextual = _for_detector(
@@ -969,7 +1139,7 @@ def verify_meeting_tasks(
         )
         if len(found) > 1:
             for item in found:
-                task = _copy_task(item, source=original, timestamp=timestamp, context="")
+                task = _copy_task(item, source=original, timestamp=timestamp, context="", turn=turn)
                 clause = task.get("description") or sentence
                 if not _accept_assignee(task, clause, speaker):
                     review.append(_unclear_assignee(task, clause, original, timestamp))
@@ -980,7 +1150,7 @@ def verify_meeting_tasks(
         if directed and found:
             # A named request is the assignment, including "Sara can you …?".
             # A bare "can you …?" with no name still waits for the reply below.
-            task = _copy_task(found[0], source=original, timestamp=timestamp, context="")
+            task = _copy_task(found[0], source=original, timestamp=timestamp, context="", turn=turn)
             task["description"] = _shown_description(sentence)
             task["assigned_to"] = directed
             _apply_participant(task, participants)
@@ -1007,6 +1177,7 @@ def verify_meeting_tasks(
                         "email": turn.get("speaker_email") or "",
                         "timestamp": timestamp,
                         "found": found[0],
+                        "turn": turn,
                     })
                     continue
                 if _is_request(sentence) or sentence.rstrip().endswith("?"):
@@ -1101,7 +1272,7 @@ def verify_meeting_tasks(
                 })
             continue
 
-        task = _copy_task(found[0], source=original, timestamp=timestamp, context="")
+        task = _copy_task(found[0], source=original, timestamp=timestamp, context="", turn=turn)
         task["description"] = _shown_description(sentence)
         assignee = (task.get("assigned_to") or "").strip()
         if directed and (_unusable_assignee(assignee) or assignee.lower() in {"team", "unassigned"}):
@@ -1158,7 +1329,13 @@ def verify_meeting_tasks(
             })
             continue
         name, mail = _person_label(other)
-        task = _copy_task(pending["found"], source=pending["original"], timestamp=pending["timestamp"], context="")
+        task = _copy_task(
+            pending["found"],
+            source=pending["original"],
+            timestamp=pending["timestamp"],
+            context="",
+            turn=pending.get("turn"),
+        )
         task["description"] = description
         task["assigned_to"] = name
         if mail:
@@ -1204,11 +1381,14 @@ def verify_meeting_tasks(
     for turn in turns:
         sentence = (turn.get("text") or "").strip()
         if sentence and _looks_like_decision_only(sentence):
-            decisions.append({
+            choice = {
                 "text": sentence,
                 "confidence": 0.75,
                 "source": turn.get("original") or sentence,
-            })
+            }
+            _stamp_evidence(choice, turn)
+            decisions.append(choice)
+    _link_decision_evidence(decisions, turns)
     confirmed = [_validated_task(task) for task in confirmed if not _blocked_task(task)]
     confirmed = [task for task in confirmed if task]
     decisions = [
@@ -1320,7 +1500,20 @@ def _unique_decisions(decisions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if "content" in decision:
             decision["content"] = text
         key = re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
-        if not key or key in seen:
+        if not key:
+            continue
+        if key in seen:
+            kept = next(
+                item for item in unique
+                if re.sub(r"[^a-z0-9]+", " ", (item.get("text") or "").casefold()).strip() == key
+            )
+            if kept.get("evidence_start") is None and decision.get("evidence_start") is not None:
+                for field in (
+                    "evidence_speaker", "evidence_email", "evidence_start",
+                    "evidence_end", "speaker_turn_id", "evidence_time", "source",
+                ):
+                    if decision.get(field) not in (None, "") and not kept.get(field):
+                        kept[field] = decision[field]
             continue
         seen.add(key)
         unique.append(decision)

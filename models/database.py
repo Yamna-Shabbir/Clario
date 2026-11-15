@@ -131,11 +131,16 @@ def init_db(db_path: str = DB_PATH) -> None:
 
             -- ── Decisions (many-to-1 with meetings) ───────────────────────
             CREATE TABLE IF NOT EXISTS decisions (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                meeting_id  INTEGER NOT NULL,
-                content     TEXT    NOT NULL,
-                confidence  REAL    DEFAULT 0.8,
-                source_text TEXT,
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_id        INTEGER NOT NULL,
+                content           TEXT    NOT NULL,
+                confidence        REAL    DEFAULT 0.8,
+                source_text       TEXT,
+                evidence_speaker  TEXT,
+                evidence_email    TEXT,
+                evidence_start    REAL,
+                evidence_end      REAL,
+                speaker_turn_id   INTEGER,
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
             );
 
@@ -331,6 +336,26 @@ def init_db(db_path: str = DB_PATH) -> None:
             conn.execute("ALTER TABLE tasks ADD COLUMN evidence_time TEXT")
         if "source_context" not in task_cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN source_context TEXT")
+        if "evidence_speaker" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN evidence_speaker TEXT")
+        if "evidence_email" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN evidence_email TEXT")
+        if "evidence_start" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN evidence_start REAL")
+        if "evidence_end" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN evidence_end REAL")
+        if "speaker_turn_id" not in task_cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN speaker_turn_id INTEGER")
+        decision_cols = _get_columns("decisions")
+        for column, kind in (
+            ("evidence_speaker", "TEXT"),
+            ("evidence_email", "TEXT"),
+            ("evidence_start", "REAL"),
+            ("evidence_end", "REAL"),
+            ("speaker_turn_id", "INTEGER"),
+        ):
+            if decision_cols and column not in decision_cols:
+                conn.execute(f"ALTER TABLE decisions ADD COLUMN {column} {kind}")
 
         member_cols = _get_columns("live_members")
         if "admission_status" not in member_cols:
@@ -613,8 +638,10 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
             """INSERT INTO tasks
                (meeting_id, description, assigned_to, due_date, status, keyword,
                 priority, assigned_email, assigned_by, assigned_by_email,
-                source_text, evidence_time, source_context)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                source_text, evidence_time, source_context,
+                evidence_speaker, evidence_email, evidence_start, evidence_end,
+                speaker_turn_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     meeting_id,
@@ -630,6 +657,11 @@ def insert_tasks(meeting_id: int, tasks: List[Dict],
                     t.get("source_text") or t.get("description") or "",
                     t.get("evidence_time") or "",
                     t.get("source_context") or "",
+                    t.get("evidence_speaker") or "",
+                    t.get("evidence_email") or "",
+                    t.get("evidence_start"),
+                    t.get("evidence_end"),
+                    t.get("speaker_turn_id"),
                 )
                 for t in tasks
             ],
@@ -643,14 +675,22 @@ def insert_decisions(meeting_id: int, decisions: List[Dict],
     with get_connection(db_path) as conn:
         conn.execute("DELETE FROM decisions WHERE meeting_id = ?", (meeting_id,))
         conn.executemany(
-            """INSERT INTO decisions (meeting_id, content, confidence, source_text)
-               VALUES (?,?,?,?)""",
+            """INSERT INTO decisions
+               (meeting_id, content, confidence, source_text,
+                evidence_speaker, evidence_email, evidence_start, evidence_end,
+                speaker_turn_id)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     meeting_id,
                     d.get("text") or d.get("content") or "",
                     d.get("confidence", 0.8),
-                    d.get("source") or d.get("text") or d.get("content") or "",
+                    d.get("source") or d.get("source_text") or d.get("text") or d.get("content") or "",
+                    d.get("evidence_speaker") or "",
+                    d.get("evidence_email") or "",
+                    d.get("evidence_start"),
+                    d.get("evidence_end"),
+                    d.get("speaker_turn_id"),
                 )
                 for d in decisions
                 if (d.get("text") or d.get("content"))

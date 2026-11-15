@@ -173,6 +173,7 @@ def run_clario_pipeline(
         return None
 
     from services.nlp.task_verification import (
+        attach_recorded_evidence,
         prepare_meeting_turns,
         render_segments,
         verify_meeting_tasks,
@@ -185,6 +186,12 @@ def run_clario_pipeline(
         transcript,
         translate=ENABLE_TEXT_TRANSLATION,
     )
+    if meeting_id is not None:
+        from models.database import get_speaker_turns
+        attach_recorded_evidence(
+            english_turns,
+            get_speaker_turns(meeting_id, db_path),
+        )
     transcript = render_segments(english_turns)
     if not transcript.strip():
         print(" Empty transcript — cannot proceed.")

@@ -48,7 +48,32 @@
         <tbody>
           {% for task in tasks %}
           <tr>
-            <td class="td-preview">{{ task.description }}</td>
+            <td class="td-preview">
+              {{ task.description }}
+              <details class="evidence">
+                <summary>View Evidence</summary>
+                <div class="evidence__body">
+                  {% if task.source_text %}
+                  <p class="evidence__quote">“{{ task.source_text }}”</p>
+                  {% else %}
+                  <p class="text-muted">The original line was not kept.</p>
+                  {% endif %}
+                  <p class="evidence__meta">
+                    {% if task.evidence_speaker %}
+                    <span>{{ task.evidence_speaker }}</span>
+                    {% else %}
+                    <span>Speaker was not named on this line</span>
+                    {% endif %}
+                    {% if task.evidence_time %}
+                    <span>{{ task.evidence_time }}</span>
+                    {% else %}
+                    <span>No timestamp for this line</span>
+                    {% endif %}
+                  </p>
+                  <a class="btn btn-ghost" href="{{ url_for('meeting.result', meeting_id=task.meeting_id) }}">Open meeting</a>
+                </div>
+              </details>
+            </td>
             <td>{{ task.meeting_title }}</td>
             <td>
               {{ task.assigned_to }}

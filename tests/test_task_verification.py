@@ -704,6 +704,34 @@ def test_an_information_question_is_not_an_unresolved_commitment():
     assert all("time" not in (item.get("text") or "").lower() for item in result["decisions"])
 
 
+def test_status_talk_closings_and_policy_lines_are_not_tasks():
+    result = verify_meeting_tasks(
+        "Hina (hina@example.com): And also are there any decisions okay I'll end the meeting now\n"
+        "Omar (omar@example.com): Hina, can you please do task 2 and 3 by Thursday?\n"
+        "Omar (omar@example.com): I have decided that we will assign work in the tracker from now onward.\n"
+        "Omar (omar@example.com): Okay, I will end the meeting now.\n"
+        "Hina (hina@example.com): And can you do task by Friday?\n",
+        participants=[
+            {"name": "Hina", "email": "hina@example.com"},
+            {"name": "Omar", "email": "omar@example.com"},
+        ],
+        meeting_date="2026-11-15",
+    )
+    assert len(result["tasks"]) == 1
+    task = result["tasks"][0]
+    assert "2" in task["description"] and "3" in task["description"]
+    assert task["assigned_to"] == "Hina"
+    assert task["assigned_by"] == "Omar"
+    assert task.get("due_date_iso") == "2026-11-19"
+    saved = " ".join(item["description"].lower() for item in result["tasks"] + result["review"])
+    assert "end the meeting" not in saved
+    assert "any decisions" not in saved
+    assert "tracker" not in saved
+    decisions = " ".join((item.get("text") or "").lower() for item in result["decisions"])
+    assert "tracker" in decisions
+    assert "end the meeting" not in decisions
+
+
 def test_yes_do_and_i_want_you_to_stay_separate_from_the_agreement():
     result = verify_meeting_tasks(
         "Hina: Ok, Omar, I am recording the meeting and do you have any tasks?\n"

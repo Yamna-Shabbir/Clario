@@ -582,6 +582,38 @@ _DISCUSSION_CUE = re.compile(
 )
 
 
+def evidence_playback(
+    recordings: List[Dict[str, Any]],
+    item: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """Recording and seek time for one task or decision.
+
+    The full-meeting file uses the shared clock. A single microphone can
+    use that same clock. Several microphones without a full file are not
+    sought, because the clock is not the start of one person's file.
+    """
+    raw = item.get("evidence_start")
+    if raw is None or raw == "":
+        return None
+    try:
+        start = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if start < 0:
+        return None
+    saved = [row for row in recordings if row.get("status", "saved") == "saved"]
+    full = next((row for row in saved if row.get("kind") == "meeting"), None)
+    if full and full.get("id"):
+        return {"recording_id": int(full["id"]), "start": start}
+    speakers = [
+        row for row in saved
+        if (row.get("kind") or "speaker") != "meeting" and row.get("id")
+    ]
+    if len(speakers) == 1:
+        return {"recording_id": int(speakers[0]["id"]), "start": start}
+    return None
+
+
 def meeting_highlights(transcript: str) -> Dict[str, List[str]]:
     """Questions and longer remarks taken from the transcript itself.
 

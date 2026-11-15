@@ -1357,6 +1357,48 @@ code {
   color: var(--text);
 }
 
+/* ── Evidence ─────────────────────────────────────────────── */
+.evidence {
+  margin-top: 10px;
+}
+.evidence summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--maroon);
+  font-weight: 600;
+  cursor: pointer;
+}
+.evidence__body {
+  margin-top: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(122, 46, 64, 0.14);
+}
+.evidence__quote {
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.evidence__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+.evidence__play audio {
+  display: block;
+  width: min(100%, 360px);
+  margin: 8px 0;
+}
+.evidence .btn {
+  min-height: 44px;
+}
+
 /* ── Modals ───────────────────────────────────────────────── */
 .image-modal {
   display: none;

@@ -285,7 +285,11 @@ def result(meeting_id: int):
     confirmations = get_pending_confirmations(meeting_id, DB_PATH)
     reviews = get_task_reviews(meeting_id, DB_PATH)
     recordings = get_meeting_recordings(meeting_id, DB_PATH)
-    from services.live import meeting_highlights
+    from services.live import evidence_playback, meeting_highlights
+    for item in list(tasks) + list(decisions):
+        playback = evidence_playback(recordings, item)
+        item["evidence_recording_id"] = playback["recording_id"] if playback else None
+        item["evidence_seek"] = playback["start"] if playback else None
     highlights = meeting_highlights(meeting.get("transcript") or "")
 
     from models.database import TASK_STATUSES

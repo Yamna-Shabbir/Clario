@@ -52,8 +52,51 @@
     {% endif %}
   </p>
 
+  {% macro evidence_panel(item, kind) %}
+  <details class="evidence">
+    <summary>View Evidence</summary>
+    <div class="evidence__body">
+      {% if item.source_text or item.source %}
+      <p class="evidence__quote">“{{ item.source_text or item.source }}”</p>
+      {% else %}
+      <p class="text-muted">The original line was not kept.</p>
+      {% endif %}
+      <p class="evidence__meta">
+        {% if item.evidence_speaker %}
+        <span>{{ item.evidence_speaker }}</span>
+        {% else %}
+        <span>Speaker was not named on this line</span>
+        {% endif %}
+        {% if item.evidence_time %}
+        <span>{{ item.evidence_time }}</span>
+        {% elif item.evidence_start is not none %}
+        <span>{{ item.evidence_start }}s{% if item.evidence_end is not none %}–{{ item.evidence_end }}s{% endif %}</span>
+        {% else %}
+        <span>No timestamp for this line</span>
+        {% endif %}
+      </p>
+      {% if item.source_context %}
+      <p class="text-muted">In response to: “{{ item.source_context }}”</p>
+      {% endif %}
+      {% if item.evidence_recording_id is not none and item.evidence_seek is not none %}
+      <div class="evidence__play">
+        <audio id="evidence-audio-{{ kind }}-{{ item.id }}" preload="none" src="{{ url_for('meeting.recording_file', meeting_id=meeting.id, recording_id=item.evidence_recording_id) }}"></audio>
+        <button type="button" class="btn btn-outline" data-evidence-play data-audio="evidence-audio-{{ kind }}-{{ item.id }}" data-start="{{ item.evidence_seek }}">Play Evidence</button>
+      </div>
+      {% elif recordings %}
+      <p class="text-muted">The full meeting recording is not available for this timestamp.</p>
+      {% else %}
+      <p class="text-muted">No recording is saved for this meeting.</p>
+      {% endif %}
+      {% if recordings %}
+      <a class="btn btn-ghost" href="#meeting-recording">Open full recording</a>
+      {% endif %}
+    </div>
+  </details>
+  {% endmacro %}
+
   {% if recordings %}
-  <section class="stack-lg">
+  <section class="stack-lg" id="meeting-recording">
     <h2 class="section-heading">{{ icon_mic(18, 'icon') }} Recording</h2>
     <div class="card card-pad">
       {% set full = recordings | selectattr('kind', 'equalto', 'meeting') | list %}
@@ -355,9 +398,7 @@
             <td><span class="badge badge-lilac">{{ d.id }}</span></td>
             <td>
               {{ d.content }}
-              {% if d.source_text and d.source_text != d.content %}
-              <div class="text-muted">Spoken: “{{ d.source_text }}”</div>
-              {% endif %}
+              {{ evidence_panel(d, "decision") }}
             </td>
             <td>{{ '%.0f'|format((d.confidence or 0) * 100) }}%</td>
           </tr>
@@ -393,15 +434,7 @@
             <td><span class="badge badge-lilac">{{ t.id }}</span></td>
             <td class="td-preview">
               {{ t.description }}
-              {% if t.source_text and t.source_text != t.description %}
-              <div class="text-muted">Spoken: “{{ t.source_text }}”</div>
-              {% endif %}
-              {% if t.source_context %}
-              <div class="text-muted">In response to: “{{ t.source_context }}”</div>
-              {% endif %}
-              {% if t.evidence_time %}
-              <div class="text-muted">{{ t.evidence_time }}</div>
-              {% endif %}
+              {{ evidence_panel(t, "task") }}
             </td>
             <td>
               {% if t.assigned_to != 'Unknown' and t.assigned_to != 'Team' %}

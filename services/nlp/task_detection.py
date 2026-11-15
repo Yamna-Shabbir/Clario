@@ -275,9 +275,13 @@ _ACTION_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 _CLOSING_RE = re.compile(
-    r"^(?:(?:okay|ok|alright|so|well|thanks|thank you)[, ]+)*(?:now[, ]+)?"
+    r"^(?:(?:okay|ok|alright|so|well|thanks|thank you|and|also)[, ]+)*(?:now[, ]+)?"
+    r"(?:"
     r"(?:i am|i'm|we are|we're)\s+"
     r"(?:just\s+)?(?:ending|leaving|stopping|signing off|wrapping up|done|finished)"
+    r"|(?:i will|i'll|we will|we'll)\s+"
+    r"(?:just\s+)?(?:end|leave|stop|sign off|wrap up|finish)"
+    r")"
     r"(?:\s+(?:the\s+)?(?:meeting|call|session|recording|now|here))?[.!\s]*$",
     re.IGNORECASE,
 )
@@ -328,7 +332,22 @@ _RECORDING_RE = re.compile(
     re.IGNORECASE,
 )
 _OFFER_WORK_Q_RE = re.compile(
-    r"\bdo you have any\s+(?:tasks?|questions?|updates?|action items?)\b",
+    r"\b(?:do you have|are there|is there|got)\s+any\s+"
+    r"(?:tasks?|questions?|updates?|action items?|decisions?)\b",
+    re.IGNORECASE,
+)
+_BARE_TASK_RE = re.compile(
+    r"\b(?:do|finish|complete|handle|take)\s+(?:the\s+|a\s+|an\s+|any\s+|some\s+)?tasks?\b",
+    re.IGNORECASE,
+)
+_TASK_DETAIL_RE = re.compile(
+    r"\btasks?\s+(?:number\s+)?(?:\d+|[a-z]\b)|\b\d+\b",
+    re.IGNORECASE,
+)
+_DATE_TAIL_RE = re.compile(
+    r"\b(?:by|on|before)\s+(?:this\s+|next\s+)?"
+    r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|"
+    r"today|tomorrow|week|month)\b",
     re.IGNORECASE,
 )
 _DO_IMPERATIVE_RE = re.compile(r"^do\s+(?!you\b)", re.IGNORECASE)
@@ -342,13 +361,31 @@ _SESSION_OPEN_RE = re.compile(
 )
 
 
+def _only_says_task(sentence: str) -> bool:
+    """'Do task by Friday' names no piece of work. 'Do task 2' does."""
+    text = (sentence or "").strip()
+    if not text or not _BARE_TASK_RE.search(text):
+        return False
+    if _TASK_DETAIL_RE.search(text):
+        return False
+    rest = _DATE_TAIL_RE.sub(" ", _BARE_TASK_RE.sub(" ", text))
+    rest = re.sub(
+        r"\b(?:can|could|will|would|you|please|i|want|need|to|and|also|just|"
+        r"the|a|an|any|some|okay|ok|so|me|us)\b",
+        " ",
+        rest,
+        flags=re.IGNORECASE,
+    )
+    return not re.findall(r"[a-z0-9]+", rest.lower())
+
+
 def is_not_an_action(sentence: str) -> bool:
     """A status line or an empty 'tell me' is not work for someone."""
     text = (sentence or "").strip()
     if not text:
         return True
     text = re.sub(
-        r"^(?:(?:okay|ok|um|uh|so|and|then|right|well|yes|yeah)[, ]+)+",
+        r"^(?:(?:okay|ok|um|uh|so|and|also|then|right|well|yes|yeah)[, ]+)+",
         "",
         text,
         flags=re.IGNORECASE,
@@ -373,6 +410,8 @@ def is_not_an_action(sentence: str) -> bool:
         re.IGNORECASE,
     ):
         return True
+    if _only_says_task(text):
+        return True
     return bool(_VAGUE_TELL_RE.match(text))
 
 
@@ -382,13 +421,17 @@ def _is_closing_remark(sentence: str) -> bool:
 
 
 _LEADING_FILLER_RE = re.compile(
-    r"^(?:(?:okay|ok|um|uh|so|and|then|right|well|yes|yeah)[, ]+)+",
+    r"^(?:(?:okay|ok|um|uh|so|and|also|then|right|well|yes|yeah)[, ]+)+",
     re.IGNORECASE,
 )
 _TRAILING_CLOSE_RE = re.compile(
-    r"(?:[,.]|\s)\s*(?:(?:okay|ok|so|and|well|right)[, ]+)*"
+    r"(?:[,.]|\s)\s*(?:(?:okay|ok|so|and|also|well|right)[, ]+)*"
+    r"(?:"
     r"(?:i am|i'm|we are|we're)\s+"
     r"(?:just\s+)?(?:ending|leaving|stopping|signing off|wrapping up)"
+    r"|(?:i will|i'll|we will|we'll)\s+"
+    r"(?:just\s+)?(?:end|leave|stop|sign off|wrap up|finish)"
+    r")"
     r"(?:\s+the)?(?:\s+(?:meeting|call|session|recording))?"
     r"(?:\s+now)?"
     r"(?:\s+(?:bye|goodbye|by))?"

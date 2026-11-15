@@ -228,3 +228,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
 });
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-evidence-play]");
+  if (!button) return;
+  const audio = document.getElementById(button.getAttribute("data-audio") || "");
+  const start = Number(button.getAttribute("data-start"));
+  if (!audio || Number.isNaN(start)) return;
+  const begin = () => {
+    audio.currentTime = start;
+    audio.play();
+  };
+  if (audio.readyState >= 1) begin();
+  else audio.addEventListener("loadedmetadata", begin, { once: true });
+});
