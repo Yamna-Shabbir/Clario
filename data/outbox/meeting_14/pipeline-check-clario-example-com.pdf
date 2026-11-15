@@ -1,0 +1,66 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 726 >>
+stream
+BT
+/F1 11 Tf
+50 750 Td
+14 TL
+(Pipeline live check) Tj
+T*
+() Tj
+T*
+(Summary) Tj
+T*
+(Sarah: We decided to ship the dashboard on Monday . I will fix the login bug by November) Tj
+T*
+(20 . I'll send the launch checklist. Furthermore, I will fix the login bug by November 20.) Tj
+T*
+(I'll do tomorrow and send a report tomorrow.) Tj
+T*
+() Tj
+T*
+(Decisions) Tj
+T*
+(- Sarah We decided to ship the dashboard on Monday.) Tj
+T*
+(- We decided to ship the dashboard on Monday.) Tj
+T*
+() Tj
+T*
+(Tasks) Tj
+T*
+(- Sarah: I will send the launch checklist by Friday. \(due Friday\)) Tj
+T*
+(- Ali: I will fix the login bug by November 20. \(due November 20\)) Tj
+T*
+(- Ali: I'll do tomorrow and send a report tomorrow. \(due tomorrow\)) Tj
+T*
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+5 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000856 00000 n 
+0000000982 00000 n 
+0000001039 00000 n 
+trailer
+<< /Size 6 /Root 5 0 R >>
+startxref
+1088
+%%EOF

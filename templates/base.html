@@ -9,10 +9,10 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
 
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='6') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='11') }}" />
 
   {% block head_extra %}{% endblock %}
 </head>
@@ -42,7 +42,8 @@
       {% endif %}
 
       <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="primary-nav" aria-label="Open menu">
-        {{ icon_menu(22, 'icon') }}
+        <span class="nav-toggle__open">{{ icon_menu(22, 'icon') }}</span>
+        <span class="nav-toggle__close">{{ icon_close(22, 'icon') }}</span>
       </button>
 
       <ul class="navbar-nav" id="primary-nav">

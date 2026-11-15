@@ -56,7 +56,13 @@
               <div class="text-muted">{{ task.assigned_email }}</div>
               {% endif %}
             </td>
-            <td>{{ task.due_date }}</td>
+            <td>
+              {% if task.due_date and task.due_date != 'Not specified' %}
+                <span class="badge badge-amber">{{ task.due_date }}</span>
+              {% else %}
+                <span class="empty-value">{{ task.due_date or "—" }}</span>
+              {% endif %}
+            </td>
             <td>
               {% if task.assigned_email and task.assigned_email|lower == my_email %}
               <form method="POST" action="{{ url_for('tasks.update_status', task_id=task.id) }}" class="form-row">
@@ -69,7 +75,7 @@
                 <button type="submit" class="btn btn-outline btn-sm">Save</button>
               </form>
               {% else %}
-                {{ status_labels.get(task.status, task.status) }}
+                <span class="status-badge status-badge--{{ task.status }}">{{ status_labels.get(task.status, task.status) }}</span>
               {% endif %}
             </td>
           </tr>

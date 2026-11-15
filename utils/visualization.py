@@ -76,35 +76,42 @@ def build_knowledge_graph(
     for node in G.nodes:
         node_type = G.nodes[node].get("type", "")
         if node_type == "meeting":
-            color_map.append("#263A35")     # forest
+            color_map.append("#F7B7C0")     # pale rose
         elif node_type == "task":
-            color_map.append("#829B8A")     # sage
+            color_map.append("#E7EBF1")     # pale silver
         elif node_type == "person":
-            color_map.append("#6A8274")     # sage deep
+            color_map.append("#F3E7A6")     # gold
         elif node_type == "decision":
-            color_map.append("#DCE8DF")     # mint soft
+            color_map.append("#F7B7C0")     # pale rose
         else:                               # deadline / date
-            color_map.append("#8B6348")     # warm accent
+            color_map.append("#E7EBF1")     # pale silver
 
     # ── Layout and draw ────────────────────────────────────────────────────────
     print("Building knowledge graph …")
     pos = nx.spring_layout(G, seed=42, k=2.0)
 
     fig, ax = plt.subplots(figsize=(14, 10))
-    nx.draw_networkx_nodes(G, pos, node_color=color_map, node_size=1500, ax=ax)
-    nx.draw_networkx_edges(G, pos, arrows=True, arrowsize=20, ax=ax)
+    fig.patch.set_facecolor("#F8F2F2")
+    ax.set_facecolor("#F8F2F2")
+    nx.draw_networkx_nodes(
+        G, pos, node_color=color_map, node_size=1500,
+        edgecolors="#7A2E40", linewidths=1.2, ax=ax,
+    )
+    nx.draw_networkx_edges(G, pos, arrows=True, arrowsize=20, edge_color="#6E5359", ax=ax)
     edge_labels = {
         (src, dst): data.get("relation", "")
         for src, dst, data in G.edges(data=True)
         if data.get("relation")
     }
     if edge_labels:
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=7, ax=ax)
+        nx.draw_networkx_edge_labels(
+            G, pos, edge_labels=edge_labels, font_size=7, font_color="#6E5359", ax=ax
+        )
 
     labels = {n: G.nodes[n].get("label", n) for n in G.nodes}
-    nx.draw_networkx_labels(G, pos, labels=labels, font_size=8, font_color="#F7F5EF", ax=ax)
+    nx.draw_networkx_labels(G, pos, labels=labels, font_size=8, font_color="#2E1A1F", ax=ax)
 
-    ax.set_title("️ Clario Knowledge Graph", fontsize=14)
+    ax.set_title("Clario Knowledge Graph", fontsize=14, color="#2E1A1F")
     ax.axis("off")
     plt.tight_layout()
 
@@ -112,7 +119,7 @@ def build_knowledge_graph(
     saved_path = ""
     if output_path:
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        plt.savefig(output_path, dpi=150, bbox_inches="tight", facecolor=fig.get_facecolor())
         saved_path = os.path.abspath(output_path)
         print(f" Knowledge graph saved to: {saved_path}")
 
@@ -180,9 +187,10 @@ def generate_assignee_bar_chart(
     if 'seaborn-v0_8-whitegrid' in plt.style.available:
         plt.style.use('seaborn-v0_8-whitegrid')
     fig, ax = plt.subplots(figsize=(8, 5))
-    
-    # Beautiful colors
-    colors = ['#263A35', '#829B8A', '#DCE8DF', '#6A8274', '#829B8A', '#263A35']
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
+
+    colors = ['#7A2E40', '#6E5359', '#266449']
     bar_colors = [colors[i % len(colors)] for i in range(len(names))]
     
     bars = ax.bar(names, counts, color=bar_colors, edgecolor='none', width=0.6, alpha=0.85)
@@ -194,19 +202,19 @@ def generate_assignee_bar_chart(
                     xy=(bar.get_x() + bar.get_width() / 2, height),
                     xytext=(0, 3),  # 3 points vertical offset
                     textcoords="offset points",
-                    ha='center', va='bottom', fontweight='bold', color='#263A35')
+                    ha='center', va='bottom', fontweight='bold', color='#2E1A1F')
 
-    ax.set_ylabel("Number of Tasks", fontweight='bold', color='#5F726B')
-    ax.set_title("Tasks by Assignee", fontsize=14, fontweight='bold', pad=15, color='#263A35')
+    ax.set_ylabel("Number of Tasks", fontweight='bold', color='#6E5359')
+    ax.set_title("Tasks by Assignee", fontsize=14, fontweight='bold', pad=15, color='#2E1A1F')
     
     # Remove top and right borders
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_color('#829B8A')
-    ax.spines['bottom'].set_color('#829B8A')
-    
+    ax.spines['left'].set_color('#6E5359')
+    ax.spines['bottom'].set_color('#6E5359')
+
     plt.xticks(rotation=45 if len(names) > 4 else 0, ha='right' if len(names) > 4 else 'center')
-    ax.tick_params(colors='#5F726B')
+    ax.tick_params(colors='#6E5359')
     plt.tight_layout()
 
     saved_path = ""
@@ -248,7 +256,7 @@ def generate_priority_donut_chart(
     # Filter out zero counts
     filtered_priority = {k: v for k, v in by_priority.items() if v > 0}
 
-    color_map = {"High": "#8B6348", "Medium": "#829B8A", "Low": "#DCE8DF", "No tasks": "#C5D4CB"}
+    color_map = {"High": "#7A2E40", "Medium": "#6E5359", "Low": "#266449", "No tasks": "#6E5359"}
     if not filtered_priority:
         filtered_priority = {"No tasks": 1}
 
@@ -256,23 +264,25 @@ def generate_priority_donut_chart(
     sizes = list(filtered_priority.values())
 
     fig, ax = plt.subplots(figsize=(7, 5))
-    
-    # Priority semantic colors
-    pie_colors = [color_map.get(l, "#7A7A85") for l in labels]
-    
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
+
+    pie_colors = [color_map.get(l, "#6E5359") for l in labels]
+
     wedges, texts, autotexts = ax.pie(
         sizes, labels=labels, autopct='%1.1f%%',
-        startangle=90, colors=pie_colors, 
-        wedgeprops=dict(width=0.4, edgecolor='#FFFFFF', linewidth=2),
-        textprops=dict(color="#263A35", fontweight='bold', fontsize=9)
+        startangle=90, colors=pie_colors,
+        wedgeprops=dict(width=0.4, edgecolor='#F8F2F2', linewidth=2),
+        textprops=dict(color="#2E1A1F", fontweight='bold', fontsize=9)
     )
-    
-    # Improve label readability
-    for text in texts:
-        text.set_color('#263A35')
-        text.set_fontsize(10)
 
-    ax.set_title("Task Priority Distribution", fontsize=14, fontweight='bold', pad=15, color='#263A35')
+    for text in texts:
+        text.set_color('#2E1A1F')
+        text.set_fontsize(10)
+    for text in autotexts:
+        text.set_color('#FFFFFF')
+
+    ax.set_title("Task Priority Distribution", fontsize=14, fontweight='bold', pad=15, color='#2E1A1F')
     
     plt.tight_layout()
 
@@ -322,32 +332,36 @@ def generate_status_pie_chart(
     if not filtered_status:
         labels = ["No tasks"]
         sizes = [1]
-        pie_colors = ["#7A7A85"]
+        pie_colors = ["#6E5359"]
     else:
         labels = [label_map[k] for k in filtered_status.keys()]
         sizes = list(filtered_status.values())
         color_map = {
-            "Completed": "#829B8A",
-            "Pending": "#DCE8DF",
-            "Started": "#6A8274",
-            "Doing": "#8B6348",
+            "Completed": "#266449",
+            "Pending": "#6E5359",
+            "Started": "#7A2E40",
+            "Doing": "#7A2E40",
         }
-        pie_colors = [color_map.get(l, "#C5D4CB") for l in labels]
+        pie_colors = [color_map.get(l, "#6E5359") for l in labels]
 
     fig, ax = plt.subplots(figsize=(7, 5))
-    
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
+
     wedges, texts, autotexts = ax.pie(
         sizes, labels=labels, autopct='%1.1f%%',
-        startangle=90, colors=pie_colors, 
-        wedgeprops=dict(width=0.6, edgecolor='#FFFFFF', linewidth=2),
-        textprops=dict(color="#263A35", fontweight='bold', fontsize=9)
+        startangle=90, colors=pie_colors,
+        wedgeprops=dict(width=0.6, edgecolor='#F8F2F2', linewidth=2),
+        textprops=dict(color="#2E1A1F", fontweight='bold', fontsize=9)
     )
-    
-    for text in texts:
-        text.set_color('#263A35')
-        text.set_fontsize(10)
 
-    ax.set_title("Task Completion Status", fontsize=14, fontweight='bold', pad=15, color='#263A35')
+    for text in texts:
+        text.set_color('#2E1A1F')
+        text.set_fontsize(10)
+    for text in autotexts:
+        text.set_color('#FFFFFF')
+
+    ax.set_title("Task Completion Status", fontsize=14, fontweight='bold', pad=15, color='#2E1A1F')
     
     plt.tight_layout()
 
@@ -381,22 +395,23 @@ def generate_actionability_index(total_sentences: int, total_tasks: int, output_
     
     # We plot the ratio vs the remaining
     sizes = [ratio, 1.0 - ratio]
-    colors = ['#829B8A', '#DCE8DF']
-    
+    colors = ['#266449', '#6E5359']
+
     fig, ax = plt.subplots(figsize=(6, 5))
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
     wedges, texts = ax.pie(
-        sizes, 
-        colors=colors, 
-        startangle=90, 
-        wedgeprops=dict(width=0.3, edgecolor='#FFFFFF', linewidth=2)
+        sizes,
+        colors=colors,
+        startangle=90,
+        wedgeprops=dict(width=0.3, edgecolor='#F8F2F2', linewidth=2)
     )
 
-    # Add center text
     percentage = int(ratio * 100)
-    plt.text(0, 0.1, f"{percentage}%", ha='center', va='center', fontsize=32, fontweight='bold', color='#263A35')
-    plt.text(0, -0.2, "Productivity\nScore", ha='center', va='center', fontsize=12, color='#5F726B')
+    plt.text(0, 0.1, f"{percentage}%", ha='center', va='center', fontsize=32, fontweight='bold', color='#266449')
+    plt.text(0, -0.2, "Productivity\nScore", ha='center', va='center', fontsize=12, color='#6E5359')
 
-    ax.set_title("Meeting Actionability Index", color="#263A35", pad=20, fontsize=14, fontweight='bold')
+    ax.set_title("Meeting Actionability Index", color="#2E1A1F", pad=20, fontsize=14, fontweight='bold')
     
     plt.tight_layout()
     plt.savefig(output_path, facecolor=fig.get_facecolor(), transparent=True)
@@ -419,22 +434,24 @@ def generate_timeline_chart(tasks: list, output_path: str) -> None:
     values = [counts[l] for l in labels]
 
     fig, ax = plt.subplots(figsize=(7, 5))
-    
-    bars = ax.barh(labels, values, color='#829B8A', edgecolor='none', height=0.6)
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
 
-    ax.tick_params(colors='#5F726B')
+    bars = ax.barh(labels, values, color='#7A2E40', edgecolor='none', height=0.6)
+
+    ax.tick_params(colors='#6E5359')
     for spine in ax.spines.values():
-        spine.set_edgecolor('#829B8A')
+        spine.set_edgecolor('#6E5359')
 
-    ax.set_title("Task Timeline Bottleneck", color="#263A35", pad=20, fontsize=14, fontweight='bold')
-    ax.set_xlabel("Number of Tasks", color="#5F726B", labelpad=10)
+    ax.set_title("Task Timeline Bottleneck", color="#2E1A1F", pad=20, fontsize=14, fontweight='bold')
+    ax.set_xlabel("Number of Tasks", color="#6E5359", labelpad=10)
     
     # Add value labels
     for bar in bars:
         width = bar.get_width()
         if width > 0:
-            ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, f'{int(width)}', 
-                    va='center', color='#263A35', fontweight='bold')
+            ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, f'{int(width)}',
+                    va='center', color='#2E1A1F', fontweight='bold')
 
     plt.tight_layout()
     plt.savefig(output_path, facecolor=fig.get_facecolor(), transparent=True)
@@ -463,19 +480,21 @@ def generate_risk_matrix(tasks: list, output_path: str) -> None:
     counts = Counter(points)
     
     fig, ax = plt.subplots(figsize=(6, 5))
+    fig.patch.set_alpha(0)
+    ax.set_facecolor("none")
 
-    ax.grid(color='#DCE8DF', linestyle='--', alpha=0.9)
+    ax.grid(color='#6E5359', linestyle='--', alpha=0.35)
 
     for spine in ax.spines.values():
-        spine.set_edgecolor('#829B8A')
+        spine.set_edgecolor('#6E5359')
 
     status_labels = ["Pending", "Completed"]
     priority_labels = ["Low", "Medium", "High"]
 
     ax.set_xticks([0, 1])
-    ax.set_xticklabels(status_labels, color='#5F726B')
+    ax.set_xticklabels(status_labels, color='#6E5359')
     ax.set_yticks([0, 1, 2])
-    ax.set_yticklabels(priority_labels, color='#5F726B')
+    ax.set_yticklabels(priority_labels, color='#6E5359')
     
     ax.set_xlim(-0.5, 1.5)
     ax.set_ylim(-0.5, 2.5)
@@ -483,11 +502,11 @@ def generate_risk_matrix(tasks: list, output_path: str) -> None:
     # Plot bubbles
     for (x, y), count in counts.items():
         # Color based on priority (y)
-        color = '#8B6348' if y == 2 else ('#829B8A' if y == 1 else '#DCE8DF')
-        ax.scatter(x, y, s=count * 1000, color=color, alpha=0.85, edgecolors='#FFFFFF', linewidth=2)
-        ax.text(x, y, str(count), color='#263A35', fontweight='bold', fontsize=12, ha='center', va='center')
+        color = '#7A2E40' if y == 2 else ('#6E5359' if y == 1 else '#266449')
+        ax.scatter(x, y, s=count * 1000, color=color, alpha=0.85, edgecolors='#F8F2F2', linewidth=2)
+        ax.text(x, y, str(count), color='#FFFFFF', fontweight='bold', fontsize=12, ha='center', va='center')
 
-    ax.set_title("Risk & Execution Matrix", color="#263A35", pad=20, fontsize=14, fontweight='bold')
+    ax.set_title("Risk & Execution Matrix", color="#2E1A1F", pad=20, fontsize=14, fontweight='bold')
     
     plt.tight_layout()
     plt.savefig(output_path, facecolor=fig.get_facecolor(), transparent=True)

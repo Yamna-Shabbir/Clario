@@ -1,0 +1,41 @@
+Subject: Summary of Paste
+To: test@example.com
+From: testuser <test@example.com>
+Reply-To: testuser <test@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============0437183155449964114=="
+
+--===============0437183155449964114==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello testuser,
+
+The meeting summary, decisions, and full task list are in the attached PDF.
+
+This meeting was hosted by testuser (test@example.com). Reply to this message=
+ to reach them.
+
+--===============0437183155449964114==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="meeting-summary.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250
+IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL0xlbmd0aCAyNjggPj4Kc3RyZWFtCkJU
+Ci9GMSAxMSBUZgo1MCA3NTAgVGQKMTQgVEwKKFBhc3RlKSBUagpUKgooKSBUagpUKgooU3VtbWFy
+eSkgVGoKVCoKKEFsaWNlIHdpbGwgZmluaXNoIHRoZSByZXBvcnQgYnkgRnJpZGF5LikgVGoKVCoK
+KCkgVGoKVCoKKERlY2lzaW9ucykgVGoKVCoKKC0gTm9uZSByZWNvcmRlZCkgVGoKVCoKKCkgVGoK
+VCoKKFRhc2tzKSBUagpUKgooLSBBbGljZTogQWxpY2Ugd2lsbCBmaW5pc2ggdGhlIHJlcG9ydCBi
+eSBGcmlkYXkuIFwoZHVlIDIwMjYtMTEtMjBcKSkgVGoKVCoKRVQKZW5kc3RyZWFtCmVuZG9iagoz
+IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgNCAwIFIgL01lZGlhQm94IFswIDAgNjEyIDc5
+Ml0gL0NvbnRlbnRzIDIgMCBSIC9SZXNvdXJjZXMgPDwgL0ZvbnQgPDwgL0YxIDEgMCBSID4+ID4+
+ID4+CmVuZG9iago0IDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvQ291bnQgMSAvS2lkcyBbMyAwIFJd
+ID4+CmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9DYXRhbG9nIC9QYWdlcyA0IDAgUiA+PgplbmRv
+YmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAw
+MDAwNzkgMDAwMDAgbiAKMDAwMDAwMDM5OCAwMDAwMCBuIAowMDAwMDAwNTI0IDAwMDAwIG4gCjAw
+MDAwMDA1ODEgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA2IC9Sb290IDUgMCBSID4+CnN0YXJ0
+eHJlZgo2MzAKJSVFT0Y=
+
+--===============0437183155449964114==--

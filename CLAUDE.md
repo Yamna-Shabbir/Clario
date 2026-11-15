@@ -230,7 +230,7 @@ Clario/
 │   └── visualization.py    # NetworkX graph + Matplotlib chart generators
 │
 ├── static/
-│   ├── css/style.css       # Dark-theme stylesheet
+│   ├── css/style.css       # Light rose glass stylesheet
 │   ├── img/favicon.svg     # SVG favicon
 │   ├── js/main.js          # Upload progress animation
 │   └── graphs/             # Runtime-generated PNGs served directly by Flask; .gitkeep
@@ -821,40 +821,64 @@ meeting_participants                  (many-to-1 with meetings)
 
 ---
 
-## 8. Design system (Sage + Warm Ivory)
+## 8. Design system (Light rose glass)
 
 Server-rendered UI uses `static/css/style.css` and `templates/macros/icons.html`
-(inline SVG, no icon font). Fonts: **Sora** (headings) and **DM Sans** (body) via
-`base.html`.
+(inline SVG, stroke 1.75, no icon font). Fonts load from Google Fonts in
+`base.html`, with system fallbacks: **Space Grotesk** (headings), **DM Sans**
+(body), **IBM Plex Mono** (labels, numbers, timestamps).
+
+Light rose page. Cards are white glass (`rgba(255,255,255,0.6)`, backdrop
+blur, 1px border `rgba(122,46,64,0.14)`, shadow `0 10px 30px rgba(122,46,64,0.12)`).
+Primary buttons are `--maroon` with white text and a rose glow shadow
+(`0 8px 24px rgba(229,86,107,0.35)`). Focus rings use `--glow`. `--glow` is
+never a text colour.
 
 | Token | Value | Use |
 |---|---|---|
-| `--color-forest` | `#263A35` | Primary text, primary buttons, video stage |
-| `--color-sage` | `#829B8A` | Accents, links, chart series, success |
-| `--color-mint-soft` | `#DCE8DF` | Table headers, hovers, subtle fills |
-| `--color-ivory` | `#F7F5EF` | Page background |
-| `--color-white` | `#FFFFFF` | Cards, nav pill, inputs |
-| `--bg` / `--surface` | ivory / white | Layout surfaces |
-| `--text-muted` | `#5F726B` | Secondary copy |
-| `--accent-coral` | `#8B6348` | Warm accent (priority, tense vibe) |
+| `--bg` | `#EDE3E4` | Page background |
+| `--bg-deep` | `#DCCDD0` | Video stage and deep fills |
+| `--surface` | `#F8F2F2` | Solid card colour |
+| `--surface-high` | `#FFFFFF` | Inputs and raised chips |
+| `--text` | `#2E1A1F` | Primary text |
+| `--text-muted` | `#6E5359` | Secondary copy. 4.50:1 on `--bg-deep` (AA, exact) |
+| `--maroon` | `#7A2E40` | Brand, primary buttons, links, icons |
+| `--glow` | `#E5566B` | Orb, focus rings, glow shadows. Not text |
+| `--silver` | `#8C95A3` | Decorative only. Fails as text and as a status dot |
+| `--gold-soft` | `#F3E7A6` | Quiet pill fill |
+| `--gold-ink` | `#6B5400` | Text on gold pills |
+| `--ok` | `#266449` | Success. Specified `#2F7D5B` is 3.97:1 on `--bg` |
 
-**Components:** floating pill navbar (`navbar-shell`), buttons (`btn-primary`,
-`btn-outline`, `btn-ghost`), `card` + `card-pad` / `card-flush`, `form-control`,
-`alert-*`, badge variants (`badge-mint`, `badge-lilac`, `badge-queued`, …),
-`empty-state`, `bento-stats` / `bento-main`, `listening-orb` + CSS waveform on
-landing and live room.
+The page background is a faint rose grid, ~3% grain, and two blurred blobs
+(pale rose and pale silver-blue).
 
-**Motion:** CSS only (`page-rise`, hover lift, orb/waveform). Respect
-`prefers-reduced-motion`. No Framer Motion.
+**Components:** floating pill navbar with one primary action (`Start meeting`
+when signed in) and a grouped secondary cluster. Below 1100px the cluster
+becomes a menu toggled by `#nav-toggle`. Buttons (`btn-primary`, `btn-outline`,
+`btn-ghost`), glass `card`, `form-control` with a glow focus ring and
+`:user-invalid` hint, toast-style `alert-*`, badges with a status dot,
+tables, `image-modal`, `empty-state`, bento grids, and `listening-orb`.
+Skeleton loaders use a darker maroon shimmer.
+
+**Listening orb:** rose-to-maroon gradient, pale-rose halo and ripples, maroon
+mic mark. Stronger pulse in the live room while `.meet-tile--recording` is
+present, and a small idle orb on the meeting result header.
+
+**Charts:** matplotlib and the Trends Chart.js series use maroon, slate
+`#6E5359`, and green `#266449` on the light card. Graph nodes stay pale
+(rose, silver, gold) so one dark label colour passes. Chart data is unchanged.
+
+**Motion:** CSS only, inside `prefers-reduced-motion: no-preference` —
+`page-rise` (about 260ms), staggered cards, hover lift, button press, orb
+pulse. No Framer Motion.
 
 **Layout helpers:** `page-title`, `page-lead`, `back-link`, `container-narrow`,
-`container-medium`, `container-wide`. Avoid inline styles in templates — extend
-`style.css` instead.
+`container-medium`, `container-wide`. No one-off inline styles; extend
+`style.css`. Tap targets are at least 44px.
 
 **Mobile:** `@media (max-width: 768px/480px)` stacks forms and dashboard grids,
 makes the live-room toolbar a safe-area scroll strip, and shrinks the video
-stage for phones. Cache-bust `style.css` / `live-room.js` query `v=` when those
-files change.
+stage. Cache-bust `style.css` (`v=` in `base.html`) when it changes.
 
 ---
 

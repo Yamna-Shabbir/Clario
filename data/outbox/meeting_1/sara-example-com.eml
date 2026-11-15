@@ -1,0 +1,51 @@
+Subject: Your tasks from Planning
+To: sara@example.com
+From: Ada <ada@example.com>
+Reply-To: Ada <ada@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============6857041117082541601=="
+
+--===============6857041117082541601==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello Sara Khan,
+
+Meeting: Planning
+Date: 2026-11-15
+
+Task: Sara will design the logo.
+Assigned to: Sara Khan
+Assigned by: Ada
+Due: Friday 3pm (mentioned at 00:01:10)
+Priority: High
+Status: pending
+
+Open the meeting in Clario: http://127.0.0.1:5000/result/1
+The attached PDF includes the meeting summary and the other tasks.
+
+This meeting was hosted by Ada (ada@example.com). Reply to this message to re=
+ach them.
+
+--===============6857041117082541601==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="meeting-summary.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250
+IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL0xlbmd0aCAyMjkgPj4Kc3RyZWFtCkJU
+Ci9GMSAxMSBUZgo1MCA3NTAgVGQKMTQgVEwKKFBsYW5uaW5nKSBUagpUKgooKSBUagpUKgooU3Vt
+bWFyeSkgVGoKVCoKKE5vdGVzLikgVGoKVCoKKCkgVGoKVCoKKERlY2lzaW9ucykgVGoKVCoKKC0g
+Tm9uZSByZWNvcmRlZCkgVGoKVCoKKCkgVGoKVCoKKFRhc2tzKSBUagpUKgooLSBTYXJhIEtoYW46
+IFNhcmEgd2lsbCBkZXNpZ24gdGhlIGxvZ28uIFwoZHVlIEZyaWRheSAzcG1cKSkgVGoKVCoKRVQK
+ZW5kc3RyZWFtCmVuZG9iagozIDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgNCAwIFIgL01l
+ZGlhQm94IFswIDAgNjEyIDc5Ml0gL0NvbnRlbnRzIDIgMCBSIC9SZXNvdXJjZXMgPDwgL0ZvbnQg
+PDwgL0YxIDEgMCBSID4+ID4+ID4+CmVuZG9iago0IDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvQ291
+bnQgMSAvS2lkcyBbMyAwIFJdID4+CmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9DYXRhbG9nIC9Q
+YWdlcyA0IDAgUiA+PgplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAw
+MDA5IDAwMDAwIG4gCjAwMDAwMDAwNzkgMDAwMDAgbiAKMDAwMDAwMDM1OSAwMDAwMCBuIAowMDAw
+MDAwNDg1IDAwMDAwIG4gCjAwMDAwMDA1NDIgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA2IC9S
+b290IDUgMCBSID4+CnN0YXJ0eHJlZgo1OTEKJSVFT0Y=
+
+--===============6857041117082541601==--

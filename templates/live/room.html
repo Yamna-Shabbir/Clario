@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/icons.html" import icon_mic %}
+{% from "macros/icons.html" import icon_mic, icon_camera, icon_record, icon_stop, icon_end, listening_orb %}
 
 {# Defaults must live outside blocks so content + scripts_extra share them. #}
 {% set is_host = is_host if is_host is defined else false %}
@@ -41,6 +41,7 @@
   <div id="meet-main" class="{% if not in_meeting %}hidden{% endif %}">
   <div class="meet-body">
     <section class="meet-stage" aria-label="Video">
+      <div class="meet-orb">{{ listening_orb('listening-orb--live') }}</div>
       <div class="meet-stage__grid" id="meet-stage-grid" data-count="1">
       <div class="meet-tile meet-tile--self" id="self-tile">
         <video id="local-video" class="meet-video meet-video--local" autoplay playsinline muted></video>
@@ -138,27 +139,27 @@
   </div>
 
   <footer class="meet-toolbar" aria-label="Meeting controls">
-    <button type="button" class="meet-tool" id="btn-mic" aria-pressed="false" title="Microphone">
+    <button type="button" class="meet-tool" id="btn-mic" aria-pressed="false" title="Microphone" aria-label="Microphone">
       <span class="meet-tool__icon">{{ icon_mic(22, 'icon') }}</span>
       <span class="meet-tool__label">Mic</span>
     </button>
-    <button type="button" class="meet-tool" id="btn-camera" aria-pressed="false" title="Camera">
-      <span class="meet-tool__icon">Cam</span>
+    <button type="button" class="meet-tool" id="btn-camera" aria-pressed="false" title="Camera" aria-label="Camera">
+      <span class="meet-tool__icon">{{ icon_camera(22, 'icon') }}</span>
       <span class="meet-tool__label">Camera</span>
     </button>
-    <button type="button" class="meet-tool meet-tool--primary" id="record-start" title="Start recording">
-      <span class="meet-tool__icon">Rec</span>
+    <button type="button" class="meet-tool meet-tool--primary" id="record-start" title="Start recording" aria-label="Start recording">
+      <span class="meet-tool__icon">{{ icon_record(22, 'icon') }}</span>
       <span class="meet-tool__label">Record</span>
     </button>
-    <button type="button" class="meet-tool" id="record-stop" disabled title="Stop and save">
-      <span class="meet-tool__icon">Stop</span>
+    <button type="button" class="meet-tool" id="record-stop" disabled title="Stop and save" aria-label="Stop and save">
+      <span class="meet-tool__icon">{{ icon_stop(22, 'icon') }}</span>
       <span class="meet-tool__label">Save</span>
     </button>
     {% if is_host %}
     <form method="POST" action="{{ url_for('live.end', token=room.join_token) }}" class="meet-end-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-      <button type="submit" class="meet-tool meet-tool--danger" onclick="return confirm('End the meeting and process recordings?')">
-        <span class="meet-tool__icon">End</span>
+      <button type="submit" class="meet-tool meet-tool--danger" aria-label="End meeting" onclick="return confirm('End the meeting and process recordings?')">
+        <span class="meet-tool__icon">{{ icon_end(22, 'icon') }}</span>
         <span class="meet-tool__label">End</span>
       </button>
     </form>

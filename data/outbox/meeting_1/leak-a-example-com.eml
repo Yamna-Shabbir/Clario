@@ -1,0 +1,40 @@
+Subject: Summary of Security Test Meeting
+To: leak_a@example.com
+From: leakUserA <leak_a@example.com>
+Reply-To: leakUserA <leak_a@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============2886034746421092021=="
+
+--===============2886034746421092021==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello leakUserA,
+
+The meeting summary, decisions, and full task list are in the attached PDF.
+
+This meeting was hosted by leakUserA (leak_a@example.com). Reply to this mess=
+age to reach them.
+
+--===============2886034746421092021==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="meeting-summary.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250
+IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL0xlbmd0aCAyMzMgPj4Kc3RyZWFtCkJU
+Ci9GMSAxMSBUZgo1MCA3NTAgVGQKMTQgVEwKKFNlY3VyaXR5IFRlc3QgTWVldGluZykgVGoKVCoK
+KCkgVGoKVCoKKFN1bW1hcnkpIFRqClQqCihUb3Agc2VjcmV0IHByb2plY3QgTmlnaHRpbmdhbGUg
+YnJpZWZpbmcuKSBUagpUKgooKSBUagpUKgooRGVjaXNpb25zKSBUagpUKgooLSBOb25lIHJlY29y
+ZGVkKSBUagpUKgooKSBUagpUKgooVGFza3MpIFRqClQqCigtIE5vbmUgcmVjb3JkZWQpIFRqClQq
+CkVUCmVuZHN0cmVhbQplbmRvYmoKMyAwIG9iago8PCAvVHlwZSAvUGFnZSAvUGFyZW50IDQgMCBS
+IC9NZWRpYUJveCBbMCAwIDYxMiA3OTJdIC9Db250ZW50cyAyIDAgUiAvUmVzb3VyY2VzIDw8IC9G
+b250IDw8IC9GMSAxIDAgUiA+PiA+PiA+PgplbmRvYmoKNCAwIG9iago8PCAvVHlwZSAvUGFnZXMg
+L0NvdW50IDEgL0tpZHMgWzMgMCBSXSA+PgplbmRvYmoKNSAwIG9iago8PCAvVHlwZSAvQ2F0YWxv
+ZyAvUGFnZXMgNCAwIFIgPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAw
+MDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDc5IDAwMDAwIG4gCjAwMDAwMDAzNjMgMDAwMDAgbiAK
+MDAwMDAwMDQ4OSAwMDAwMCBuIAowMDAwMDAwNTQ2IDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUg
+NiAvUm9vdCA1IDAgUiA+PgpzdGFydHhyZWYKNTk1CiUlRU9G
+
+--===============2886034746421092021==--

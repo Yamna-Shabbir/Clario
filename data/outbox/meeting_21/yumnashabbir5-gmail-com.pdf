@@ -1,0 +1,80 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 1172 >>
+stream
+BT
+/F1 11 Tf
+50 750 Td
+14 TL
+(Untitled Meeting) Tj
+T*
+() Tj
+T*
+(Summary) Tj
+T*
+(John will complete the database setup by Friday . Sarah needs to review the design) Tj
+T*
+(mock-ups and send feedback to the team by tomorrow . Mike will handle the client) Tj
+T*
+(presentation on Wednesday . Budget report must be submitted to management by end of this) Tj
+T*
+(week . Furthermore, See you next week.) Tj
+T*
+() Tj
+T*
+(Decisions) Tj
+T*
+(- None recorded) Tj
+T*
+() Tj
+T*
+(Tasks) Tj
+T*
+(- John: First, John will complete the database setup by Friday. \(due 2026-11-20\)) Tj
+T*
+(- Team: Sarah needs to review the design mock-ups and send feedback to the team by) Tj
+T*
+(tomorrow. \(due 2026-11-14\)) Tj
+T*
+(- Team: We also need to schedule a follow-up meeting for next Monday at 10 a.m. \(due) Tj
+T*
+(2026-11-16\)) Tj
+T*
+(- Mike: Mike will handle the client presentation on Wednesday. \(due 2026-11-18\)) Tj
+T*
+(- Team: Please make sure all team members review the project timeline. \(due Not specified\)) Tj
+T*
+(- Team: Let's also fix the login bug in the application before the deadline. \(due Not) Tj
+T*
+(specified\)) Tj
+T*
+(- See: See you next week. \(due 2026-11-20\)) Tj
+T*
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+5 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000001303 00000 n 
+0000001429 00000 n 
+0000001486 00000 n 
+trailer
+<< /Size 6 /Root 5 0 R >>
+startxref
+1535
+%%EOF

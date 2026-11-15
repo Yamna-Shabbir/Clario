@@ -1,0 +1,40 @@
+Subject: Summary of Planning
+To: host@example.com
+From: host <host@example.com>
+Reply-To: host <host@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============0952568962416061529=="
+
+--===============0952568962416061529==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello host,
+
+The meeting summary, decisions, and full task list are in the attached PDF.
+
+This meeting was hosted by host (host@example.com). Reply to this message to =
+reach them.
+
+--===============0952568962416061529==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="meeting-summary.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250
+IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL0xlbmd0aCAyMDggPj4Kc3RyZWFtCkJU
+Ci9GMSAxMSBUZgo1MCA3NTAgVGQKMTQgVEwKKFBsYW5uaW5nKSBUagpUKgooKSBUagpUKgooU3Vt
+bWFyeSkgVGoKVCoKKEhvc3QgVGhlIHBsYW4gd2FzIGRlc2NyaWJlZC4pIFRqClQqCigpIFRqClQq
+CihEZWNpc2lvbnMpIFRqClQqCigtIE5vbmUgcmVjb3JkZWQpIFRqClQqCigpIFRqClQqCihUYXNr
+cykgVGoKVCoKKC0gTm9uZSByZWNvcmRlZCkgVGoKVCoKRVQKZW5kc3RyZWFtCmVuZG9iagozIDAg
+b2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJlbnQgNCAwIFIgL01lZGlhQm94IFswIDAgNjEyIDc5Ml0g
+L0NvbnRlbnRzIDIgMCBSIC9SZXNvdXJjZXMgPDwgL0ZvbnQgPDwgL0YxIDEgMCBSID4+ID4+ID4+
+CmVuZG9iago0IDAgb2JqCjw8IC9UeXBlIC9QYWdlcyAvQ291bnQgMSAvS2lkcyBbMyAwIFJdID4+
+CmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9DYXRhbG9nIC9QYWdlcyA0IDAgUiA+PgplbmRvYmoK
+eHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAw
+NzkgMDAwMDAgbiAKMDAwMDAwMDMzOCAwMDAwMCBuIAowMDAwMDAwNDY0IDAwMDAwIG4gCjAwMDAw
+MDA1MjEgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA2IC9Sb290IDUgMCBSID4+CnN0YXJ0eHJl
+Zgo1NzAKJSVFT0Y=
+
+--===============0952568962416061529==--

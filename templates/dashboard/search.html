@@ -44,7 +44,8 @@
     <div class="card empty-state">
       <div class="empty-state__icon">{{ icon_search(26, 'icon') }}</div>
       <p class="empty-state__title">No results found</p>
-      <p class="empty-state__lead">Try different keywords from the search bar.</p>
+      <p class="empty-state__lead">Nothing matched that search. Try another phrase.</p>
+      <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary btn-sm">Back to dashboard</a>
     </div>
   {% endif %}
 

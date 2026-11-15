@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/icons.html" import icon_arrow_left, icon_mic, icon_clipboard, icon_calendar, icon_user, icon_check, icon_video %}
+{% from "macros/icons.html" import icon_arrow_left, icon_mic, icon_clipboard, icon_calendar, icon_user, icon_check, icon_video, listening_orb %}
 
 {% block title %}Meeting #{{ meeting.id }} results{% endblock %}
 
@@ -12,8 +12,9 @@
     <span class="badge badge-lilac">Meeting #{{ meeting.id }}</span>
   </div>
 
-  <div class="row-between stack-sm">
+  <div class="row-between stack-sm result-title-row">
     <h1 class="page-title">{{ meeting.title or "Untitled Meeting" }}</h1>
+    {{ listening_orb('listening-orb--idle') }}
   </div>
   <div class="row-between stack-sm">
     <div class="row-actions hide-on-print">
@@ -99,7 +100,12 @@
        data-status="{{ meeting.status }}"
        data-stage="{{ meeting.progress_stage or 'queued' }}">
     <div class="logo-loader stack-md">
-      <span class="logo-pulse">{{ icon_mic(28, 'icon') }}</span>
+      {{ listening_orb('listening-orb--live') }}
+    </div>
+    <div class="skeleton-stack" aria-hidden="true">
+      <span class="skeleton"></span>
+      <span class="skeleton skeleton--mid"></span>
+      <span class="skeleton skeleton--short"></span>
     </div>
     <h2 id="processing-title" class="processing-title">Processing your meeting</h2>
     <p id="processing-stage-text" class="text-muted stack-md">
@@ -416,14 +422,14 @@
                 <div class="text-muted">{{ t.assigned_by_email }}</div>
                 {% endif %}
               {% else %}
-                <span class="text-muted">Not named</span>
+                <span class="empty-value">Not named</span>
               {% endif %}
             </td>
             <td>
               {% if t.due_date != 'Not specified' %}
                 <span class="badge badge-amber">{{ icon_calendar(12, 'icon') }} {{ t.due_date }}</span>
               {% else %}
-                <span class="text-muted">—</span>
+                <span class="empty-value">—</span>
               {% endif %}
             </td>
             <td>
@@ -448,7 +454,7 @@
                 <button type="submit" class="btn btn-outline btn-sm">Save</button>
               </form>
               {% else %}
-                {{ status_labels.get(t.status, t.status) }}
+                <span class="status-badge status-badge--{{ t.status }}">{{ status_labels.get(t.status, t.status) }}</span>
               {% endif %}
             </td>
           </tr>
@@ -487,7 +493,7 @@
               <div class="text-muted">Earlier line: “{{ item.source_context }}”</div>
               {% endif %}
             </td>
-            <td>{% if item.evidence_time %}{{ item.evidence_time }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>{% if item.evidence_time %}{{ item.evidence_time }}{% else %}<span class="empty-value">—</span>{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>

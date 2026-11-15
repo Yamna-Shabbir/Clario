@@ -1,0 +1,46 @@
+Subject: Summary of Duplicate Test
+To: test@example.com
+From: testuser <test@example.com>
+Reply-To: testuser <test@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============3932266944732385433=="
+
+--===============3932266944732385433==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello testuser,
+
+The meeting summary, decisions, and full task list are in the attached PDF.
+
+This meeting was hosted by testuser (test@example.com). Reply to this message=
+ to reach them.
+
+--===============3932266944732385433==
+Content-Type: application/pdf
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="meeting-summary.pdf"
+MIME-Version: 1.0
+
+JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250
+IC9IZWx2ZXRpY2EgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL0xlbmd0aCA1NDIgPj4Kc3RyZWFtCkJU
+Ci9GMSAxMSBUZgo1MCA3NTAgVGQKMTQgVEwKKER1cGxpY2F0ZSBUZXN0KSBUagpUKgooKSBUagpU
+KgooU3VtbWFyeSkgVGoKVCoKKEFsaWNlIHdpbGwgcHJlcGFyZSB0aGUgcHJvamVjdCBwcm9wb3Nh
+bCBieSBGcmlkYXkuIEJvYiBtdXN0IHJldmlldyB0aGUgZGVzaWduIGRvY3VtZW50cykgVGoKVCoK
+KGltbWVkaWF0ZWx5LiBUaGUgdGVhbSBzaG91bGQgc2NoZWR1bGUgYSBmb2xsb3ctdXAgbWVldGlu
+ZyBuZXh0IHdlZWsuKSBUagpUKgooKSBUagpUKgooRGVjaXNpb25zKSBUagpUKgooLSBUaGUgdGVh
+bSBzaG91bGQgc2NoZWR1bGUgYSBmb2xsb3ctdXAgbWVldGluZyBuZXh0IHdlZWsuKSBUagpUKgoo
+KSBUagpUKgooVGFza3MpIFRqClQqCigtIEFsaWNlOiBBbGljZSB3aWxsIHByZXBhcmUgdGhlIHBy
+b2plY3QgcHJvcG9zYWwgYnkgRnJpZGF5LiBcKGR1ZSAyMDI2LTExLTIwXCkpIFRqClQqCigtIEJv
+YjogQm9iIG11c3QgcmV2aWV3IHRoZSBkZXNpZ24gZG9jdW1lbnRzIGltbWVkaWF0ZWx5LiBcKGR1
+ZSBOb3Qgc3BlY2lmaWVkXCkpIFRqClQqCkVUCmVuZHN0cmVhbQplbmRvYmoKMyAwIG9iago8PCAv
+VHlwZSAvUGFnZSAvUGFyZW50IDQgMCBSIC9NZWRpYUJveCBbMCAwIDYxMiA3OTJdIC9Db250ZW50
+cyAyIDAgUiAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSAxIDAgUiA+PiA+PiA+PgplbmRvYmoK
+NCAwIG9iago8PCAvVHlwZSAvUGFnZXMgL0NvdW50IDEgL0tpZHMgWzMgMCBSXSA+PgplbmRvYmoK
+NSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgNCAwIFIgPj4KZW5kb2JqCnhyZWYKMCA2
+CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDc5IDAwMDAw
+IG4gCjAwMDAwMDA2NzIgMDAwMDAgbiAKMDAwMDAwMDc5OCAwMDAwMCBuIAowMDAwMDAwODU1IDAw
+MDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNiAvUm9vdCA1IDAgUiA+PgpzdGFydHhyZWYKOTA0CiUl
+RU9G
+
+--===============3932266944732385433==--

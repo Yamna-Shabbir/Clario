@@ -34,10 +34,12 @@
     const sentiments = {{ stats.sentiments|tojson }};
     const sentimentMap = { "Positive": 1, "Neutral": 0, "Tense": -1 };
     const sentimentData = sentiments.map(s => sentimentMap[s] || 0);
-    const grid = 'rgba(38, 58, 53, 0.08)';
-    const mint = '#829B8A';
-    const coral = '#8B6348';
-    const lilac = '#DCE8DF';
+    const grid = 'rgba(122, 46, 64, 0.12)';
+    const mint = '#7A2E40';
+    const coral = '#266449';
+    const lilac = '#6E5359';
+    const ink = '#2E1A1F';
+    if (window.Chart) Chart.defaults.color = ink;
 
     new Chart(document.getElementById('tasksChart'), {
       type: 'line',
@@ -47,7 +49,7 @@
           label: 'Total Tasks Assigned',
           data: tasksData,
           borderColor: mint,
-          backgroundColor: 'rgba(220, 232, 223, 0.65)',
+          backgroundColor: 'rgba(122, 46, 64, 0.16)',
           borderWidth: 3,
           tension: 0.4,
           fill: true
@@ -57,8 +59,8 @@
         responsive: true,
         plugins: { legend: { display: false } },
         scales: {
-          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: '#5F726B' } },
-          x: { grid: { display: false }, ticks: { color: '#5F726B' } }
+          y: { beginAtZero: true, grid: { color: grid }, ticks: { color: ink } },
+          x: { grid: { display: false }, ticks: { color: ink } }
         }
       }
     });
@@ -70,7 +72,7 @@
         datasets: [{
           label: 'Meeting Vibe',
           data: sentimentData,
-          backgroundColor: sentimentData.map(v => v > 0 ? mint : (v < 0 ? coral : lilac)),
+          backgroundColor: sentimentData.map(v => v > 0 ? coral : (v < 0 ? mint : lilac)),
           borderRadius: 8
         }]
       },
@@ -91,7 +93,7 @@
           y: {
             min: -1.5, max: 1.5,
             ticks: {
-              color: '#5F726B',
+              color: ink,
               callback(value) {
                 if (value === 1) return 'Positive';
                 if (value === 0) return 'Neutral';
@@ -101,7 +103,7 @@
             },
             grid: { color: grid }
           },
-          x: { grid: { display: false }, ticks: { color: '#5F726B' } }
+          x: { grid: { display: false }, ticks: { color: ink } }
         }
       }
     });

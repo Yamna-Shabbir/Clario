@@ -1,0 +1,88 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 1784 >>
+stream
+BT
+/F1 11 Tf
+50 750 Td
+14 TL
+(Untitled Meeting) Tj
+T*
+() Tj
+T*
+(Summary) Tj
+T*
+(Login and sign-up pages are ready, but there are still some issues in the notification) Tj
+T*
+(system . We have to resolve all important issues by next Monday because we have to give) Tj
+T*
+(the client a project demo next Wednesday . So far, 25 test cases have been run, of which) Tj
+T*
+(20 passed and five issues came up . Furthermore, Ayesha will complete it by Friday. Ali) Tj
+T*
+(will provide API update by this evening. Ali will work on it over the next two days. Ali,) Tj
+T*
+(please improve database performance by Thursday. Ayesha, please complete notification) Tj
+T*
+(system by Friday. Sarah will send all issues report to team. We have to resolve all) Tj
+T*
+(important issues by next Monday because we have to give the client a project demo next) Tj
+T*
+(Wednesday. Ayesha will finish the work by Monday and hand it over for testing.) Tj
+T*
+() Tj
+T*
+(Decisions) Tj
+T*
+(- We will hold a review meeting on Monday 3 PM.) Tj
+T*
+() Tj
+T*
+(Tasks) Tj
+T*
+(- Ayesha: Ayesha will complete it by Friday. \(due Friday\)) Tj
+T*
+(- Ali: Ali will provide API update by this evening. \(due this evening\)) Tj
+T*
+(- Ali: Ali will work on it over the next two days. \(due next two\)) Tj
+T*
+(- Ali: Ali, please improve database performance by Thursday. \(due Thursday\)) Tj
+T*
+(- Ayesha: Ayesha, please complete notification system by Friday. \(due Friday\)) Tj
+T*
+(- Sarah: Sarah will send all issues report to team. \(due Not specified\)) Tj
+T*
+(- Team: We have to resolve all important issues by next Monday because we have to give the) Tj
+T*
+(client a project demo next Wednesday. \(due next Monday\)) Tj
+T*
+(- Ayesha: Ayesha will finish the work by Monday and hand it over for testing. \(due Monday\)) Tj
+T*
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+5 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000001915 00000 n 
+0000002041 00000 n 
+0000002098 00000 n 
+trailer
+<< /Size 6 /Root 5 0 R >>
+startxref
+2147
+%%EOF

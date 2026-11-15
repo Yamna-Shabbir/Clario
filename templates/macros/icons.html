@@ -44,8 +44,24 @@
 <svg class="{{ class }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 13 5.2 3.5a1 1 0 0 0 1.5-.9V8.4a1 1 0 0 0-1.5-.9L16 11"/><rect width="14" height="10" x="2" y="7" rx="2"/></svg>
 {% endmacro %}
 
-{% macro listening_orb() %}
-<div class="listening-orb" aria-hidden="true">
+{% macro icon_camera(size=22, class='icon') %}
+<svg class="{{ class }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+{% endmacro %}
+
+{% macro icon_record(size=22, class='icon') %}
+<svg class="{{ class }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+{% endmacro %}
+
+{% macro icon_stop(size=22, class='icon') %}
+<svg class="{{ class }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+{% endmacro %}
+
+{% macro icon_end(size=22, class='icon') %}
+<svg class="{{ class }}" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"/><line x1="22" x2="16" y1="2" y2="8"/><line x1="16" x2="22" y1="2" y2="8"/></svg>
+{% endmacro %}
+
+{% macro listening_orb(extra_class='') %}
+<div class="listening-orb {{ extra_class }}" aria-hidden="true">
   <span class="listening-orb__ring listening-orb__ring--1"></span>
   <span class="listening-orb__ring listening-orb__ring--2"></span>
   <span class="listening-orb__core">{{ icon_mic(26, 'icon') }}</span>

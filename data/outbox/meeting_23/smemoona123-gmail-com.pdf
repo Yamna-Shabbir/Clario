@@ -1,0 +1,110 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 2280 >>
+stream
+BT
+/F1 11 Tf
+50 750 Td
+14 TL
+(HIRING) Tj
+T*
+() Tj
+T*
+(Summary) Tj
+T*
+(We need to finalize our project before the next evaluation . Everyone has two) Tj
+T*
+(responsibilities, including redesigning the dashboard and improving the charts . Sp23 is) Tj
+T*
+(responsible for testing the Urdu transcription module . Furthermore, We need to finalize) Tj
+T*
+(our project before the next evaluation. Mona, I want you to redesign the dashboard and) Tj
+T*
+(improve the charts. Memoona, I want you to review the frontend code and identify any UI) Tj
+T*
+(bugs. Mona, I am assigning you the responsibility of testing the task extraction module.) Tj
+T*
+(Check whether names, deadlines, and task assignments are extracted correctly. Finish by) Tj
+T*
+(Tuesday. Let's meet again on Thursday to review the progress.) Tj
+T*
+() Tj
+T*
+(Decisions) Tj
+T*
+(- None recorded) Tj
+T*
+() Tj
+T*
+(Tasks) Tj
+T*
+(- Team: We need to finalize our project before the next evaluation. \(due next evaluation\)) Tj
+T*
+(- Mona: Mona, I want you to redesign the dashboard and improve the charts. \(due Not) Tj
+T*
+(specified\)) Tj
+T*
+(- Mona: Sp23, you are responsible for testing the Urdu transcription module. \(due Not) Tj
+T*
+(specified\)) Tj
+T*
+(- Mona: Test at least five different audio samples and share the results by Tuesday. \(due) Tj
+T*
+(2026-11-17\)) Tj
+T*
+(- Memmoona: Memoona, I want you to review the frontend code and identify any UI bugs. \(due) Tj
+T*
+(Not specified\)) Tj
+T*
+(- sp23: Sp23, please prepare the project documentation, including the system architecture) Tj
+T*
+(and database design. \(due Not specified\)) Tj
+T*
+(- Mona: Mona, I am assigning you the responsibility of testing the task extraction module.) Tj
+T*
+(\(due Not specified\)) Tj
+T*
+(- Mona: Check whether names, deadlines, and task assignments are extracted correctly. \(due) Tj
+T*
+(Not specified\)) Tj
+T*
+(- Mona: Finish by Tuesday. \(due 2026-11-17\)) Tj
+T*
+(- sp23: Sp23 will review the database and verify that all meeting records, summaries, and) Tj
+T*
+(tasks are being saved correctly by Wednesday \(due 2026-11-18\)) Tj
+T*
+(- Team: Let's meet again on Thursday to review the progress. \(due 2026-11-19\)) Tj
+T*
+(- Everyone: Everyone should update their task status before the next meeting. \(due next) Tj
+T*
+(meeting\)) Tj
+T*
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+5 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000002411 00000 n 
+0000002537 00000 n 
+0000002594 00000 n 
+trailer
+<< /Size 6 /Root 5 0 R >>
+startxref
+2643
+%%EOF
