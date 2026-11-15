@@ -59,6 +59,9 @@ STRONG_CUES: List[str] = [
     r"\bassigned\s+to\b",
     r"\bcan\s+you\b",
     r"\bcould\s+you\b",
+    r"\bi\s+want\s+you\s+to\b",
+    r"\bi\s+need\s+you\s+to\b",
+    r"\bi(?:'d| would)\s+like\s+you\s+to\b",
     r"\blet['']?s\b",
     r"\bmake\s+sure\b",
     r"\baction\s+item\b",
@@ -211,7 +214,8 @@ _RELATIVE_DATE_RE = re.compile(
 )
 
 # "Name, can you please … and Other, please …" is more than one request.
-_NAME_RE = r"[A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2}"
+_NAME_WORD = r"(?!(?i:please|can|could|will|would|you|i|need)\b)[A-Z][\w'.-]+"
+_NAME_RE = rf"{_NAME_WORD}(?:\s+{_NAME_WORD}){{0,2}}"
 _POLITE_PREFIX_RE = (
     r"(?:can you please|could you please|would you please|will you please|"
     r"i need you to|i want you to|i would like you to|i'd like you to|"
@@ -219,8 +223,24 @@ _POLITE_PREFIX_RE = (
     r"complete|finish|submit|send|fix|prepare|update|review|check|handle|"
     r"deliver|create|write|draft|deploy|schedule)"
 )
+# A comma is required before a bare verb ("Sara, send"). Speech often drops the
+# comma only before please / can you ("Sara can you send this").
+_SPOKEN_REQUEST_RE = (
+    r"please|can you|could you|will you|would you|i need you to|i want you to"
+)
 _VOCATIVE_RE = re.compile(
-    rf"(?:^|(?<=\s))(?:(?i:and|also)\s+)?({_NAME_RE}),\s*(?i:{_POLITE_PREFIX_RE})\b",
+    rf"(?:^|(?<=\s))(?:(?i:and|also)\s+)?({_NAME_RE})"
+    rf"(?:,\s*(?i:{_POLITE_PREFIX_RE})\b|(?:,\s*|\s+)(?i:{_SPOKEN_REQUEST_RE})\b)",
+)
+# "can" and "you" are the request, not part of the name. Without this, a
+# greedy match turns "sara can you" into one fake person.
+_LOWER_NAME = (
+    r"(?!(?:please|can|could|will|would|you|i|need|and|also|the|to|for|of|"
+    r"with|by|on|in|a|an|notes|report|recording|budget)\b)[a-z][\w'.-]{2,}"
+)
+_LEADING_ADDRESSEE_RE = re.compile(
+    rf"\b({_LOWER_NAME}(?:\s+{_LOWER_NAME}){{0,2}})"
+    rf"((?:,\s*|\s+)(?=(?:{_SPOKEN_REQUEST_RE})\b))",
 )
 _NEXT_ACTION_RE = re.compile(
     r"\s+and\s+(?:also\s+|then\s+)?(?=(?:please\s+|kindly\s+)?"
@@ -293,6 +313,29 @@ def _is_schedule_announcement(sentence: str) -> bool:
 def _is_closing_remark(sentence: str) -> bool:
     """Ending the conversation is not an assignment."""
     return bool(_CLOSING_RE.match((sentence or "").strip()))
+
+
+_LEADING_FILLER_RE = re.compile(
+    r"^(?:(?:okay|ok|um|uh|so|and|right|well|yes|yeah)[, ]+)+",
+    re.IGNORECASE,
+)
+_TRAILING_CLOSE_RE = re.compile(
+    r"(?:[,.]|\s)\s*(?:okay[, ]+)?(?:so[, ]+)?(?:i am|i'm|we are|we're)\s+"
+    r"(?:just\s+)?(?:ending|leaving|stopping|signing off|wrapping up)"
+    r"(?:\s+the)?(?:\s+(?:meeting|call|session|recording))?[.!\s]*$",
+    re.IGNORECASE,
+)
+
+
+def strip_spoken_asides(sentence: str) -> str:
+    """Drop a leading okay/and and a trailing 'I am ending the meeting'.
+
+    Recorded lines often glue the request and the goodbye into one sentence.
+    The goodbye is not part of the task.
+    """
+    text = _TRAILING_CLOSE_RE.sub("", (sentence or "").strip()).strip(" ,")
+    text = _LEADING_FILLER_RE.sub("", text).strip(" ,")
+    return text
 
 
 # "let's get started / move on / wrap up" are pleasantries, NOT tasks
@@ -386,9 +429,29 @@ def _is_group_followup(sentence: str) -> bool:
 
 
 def _acceptable_addressee(name: str) -> bool:
-    return bool(name) and name.casefold() not in _PERSON_SKIP and name.casefold() not in {
-        "and", "also", "both", "please", "can", "could",
+    cleaned = (name or "").casefold().replace("’", "'")
+    if not cleaned or "'" in cleaned or cleaned in _PERSON_SKIP:
+        return False
+    return cleaned not in {
+        "and", "also", "both", "please", "can", "could", "you",
+        "i'll", "i'm", "we'll", "they'll", "i’ve",
     }
+
+
+def _capitalize_addressees(text: str) -> str:
+    """Restore name capitals that speech-to-text dropped before a request.
+
+    "sara can you send the notes" is the same address as "Sara, can you".
+    A weekday or a work noun in that position stays as it is.
+    """
+    def leading(match: re.Match) -> str:
+        words = match.group(1).split()
+        if any(not _acceptable_addressee(word) for word in words):
+            return match.group(0)
+        titled = " ".join(word[:1].upper() + word[1:] for word in words)
+        return titled + match.group(2)
+
+    return _LEADING_ADDRESSEE_RE.sub(leading, text or "")
 
 
 def _polish_action(text: str) -> str:
@@ -413,6 +476,12 @@ def concise_action(sentence: str) -> str:
     """Drop the name and the request wrapper, leaving the action."""
     text = re.sub(r"\s+", " ", (sentence or "").strip().rstrip(".!?"))
     text = _TRAILING_FOLLOWUP_RE.sub("", text).strip(" ,")
+    text = re.sub(
+        rf"^(?:and\s+|also\s+)?{_NAME_RE}(?:,\s*|\s+)(?=(?i:{_POLITE_PREFIX_RE})\b)",
+        "",
+        text,
+        count=1,
+    )
     text = re.sub(rf"^(?:and\s+|also\s+)?{_NAME_RE},\s*", "", text, count=1)
     text = re.sub(
         rf"^(?:{_POLITE_PREFIX_RE})\s+",
@@ -712,6 +781,9 @@ def detect_tasks(
 
     pieces: List[tuple] = []
     for sentence in sentences:
+        sentence = strip_spoken_asides(_capitalize_addressees(sentence))
+        if not sentence:
+            continue
         clauses = split_coordinated_requests(sentence)
         if len(clauses) > 1:
             pieces.extend((clause, True) for clause in clauses)
@@ -811,7 +883,19 @@ def detect_tasks(
         _pronoun_set = {"i", "we", "they", "he", "she", "it", "you",
                         "i'll", "we'll", "they'll"}
         addressed = _VOCATIVE_RE.match(sentence.strip())
-        if addressed and _person_token_ok(addressed.group(1), _pronoun_set):
+        if not (addressed and _acceptable_addressee(addressed.group(1))):
+            addressed = next(
+                (
+                    match for match in _VOCATIVE_RE.finditer(sentence)
+                    if _acceptable_addressee(match.group(1))
+                ),
+                None,
+            )
+        if (
+            addressed
+            and _person_token_ok(addressed.group(1), _pronoun_set)
+            and _acceptable_addressee(addressed.group(1))
+        ):
             assigned_to = addressed.group(1)
         sent_doc = loaded_nlp(sentence) if loaded_nlp is not None else None
         if assigned_to == "Team" and sent_doc is not None:

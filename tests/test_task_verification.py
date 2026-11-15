@@ -493,3 +493,99 @@ def test_a_one_letter_name_slip_matches_one_participant():
         {"name": "Omar", "email": "omar@example.com"},
     ])
     assert contained["email"] == "saleena99@example.com"
+
+
+def test_a_named_request_stays_with_that_person_when_a_goodbye_is_glued_on():
+    transcript = (
+        "Hina (hina@example.com): Okay, and Omar, I want you to send the notes okay so I am ending the meeting\n"
+        "Omar (omar@example.com): Can you please check the budget?\n"
+        "Omar (omar@example.com): We will use email for updates from now on.\n"
+        "Hina (hina@example.com): Can you tell me what is left?\n"
+    )
+    people = [
+        {"name": "Hina", "email": "hina@example.com"},
+        {"name": "Omar", "email": "omar@example.com"},
+    ]
+    result = verify_meeting_tasks(
+        transcript,
+        segments=prepare_meeting_turns(transcript, translate=False),
+        participants=people,
+    )
+    blob = " ".join(task["description"].lower() for task in result["tasks"])
+    assert "ending" not in blob
+    assert "email for updates" not in blob
+    assert "what is left" not in blob
+    notes = _pending(result["tasks"], "Omar", "notes")
+    assert notes["assigned_by_email"] == "hina@example.com"
+    budget = _pending(result["tasks"], "Hina", "budget")
+    assert budget["assigned_email"] == "hina@example.com"
+    assert any("email for updates" in (item.get("text") or "") for item in result["decisions"])
+    assert len(result["tasks"]) == 2
+
+
+def test_recorded_english_assigns_each_named_request_without_commas():
+    transcript = (
+        "Hina (hina@example.com): "
+        "sara can you please send the notes and omar can you check the recording."
+    )
+    result = verify_meeting_tasks(
+        transcript,
+        segments=prepare_meeting_turns(transcript, translate=False),
+        participants=[
+            {"name": "Sara Khan", "email": "sara@example.com"},
+            {"name": "Omar Ali", "email": "omar@example.com"},
+            {"name": "Hina", "email": "hina@example.com"},
+        ],
+    )
+    notes = _pending(result["tasks"], "Sara Khan", "notes")
+    recording = _pending(result["tasks"], "Omar Ali", "recording")
+    assert "omar" not in notes["description"].lower()
+    assert "sara" not in recording["description"].lower()
+    assert len(result["tasks"]) == 2
+
+
+def test_a_named_question_from_audio_keeps_that_assignee():
+    transcript = "Hina (hina@example.com): Ali can you send the report by Friday?"
+    result = verify_meeting_tasks(
+        transcript,
+        segments=prepare_meeting_turns(transcript, translate=False),
+        participants=[
+            {"name": "Ali", "email": "ali@example.com"},
+            {"name": "Hina", "email": "hina@example.com"},
+        ],
+    )
+    assert len(result["tasks"]) == 1
+    assert result["tasks"][0]["assigned_to"] == "Ali"
+    assert result["tasks"][0]["assigned_email"] == "ali@example.com"
+    assert "report" in result["tasks"][0]["description"].lower()
+
+
+def test_an_unnamed_question_still_waits_for_the_reply():
+    result = verify_meeting_tasks(
+        "Sara:\nCan you also check the login page?\nAli:\nI can do that tomorrow."
+    )
+    assert len(result["tasks"]) == 1
+    assert result["tasks"][0]["assigned_to"] == "Ali"
+
+
+def test_urdu_and_roman_audio_split_two_assignees_without_commas():
+    urdu = verify_meeting_tasks(
+        "احمد نوٹس بھیج دیں اور سارہ بجٹ چیک کر دیں۔",
+        segments=prepare_meeting_turns(
+            "احمد نوٹس بھیج دیں اور سارہ بجٹ چیک کر دیں۔",
+            translate=False,
+        ),
+    )
+    roman = verify_meeting_tasks(
+        "Hina notes bhej dena aur Farah recording check kar lo.",
+        segments=prepare_meeting_turns(
+            "Hina notes bhej dena aur Farah recording check kar lo.",
+            translate=False,
+        ),
+    )
+    assert len(urdu["tasks"]) == 2
+    assert len({task["assigned_to"] for task in urdu["tasks"]}) == 2
+    assert any("notes" in task["description"].lower() for task in urdu["tasks"])
+    assert any("budget" in task["description"].lower() for task in urdu["tasks"])
+    _pending(roman["tasks"], "Hina", "notes")
+    _pending(roman["tasks"], "Farah", "recording")

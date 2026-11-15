@@ -573,12 +573,57 @@ _URDU_REQUEST_HINT = re.compile(
 )
 
 
+_URDU_VERB_START = re.compile(
+    r"^(?:بھیج|چیک|لکھ|مکمل|کر|دیکھ|ٹھیک|براہ|اپڈیٹ|add|fix)"
+)
+
+
+def _capitalize_clause_start(part: str) -> str:
+    """Capitalise a spoken name at the start of a Roman Urdu clause."""
+    match = re.match(r"^([a-z][\w'.-]{2,})(\b.*)$", part, re.DOTALL)
+    if not match:
+        return part
+    word = match.group(1)
+    if not _latin_name_token(word):
+        return part
+    return word[:1].upper() + word[1:] + match.group(2)
+
+
+def _latin_name_token(word: str) -> bool:
+    folded = (word or "").lower()
+    if not folded or folded in _ROMAN_CUES or folded in _NOT_A_PERSON:
+        return False
+    if folded in _TIME or folded in _DROP or folded in _PRONOUN or folded in _VERB_ATOM:
+        return False
+    if folded in {"phir", "please", "and", "aur", "also", "then", "bhej", "check", "kar"}:
+        return False
+    return True
+
+
+def _urdu_name_token(token: str) -> bool:
+    """True when an Urdu word is a person rather than a weekday, object, or verb."""
+    if _URDU_VERB_START.match(token):
+        return False
+    mapped = _URDU_WORDS.get(token, "")
+    if not mapped:
+        return True
+    folded = mapped.lower()
+    if folded in _TIME or folded in _DROP or folded in _NOT_A_PERSON or folded in _PRONOUN:
+        return False
+    return mapped[:1].isupper()
+
+
 def _later_clause_names_someone(part: str, *, urdu: bool) -> bool:
-    """True when a following clause starts by addressing a person."""
+    """True when a following clause starts by addressing a person.
+
+    A comma after the name is optional. Recorded speech often leaves it out.
+    """
     part = part.strip()
     if urdu:
-        return bool(re.match(r"^[\u0600-\u06FF]{2,}[،,]", part))
-    return bool(re.match(r"^[A-Z][\w'.-]+,", part))
+        match = re.match(r"^([\u0600-\u06FF]{2,})(?:[،,]|\s)", part)
+        return bool(match and _urdu_name_token(match.group(1)))
+    match = re.match(r"^([A-Za-z][\w'.-]+)(?:[,\s]|$)", part)
+    return bool(match and _latin_name_token(match.group(1)) and match.group(1)[:1].isupper())
 
 
 def coordinated_clauses(text: str) -> List[str]:
@@ -597,7 +642,7 @@ def coordinated_clauses(text: str) -> List[str]:
         return [raw]
     if looks_roman_urdu(raw):
         parts = [
-            part.strip(" ,")
+            _capitalize_clause_start(part.strip(" ,"))
             for part in re.split(r"\s+aur\s+", raw, flags=re.IGNORECASE)
             if part.strip(" ,")
         ]

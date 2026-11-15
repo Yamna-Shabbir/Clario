@@ -688,9 +688,15 @@ meeting_participants                  (many-to-1 with meetings)
     or the Roman Urdu lexicon, keeping the gloss that preserves more of the
     commitment. It always runs, including when `CLARIO_ENABLE_TEXT_TRANSLATION`
     is false; that flag only skips the Marian model. A transliterated name is
-    aligned to a Latin speaker label already on the transcript. A named "please"
-    is saved for that person even when nobody answers; a question still waits
-    for the reply. Agreement words (`بالکل`, `ٹھیک ہے`, okay, absolutely) are
+    aligned to a Latin speaker label already on the transcript. A name followed
+    by "please", "can you", or "I want you to" is that person's task even when
+    a recording left out the comma and even when the line is spoken as a
+    question. A trailing remark that the speaker is ending the meeting is cut
+    off the task. "We will use ..." is a decision. A question that names nobody
+    still waits for the reply, unless the roster has exactly one other person
+    and the line asks them to do the work. Urdu and Roman Urdu split on
+    اور / aur when the next clause starts with a person, with or without a
+    comma after that name. Agreement words (`بالکل`, `ٹھیک ہے`, okay, absolutely) are
     never assignees or speaker names. A later please-line from the same speaker
     keeps the person just named when the line itself has no new name.  A line
  that is still in Arabic script goes to review instead of becoming a task.

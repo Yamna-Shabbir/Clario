@@ -91,11 +91,17 @@ _STANDALONE_SPEAKER_RE = re.compile(
     r"([A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2})"
     r"(?:\s*\([^)]*\))?\s*:\s*$"
 )
+_DIRECTED_NAME = (
+    r"(?!(?:please|can|could|will|would|you|i|need)\b)[A-Z][\w'.-]+"
+)
 _DIRECTED_REQUEST_RE = re.compile(
-    r"^([A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2}),\s*"
-    r"(?:i need you to|can you|could you|will you|would you|please|"
+    rf"^({_DIRECTED_NAME}(?:\s+{_DIRECTED_NAME}){{0,2}})"
+    r"(?:"
+    r",\s*(?:i need you to|i want you to|can you|could you|will you|would you|please|"
     r"complete|finish|submit|send|fix|prepare|update|review|check|handle|"
-    r"deliver|create|write|draft|deploy|schedule)\b",
+    r"deliver|create|write|draft|deploy|schedule)\b"
+    r"|(?:,\s*|\s+)(?:please|can you|could you|will you|would you|i need you to|i want you to)\b"
+    r")",
     re.IGNORECASE,
 )
 _DECISION_STATEMENT_RE = re.compile(
@@ -286,21 +292,43 @@ def _is_request(sentence: str) -> bool:
 
 def _directed_to_other(sentence: str, speaker: str) -> Optional[str]:
     """Name on a please-line when someone else is speaking (assignment to them)."""
-    match = _DIRECTED_REQUEST_RE.match(sentence.strip())
+    from services.nlp.task_detection import _acceptable_addressee, _capitalize_addressees
+
+    match = _DIRECTED_REQUEST_RE.match(_capitalize_addressees(sentence.strip()))
     if not match:
         return None
     addressee = match.group(1)
-    if addressee.casefold() in _NOT_DIRECTED:
+    parts = addressee.split()
+    if any(not _acceptable_addressee(part) or part.casefold() in _NOT_DIRECTED for part in parts):
         return None
     if speaker and addressee.casefold() == speaker.casefold():
         return None
-    return addressee
+    titled = " ".join(part[:1].upper() + part[1:] for part in addressee.split())
+    return titled
+
+
+_CHOICE_RE = re.compile(
+    r"\bwe will (?:use|keep|adopt|switch to|go with|stick with)\b",
+    re.IGNORECASE,
+)
+_INFO_REQUEST_RE = re.compile(
+    r"\b(?:tell me|let me know|what are|what is|what's|who is|how is)\b",
+    re.IGNORECASE,
+)
+_WORK_REQUEST_RE = re.compile(
+    r"\b(?:please|i want you to|i need you to|can you|could you)\b"
+    r"(?:(?!\b(?:tell me|let me know)\b).)*"
+    r"\b(?:do|send|check|finish|complete|fix|prepare|review|update|share|write|make|handle)\b",
+    re.IGNORECASE,
+)
 
 
 def _is_decision_statement(sentence: str) -> bool:
     from services.nlp.task_detection import _is_schedule_announcement
 
     if _is_schedule_announcement(sentence):
+        return True
+    if _CHOICE_RE.search(sentence):
         return True
     if _DECISION_STATEMENT_RE.search(sentence) and not re.search(
         r"\b(?:will|please|must|has to|have to|needs to)\b",
@@ -480,7 +508,7 @@ def _carry_addressee(turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         text = (turn.get("text") or "").strip()
         if _is_ack(text):
             continue
-        match = re.match(r"^([A-Z][\w'.-]+),\s+please\b", text)
+        match = re.match(r"^([A-Z][\w'.-]+)(?:,\s*|\s+)please\b", text)
         if match and match.group(1).casefold() not in _NOT_DIRECTED:
             last = match.group(1)
             continue
@@ -594,6 +622,45 @@ _WORK_NOUNS = {
 }
 
 
+def _only_other_participant(
+    speaker: str,
+    email: str,
+    participants: Optional[List[Dict[str, Any]]],
+) -> Optional[Dict[str, Any]]:
+    """The other person, when the meeting has exactly two people."""
+    if not participants:
+        return None
+    speaker_mail = (email or "").strip().lower()
+    if not speaker_mail and "@" in (speaker or ""):
+        speaker_mail = speaker.strip().lower()
+    others = []
+    for person in participants:
+        if not person:
+            continue
+        mail = (person.get("email") or "").strip().lower()
+        name = (person.get("name") or "").strip()
+        if speaker_mail and mail == speaker_mail:
+            continue
+        if speaker and name and name.casefold() == speaker.casefold():
+            continue
+        others.append(person)
+    if len(others) == 1:
+        return others[0]
+    return None
+
+
+def _person_label(person: Dict[str, Any]) -> tuple:
+    """A roster label that is not the raw email when the account name is an address."""
+    name = (person.get("name") or "").strip()
+    email = (person.get("email") or "").strip().lower()
+    if name and "@" not in name:
+        return name, email or None
+    local = re.sub(r"[^A-Za-z0-9]", "", (email.split("@", 1)[0] if email else ""))
+    if local:
+        return local[:1].upper() + local[1:], email or None
+    return name or email, email or None
+
+
 def _shown_description(sentence: str) -> str:
     """Keep a commitment sentence, but drop the request wrapper from an address."""
     from services.nlp.task_detection import _VOCATIVE_RE, concise_action
@@ -670,6 +737,7 @@ def verify_meeting_tasks(
     review: List[Dict[str, Any]] = []
     decision_snippets: List[Dict[str, Any]] = []
     consumed_requests = set()
+    open_requests: List[Dict[str, Any]] = []
     last_request: Optional[Dict[str, Any]] = None
 
     for turn in turns:
@@ -677,6 +745,8 @@ def verify_meeting_tasks(
         original = (turn.get("original") or sentence).strip()
         speaker = (turn.get("speaker") or "").strip()
         timestamp = turn.get("timestamp") or ""
+        from services.nlp.task_detection import strip_spoken_asides
+        sentence = strip_spoken_asides(sentence)
         if not sentence or _is_ack(sentence):
             continue
         from services.nlp.task_detection import _is_group_followup
@@ -704,6 +774,8 @@ def verify_meeting_tasks(
             re.IGNORECASE,
         ):
             continue
+        from services.nlp.task_detection import _capitalize_addressees
+        sentence = _capitalize_addressees(sentence)
         directed = _directed_to_other(sentence, speaker)
         if _is_request(sentence) or _REQUEST_RE.search(sentence) or directed:
             last_request = {
@@ -744,9 +816,8 @@ def verify_meeting_tasks(
                 confirmed.append(_stamp_assigner(task, speaker, turn.get("speaker_email") or ""))
             continue
         if directed and found:
-            # A question waits for the reply. A named "please" is the assignment.
-            if sentence.rstrip().endswith("?"):
-                continue
+            # A named request is the assignment, including "Sara can you …?".
+            # A bare "can you …?" with no name still waits for the reply below.
             task = _copy_task(found[0], source=original, timestamp=timestamp, context="")
             task["description"] = _shown_description(sentence)
             task["assigned_to"] = directed
@@ -757,7 +828,18 @@ def verify_meeting_tasks(
             _is_request(sentence)
             or (sentence.rstrip().endswith("?") and _REQUEST_RE.search(sentence))
         ):
-            continue
+            pending_name = (found[0].get("assigned_to") or "").strip()
+            if _unusable_assignee(pending_name):
+                if _WORK_REQUEST_RE.search(sentence) and not _INFO_REQUEST_RE.search(sentence):
+                    open_requests.append({
+                        "text": sentence,
+                        "original": original,
+                        "speaker": speaker,
+                        "email": turn.get("speaker_email") or "",
+                        "timestamp": timestamp,
+                        "found": found[0],
+                    })
+                continue
         vague = _vague_acceptance(sentence, original)
         if vague and last_request and last_request["text"] != sentence and speaker:
             action = _request_action(last_request["text"])
@@ -885,6 +967,36 @@ def verify_meeting_tasks(
             task["assigned_to"] = assignee
         _apply_participant(task, participants)
         confirmed.append(_stamp_assigner(task, speaker, turn.get("speaker_email") or ""))
+
+    from services.nlp.task_detection import concise_action
+    for pending in open_requests:
+        if pending["text"] in consumed_requests or pending["original"] in consumed_requests:
+            continue
+        other = _only_other_participant(pending["speaker"], pending["email"], participants)
+        description = concise_action(pending["text"])
+        if not other:
+            review.append({
+                "kind": "unclear_assignee",
+                "description": description,
+                "assigned_to": "Unassigned",
+                "due_date": (pending["found"].get("due_date") or "Not specified"),
+                "source_text": pending["original"],
+                "source_context": "",
+                "evidence_time": pending["timestamp"],
+                "reason": "Someone was asked to do this, but the line does not say which person.",
+            })
+            continue
+        name, mail = _person_label(other)
+        task = _copy_task(pending["found"], source=pending["original"], timestamp=pending["timestamp"], context="")
+        task["description"] = description
+        task["assigned_to"] = name
+        if mail:
+            task["assigned_email"] = mail
+        _apply_participant(task, participants)
+        if not task.get("assigned_email") and mail:
+            task["assigned_email"] = mail
+            task["assigned_to"] = name
+        confirmed.append(_stamp_assigner(task, pending["speaker"], pending["email"]))
 
     confirmed = [
         task for task in confirmed
