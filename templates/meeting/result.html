@@ -408,7 +408,7 @@
                 <span class="badge badge-mint attendee-tag badge-clickable" data-name="{{ t.assigned_to }}" title="View tasks for {{ t.assigned_to }}">
                   {{ icon_user(14, 'icon') }} {{ t.assigned_to }}
                 </span>
-                {% if t.assigned_email %}
+                {% if t.assigned_email and t.assigned_email|lower != (t.assigned_to or '')|lower %}
                   <span class="text-muted td-preview">{{ t.assigned_email }}</span>
                 {% endif %}
               {% else %}
@@ -418,7 +418,7 @@
             <td>
               {% if t.assigned_by or t.assigned_by_email %}
                 <strong>{{ t.assigned_by or "Speaker" }}</strong>
-                {% if t.assigned_by_email %}
+                {% if t.assigned_by_email and t.assigned_by_email|lower != (t.assigned_by or '')|lower %}
                 <div class="text-muted">{{ t.assigned_by_email }}</div>
                 {% endif %}
               {% else %}

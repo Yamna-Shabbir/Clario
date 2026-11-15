@@ -589,3 +589,141 @@ def test_urdu_and_roman_audio_split_two_assignees_without_commas():
     assert any("budget" in task["description"].lower() for task in urdu["tasks"])
     _pending(roman["tasks"], "Hina", "notes")
     _pending(roman["tasks"], "Farah", "recording")
+
+
+def test_each_speaker_is_readable_and_status_lines_are_not_tasks():
+    transcript = (
+        "ada.user5@example.com: Okay, I will do that and can you send the notes by Friday?\n"
+        "ada.user5@example.com: Okay, and we will use chat for updates.\n"
+        "ada.user5@example.com: Okay, now I am ending the meeting.\n"
+        "noor (noor.user1@example.com): Tell me anything and the meeting has started.\n"
+        "noor (noor.user1@example.com): Lina, can you please check the budget by Wednesday.\n"
+        "noor (noor.user1@example.com): No.\n"
+    )
+    result = verify_meeting_tasks(
+        transcript,
+        participants=[
+            {"name": "ada.user5@example.com", "email": "ada.user5@example.com"},
+            {"name": "noor", "email": "noor.user1@example.com"},
+        ],
+        meeting_date="2026-11-15",
+    )
+    text = result["transcript"]
+    assert "Ada User5" in text
+    assert "\n\nNoor\n" in text
+    assert "noor (noor.user1@example.com):" not in text
+    saved = " ".join(task["description"].lower() for task in result["tasks"])
+    assert "tell me" not in saved
+    assert "meeting has started" not in saved
+    assert "do that" not in saved
+    notes = next(task for task in result["tasks"] if "notes" in task["description"].lower())
+    budget = next(task for task in result["tasks"] if "budget" in task["description"].lower())
+    assert notes["assigned_to"] == "Noor"
+    assert notes["assigned_email"] == "noor.user1@example.com"
+    assert budget["assigned_to"] == "Lina"
+    assert not budget.get("assigned_email")
+    decisions = [item.get("text") or item.get("content") or "" for item in result["decisions"]]
+    assert len(decisions) == 1
+    assert decisions[0].lower().startswith("use chat")
+
+
+def test_a_request_and_an_agreement_in_one_breath_are_stored_separately():
+    transcript = (
+        "ada.user5@example.com: So, I have turned on the meeting and you can speak now.\n"
+        "ada.user5@example.com: Give me any task.\n"
+        "ada.user5@example.com: Okay, and can you please finish the draft by this Friday "
+        "and we will use chat for updates okay I am ending the meeting now by\n"
+        "noor (noor.user1@example.com): Can you please do the outline by Wednesday\n"
+    )
+    result = verify_meeting_tasks(
+        transcript,
+        participants=[
+            {"name": "ada.user5@example.com", "email": "ada.user5@example.com"},
+            {"name": "noor", "email": "noor.user1@example.com"},
+        ],
+        meeting_date="2026-11-15",
+    )
+    text = result["transcript"]
+    assert "\n\nNoor\n" in text
+    assert "noor (noor.user1@example.com):" not in text
+    saved = " ".join(task["description"].lower() for task in result["tasks"])
+    assert "give me" not in saved
+    assert "speak now" not in saved
+    assert "ending the meeting" not in saved
+    draft = next(task for task in result["tasks"] if "draft" in task["description"].lower())
+    outline = next(task for task in result["tasks"] if "outline" in task["description"].lower())
+    assert draft["assigned_to"] == "Noor"
+    assert draft["assigned_email"] == "noor.user1@example.com"
+    assert outline["assigned_to"] == "Ada User5"
+    assert outline["assigned_email"] == "ada.user5@example.com"
+    assert "noor" not in outline["description"].lower()
+    decisions = [item.get("text") or item.get("content") or "" for item in result["decisions"]]
+    assert decisions == ["Use chat for updates"]
+    assert not any("give me" in (item.get("description") or "").lower() for item in result["review"])
+
+
+def test_a_mentioned_email_does_not_become_the_speaker():
+    result = verify_meeting_tasks(
+        "Hina (hina@example.com): Please send the notes to omar@example.com by Monday.\n"
+        "Omar (omar@example.com): I will send the notes by Monday.",
+        participants=[
+            {"name": "Hina", "email": "hina@example.com"},
+            {"name": "Omar", "email": "omar@example.com"},
+        ],
+        meeting_date="2026-11-15",
+    )
+    notes = [task for task in result["tasks"] if "notes" in task["description"].lower()]
+    assert notes
+    assert all(task["assigned_by"] == "Hina" or task["assigned_to"] == "Omar" for task in notes)
+    assert "omar@example.com:" not in result["transcript"].lower() or result["transcript"].lower().count("omar") >= 1
+    assert result["transcript"].strip().startswith("Hina")
+
+
+def test_a_named_monday_deadline_uses_the_meeting_day():
+    result = verify_meeting_tasks(
+        "Hina: Omar, please send the notes by next Monday.",
+        participants=[
+            {"name": "Hina", "email": "hina@example.com"},
+            {"name": "Omar", "email": "omar@example.com"},
+        ],
+        meeting_date="2026-10-01",
+    )
+    task = result["tasks"][0]
+    assert task["assigned_to"] == "Omar"
+    assert task["assigned_by"] == "Hina"
+    assert task.get("due_date_iso") == "2026-10-05"
+    assert result["decisions"] == []
+
+
+def test_an_information_question_is_not_an_unresolved_commitment():
+    result = verify_meeting_tasks(
+        "Hina: What time is the next meeting?\nOmar: The next meeting will be on Monday."
+    )
+    assert result["tasks"] == []
+    assert result["review"] == []
+    assert all("time" not in (item.get("text") or "").lower() for item in result["decisions"])
+
+
+def test_yes_do_and_i_want_you_to_stay_separate_from_the_agreement():
+    result = verify_meeting_tasks(
+        "Hina: Ok, Omar, I am recording the meeting and do you have any tasks?\n"
+        "Hina: Then Omar, I want you to finish the draft by Friday and we will use chat for updates.\n"
+        "Hina: Ok, now I am ending the meeting.\n"
+        "Omar: Yes, do the outline by Wednesday.\n",
+        participants=[
+            {"name": "Hina", "email": "hina@example.com"},
+            {"name": "Omar", "email": "omar@example.com"},
+        ],
+        meeting_date="2026-11-15",
+    )
+    assert len(result["tasks"]) == 2
+    assert result["review"] == []
+    outline = next(task for task in result["tasks"] if "outline" in task["description"].lower())
+    draft = next(task for task in result["tasks"] if "draft" in task["description"].lower())
+    assert outline["assigned_to"] == "Hina"
+    assert outline["assigned_by"] == "Omar"
+    assert outline.get("due_date_iso") == "2026-11-18"
+    assert draft["assigned_to"] == "Omar"
+    assert draft["assigned_by"] == "Hina"
+    assert draft.get("due_date_iso") == "2026-11-20"
+    assert [item.get("text") for item in result["decisions"]] == ["Use chat for updates"]

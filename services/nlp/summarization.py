@@ -228,6 +228,44 @@ def deduplicate_sentences(text: str, ratio_threshold: float = 0.9) -> str:
     return " ".join(kept)
 
 
+def replace_echo_summary(
+    summary: str,
+    transcript: str,
+    tasks: Optional[List[Dict[str, Any]]] = None,
+    decisions: Optional[List[Dict[str, Any]]] = None,
+) -> str:
+    """Use the decisions and tasks when the summary only repeats the transcript."""
+    def _norm(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+    spoken = _norm(transcript)
+    brief = _norm(summary)
+    if not spoken or not brief:
+        return summary
+    echoes = (
+        brief == spoken
+        or spoken in brief
+        or (brief in spoken and len(brief) > len(spoken) * 0.85)
+    )
+    if not echoes:
+        return summary
+    lines: List[str] = []
+    for item in decisions or []:
+        text = (item.get("text") or item.get("content") or "").strip().rstrip(".")
+        if text:
+            lines.append(text[:1].upper() + text[1:] + ".")
+    for task in tasks or []:
+        description = (task.get("description") or "").strip().rstrip(".")
+        if not description:
+            continue
+        who = (task.get("assigned_to") or "").strip()
+        if who and who.casefold() not in {"team", "unassigned"} and who.casefold() not in description.casefold():
+            lines.append(f"{who} will {description[:1].lower() + description[1:]}.")
+        else:
+            lines.append(description[:1].upper() + description[1:] + ".")
+    return " ".join(lines) if lines else summary
+
+
 def smart_merge(summary: str, tasks: Optional[List[Dict[str, Any]]] = None) -> str:
     """
     Append actionable tasks to summary that are not already covered,

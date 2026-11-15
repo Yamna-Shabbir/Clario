@@ -694,7 +694,23 @@ meeting_participants                  (many-to-1 with meetings)
     question. A trailing remark that the speaker is ending the meeting is cut
     off the task. "We will use ..." is a decision. A question that names nobody
     still waits for the reply, unless the roster has exactly one other person
-    and the line asks them to do the work. Urdu and Roman Urdu split on
+    and the line asks them to do the work.     A promise and a request in the same
+    sentence are split, and "I will do that" is kept only when an earlier line
+    named the work.     A request and a "we will use ..." agreement in the same
+    breath are stored separately. The agreement is saved as "Use …", and a
+    trailing "I am ending the meeting now" stays off that decision. "Yes, do
+    the outline by Wednesday" is an instruction to the other person. A question
+    that only asks whether anyone has tasks, and a remark that the meeting is
+    being recorded, are not tasks or unresolved questions. "Tell me anything", "give me any task",
+    "can you give me any task?", and "I turned on the meeting, you can speak
+    now" are not tasks. When a speaker line is only an email, the stored
+    transcript and the assigner use that account's roster name. A relative
+    deadline is resolved from the meeting's calendar day. A lowercase `name (email):` line starts a new speaker. The stored
+    transcript shows a readable name, with a blank line between speakers, and
+    an email-shaped account name is shown from the mailbox instead of twice.
+    The same decision is stored once when the only difference is a leading
+    "okay" or "and". When a summary only repeats the transcript, it is replaced
+    with the decisions and the tasks. Urdu and Roman Urdu split on
     اور / aur when the next clause starts with a person, with or without a
     comma after that name. Agreement words (`بالکل`, `ٹھیک ہے`, okay, absolutely) are
     never assignees or speaker names. A later please-line from the same speaker

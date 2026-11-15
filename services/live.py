@@ -587,13 +587,33 @@ def meeting_highlights(transcript: str) -> Dict[str, List[str]]:
 
     Nothing is added that the transcript does not already say.
     """
+    from services.nlp.task_detection import is_not_an_action
+
     questions: List[str] = []
     points: List[str] = []
-    for raw in re.split(r"(?<=[.?!])\s+", transcript or ""):
+    for raw in re.split(r"(?<=[.?!])\s+|\n+", transcript or ""):
         sentence = " ".join(raw.split()).strip()
-        if len(sentence) < 12:
+        if len(sentence) < 12 or is_not_an_action(sentence):
             continue
         if sentence.endswith("?"):
+            asks_for_work = re.search(
+                r"\b(?:can you|could you|will you|would you|please)\b",
+                sentence,
+                re.IGNORECASE,
+            )
+            asks_for_information = re.search(
+                r"\b(?:what|who|how|why|when|where|which)\b",
+                sentence,
+                re.IGNORECASE,
+            )
+            if asks_for_work and not asks_for_information:
+                continue
+            if re.search(
+                r"\bdo you have any\s+(?:tasks?|questions?|updates?|action items?)\b",
+                sentence,
+                re.IGNORECASE,
+            ):
+                continue
             if sentence not in questions:
                 questions.append(sentence)
         elif not _DISCUSSION_CUE.search(sentence) and len(sentence.split()) >= 8:

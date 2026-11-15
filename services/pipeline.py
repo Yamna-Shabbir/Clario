@@ -256,6 +256,9 @@ def run_clario_pipeline(
             print(f"   Extractive fallback also failed: {fallback_exc}")
             summary = transcript[:1000]
 
+    from services.nlp.summarization import replace_echo_summary
+    summary = replace_echo_summary(summary, transcript, tasks, decisions)
+
     print(f" Summary length: {len(summary)} chars")
 
     # ── 4. Persist to DB ───────────────────────────────────────────────────────

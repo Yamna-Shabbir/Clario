@@ -9,6 +9,7 @@ from unittest.mock import patch
 from models.database import (
     get_meeting_emails,
     init_db,
+    insert_decisions,
     insert_meeting,
     insert_participants,
     insert_tasks,
@@ -114,6 +115,97 @@ def test_followups_email_assignee_and_owner(tmp_path):
 
 def test_followups_ignore_results_without_a_meeting():
     send_meeting_followups({"summary": "orphan"})
+
+
+def test_ten_people_get_their_own_tasks_and_everyone_gets_the_report(tmp_path):
+    """A named instruction is mailed to that person. An unnamed one is not guessed."""
+    from services.nlp.task_verification import verify_meeting_tasks
+
+    db = _db()
+    names = ["Ada", "Bo", "Cy", "De", "Ev", "Fa", "Gi", "Hu", "Io", "Jo"]
+    people = [{"name": name, "email": f"{name.lower()}@example.com"} for name in names]
+    transcript = "\n".join([
+        "Ada (ada@example.com): The meeting has started and I am recording.",
+        "Ada (ada@example.com): Do you have any tasks?",
+        "Ada (ada@example.com): Bo, I want you to send the notes by Friday and we will use chat for updates.",
+        "Ada (ada@example.com): Cy, please check the budget by Wednesday.",
+        "De (de@example.com): I will finish the report by Friday.",
+        "Bo (bo@example.com): Yes, do the outline by Wednesday.",
+        "Ada (ada@example.com): Ok, now I am ending the meeting.",
+    ])
+    try:
+        checked = verify_meeting_tasks(
+            transcript, participants=people, meeting_date="2026-11-15",
+        )
+        assert len(checked["tasks"]) == 3
+        assert len(checked["decisions"]) == 1
+        assert checked["decisions"][0]["text"] == "Use chat for updates"
+        assert any(
+            item.get("kind") == "unclear_assignee" and "outline" in (item.get("description") or "").lower()
+            for item in checked["review"]
+        )
+        assert not any("outline" in task["description"].lower() for task in checked["tasks"])
+
+        owner_id = insert_user("Ada", "ada@example.com", "hash", db_path=db)
+        meeting_id = insert_meeting(owner_id, title="Planning", db_path=db)
+        insert_participants(meeting_id, people, db_path=db)
+        insert_tasks(meeting_id, checked["tasks"], db_path=db)
+        insert_decisions(meeting_id, checked["decisions"], db_path=db)
+
+        sent = []
+
+        class FakeSMTP:
+            def __init__(self, host, port, timeout=None):
+                return None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def starttls(self):
+                return None
+
+            def login(self, user, password):
+                return None
+
+            def send_message(self, message):
+                sent.append(message)
+
+        with patch("services.notifications.BREVO_API_KEY", ""), \
+             patch("services.notifications.RESEND_API_KEY", ""), \
+             patch("services.notifications.SMTP_HOST", "smtp.example.com"), \
+             patch("services.notifications.SMTP_FROM", "ada@example.com"), \
+             patch("services.notifications.SMTP_USER", "ada@example.com"), \
+             patch("services.notifications.SMTP_PASSWORD", "secret"), \
+             patch("services.notifications.EMAIL_DIR", str(tmp_path)), \
+             patch("services.notifications.smtplib.SMTP", FakeSMTP):
+            send_meeting_followups({
+                "summary": "Use chat for updates. Bo will send the notes. Cy will check the budget.",
+                "stats": {"meeting_id": meeting_id, "user_id": owner_id, "db_path": db},
+            })
+
+        messages = [item for item in sent if hasattr(item, "get")]
+        by_to = {item["To"]: item for item in messages}
+        assert set(by_to) == {person["email"] for person in people}
+        bo = by_to["bo@example.com"].get_body(preferencelist=("plain",)).get_content()
+        cy = by_to["cy@example.com"].get_body(preferencelist=("plain",)).get_content()
+        de = by_to["de@example.com"].get_body(preferencelist=("plain",)).get_content()
+        ev = by_to["ev@example.com"].get_body(preferencelist=("plain",)).get_content()
+        assert by_to["bo@example.com"]["Subject"].startswith("Your tasks")
+        assert "notes" in bo.lower() and "budget" not in bo.lower()
+        assert "budget" in cy.lower() and "notes" not in cy.lower()
+        assert "report" in de.lower()
+        assert "outline" not in bo.lower() and "outline" not in cy.lower()
+        assert by_to["ev@example.com"]["Subject"].startswith("Summary of")
+        assert "attached PDF" in ev
+        assert all("meeting-summary.pdf" in item.as_string() for item in messages)
+        rows = get_meeting_emails(meeting_id, db)
+        assert {row["recipient"] for row in rows} == {person["email"] for person in people}
+        assert all(row["status"] == "sent" for row in rows)
+    finally:
+        os.remove(db)
 
 
 class _HttpBody:

@@ -21,13 +21,13 @@ _EMAIL_SPEAKER_RE = re.compile(
 )
 _INLINE_SPEAKER_RE = re.compile(
     r"^(?:Speaker\s+\d+\s*[–\-—:]\s*)?"
-    r"([A-Z][\w'.-]+(?:\s+[A-Z][\w'.-]+){0,2})"
+    r"([A-Za-z][\w'.-]+(?:\s+[A-Za-z][\w'.-]+){0,2})"
     r"(?:\s*\([^)]*\))?\s*[:\-–—]\s+(.+)$"
 )
 _ACK_RE = re.compile(
     r"^(?:okay|ok|thanks|thank you|hello|hi|hey|yes|yeah|yep|sure|"
     r"sounds good|great|right|alright|cool|perfect|got it|no problem|"
-    r"good morning|good afternoon|absolutely|noted|fine)\.?$",
+    r"good morning|good afternoon|absolutely|noted|fine|no)\.?$",
     re.IGNORECASE,
 )
 _NOT_A_NAME = {
@@ -115,12 +115,60 @@ _BAD_ASSIGNEE = {
     "fine", "yeah", "yep", "perfect", "cool", "good", "hi", "hey", "someone",
     "somebody", "bilkul", "theek", "thik", "haan", "han", "ji", "acha", "achha",
     "and", "but", "or", "our", "other", "others", "participant", "participants",
+    "task", "tasks", "yes",
 }
 _NOT_DIRECTED = {"someone", "somebody", "team", "okay", "ok", "yes", "absolutely"}
 
 
+def readable_name(value: str) -> str:
+    """A short name for the transcript. An email is not shown as the speaker."""
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if "@" in raw:
+        local = raw.split("@", 1)[0]
+        local = re.sub(r"[._+-]+", " ", local).strip()
+        parts = [part for part in local.split() if part]
+        if not parts:
+            return raw.split("@", 1)[0]
+        return " ".join(part[:1].upper() + part[1:] for part in parts)
+    if raw[:1].islower():
+        return " ".join(part[:1].upper() + part[1:] for part in raw.split())
+    return raw
+
+
+def _with_roster_names(
+    turns: List[Dict[str, Any]],
+    participants: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Use the roster name when the speaker line is only an email address."""
+    named: List[Dict[str, Any]] = []
+    for turn in turns:
+        item = dict(turn)
+        email = (item.get("speaker_email") or "").strip().lower()
+        speaker = (item.get("speaker") or "").strip()
+        if "@" in speaker and not email:
+            email = speaker.lower()
+            item["speaker_email"] = email
+        for person in participants or []:
+            mail = (person.get("email") or "").strip().lower()
+            name = (person.get("name") or "").strip()
+            if email and mail == email and name and "@" not in name:
+                item["speaker"] = readable_name(name)
+                item["label"] = readable_name(name)
+                break
+        named.append(item)
+    return named
+
+
 def segment_transcript(text: str) -> List[Dict[str, Any]]:
     """Split a transcript into speaker turns, keeping any timestamps."""
+    text = re.sub(
+        r"(?<=\S)[ \t]+(?=[A-Za-z][\w'.-]{1,40}"
+        r"(?:[ \t]+[A-Za-z][\w'.-]+){0,2}[ \t]*\([^)\r\n]+@[^)\r\n]+\)[ \t]*:)",
+        "\n",
+        text or "",
+    )
     segments: List[Dict[str, Any]] = []
     speaker = ""
     speaker_email = ""
@@ -146,12 +194,12 @@ def segment_transcript(text: str) -> List[Dict[str, Any]]:
         email_line = _EMAIL_SPEAKER_RE.match(line)
         if email_line:
             speaker_email = email_line.group(1).strip().lower()
-            speaker = speaker_email
-            label = speaker_email
+            speaker = readable_name(speaker_email)
+            label = speaker
             line = email_line.group(2).strip()
         inline = _INLINE_SPEAKER_RE.match(line) if not email_line else None
         if inline and inline.group(1).lower() not in _NOT_A_NAME:
-            speaker = inline.group(1)
+            speaker = readable_name(inline.group(1))
             label = speaker
             line = inline.group(2).strip()
             mail = re.search(r"\(([^)\s]+@[^)]+)\)", raw_line)
@@ -210,6 +258,8 @@ def render_segments(segments: List[Dict[str, Any]]) -> str:
     for segment in segments:
         speaker = segment.get("speaker") or ""
         if speaker and speaker != current:
+            if lines:
+                lines.append("")
             lines.append(segment.get("label") or speaker)
             current = speaker
         if segment.get("text"):
@@ -339,6 +389,21 @@ def _is_decision_statement(sentence: str) -> bool:
     return bool(_looks_like_decision_only(sentence))
 
 
+_ONLY_THAT_RE = re.compile(
+    r"^(?:i will|i can|i shall|i am going to)\s+"
+    r"(?:do|handle|take|finish|complete|check|review|send|fix|share|update)\s+"
+    r"(?:that|it|this)"
+    r"(?:\s+(?:by|on|before)\s+[\w-]+(?:\s+[\w-]+){0,3})?"
+    r"[.!\s]*$",
+    re.IGNORECASE,
+)
+
+
+def _only_points_at_that(sentence: str) -> bool:
+    """'I will do that' names no piece of work when nothing came before it."""
+    return bool(_ONLY_THAT_RE.match(_expand(sentence or "").strip()))
+
+
 def _vague_acceptance(sentence: str, original: str) -> bool:
     expanded = _expand(sentence)
     if _VAGUE_OBJECT_RE.search(expanded):
@@ -375,8 +440,13 @@ def _apply_participant(task: Dict[str, Any], participants: Optional[List[Dict[st
 
     matched = match(task.get("assigned_to") or "", participants)
     if matched:
-        task["assigned_to"] = matched.get("name") or task.get("assigned_to")
-        task["assigned_email"] = matched.get("email")
+        matched_name = (matched.get("name") or "").strip()
+        email = (matched.get("email") or "").strip().lower()
+        if matched_name and "@" not in matched_name:
+            task["assigned_to"] = readable_name(matched_name)
+        else:
+            task["assigned_to"] = readable_name(email or matched_name)
+        task["assigned_email"] = email or None
     else:
         task["assigned_email"] = None
 
@@ -598,8 +668,16 @@ def _blocked_task(task: Dict[str, Any]) -> bool:
         return True
     if _GREETING_ONLY_RE.match(description):
         return True
-    from services.nlp.task_detection import _is_closing_remark, _is_schedule_announcement
-    if _is_closing_remark(description) or _is_schedule_announcement(description):
+    from services.nlp.task_detection import (
+        _is_closing_remark,
+        _is_schedule_announcement,
+        is_not_an_action,
+    )
+    if (
+        _is_closing_remark(description)
+        or _is_schedule_announcement(description)
+        or is_not_an_action(description)
+    ):
         return True
     return False
 
@@ -609,6 +687,13 @@ def _accepted_decision(item: Dict[str, Any]) -> bool:
     text = (item.get("text") or item.get("content") or "").strip()
     if not text or text.endswith("?") or text.endswith("؟"):
         return False
+    isolated = _isolate_decision(text)
+    if re.search(r"\b(?:can you|could you|will you|would you|please)\b", isolated, re.IGNORECASE):
+        return _CHOICE_RE.search(isolated) is not None and not re.search(
+            r"\b(?:can you|could you|please)\b",
+            isolated,
+            re.IGNORECASE,
+        )
     return True
 
 
@@ -654,11 +739,9 @@ def _person_label(person: Dict[str, Any]) -> tuple:
     name = (person.get("name") or "").strip()
     email = (person.get("email") or "").strip().lower()
     if name and "@" not in name:
-        return name, email or None
-    local = re.sub(r"[^A-Za-z0-9]", "", (email.split("@", 1)[0] if email else ""))
-    if local:
-        return local[:1].upper() + local[1:], email or None
-    return name or email, email or None
+        return readable_name(name), email or None
+    label = readable_name(email or name)
+    return label or name or email, email or None
 
 
 def _shown_description(sentence: str) -> str:
@@ -711,6 +794,77 @@ def _accept_assignee(task: Dict[str, Any], sentence: str, speaker: str) -> bool:
     return True
 
 
+_OWN_AND_ASK_RE = re.compile(
+    r"^(?P<own>.+?\b(?:i will|i can|i'll|i am going to|i'm going to)\b.+?)"
+    r"\s+and\s+"
+    r"(?P<ask>(?:can you|could you|will you|would you|please)\b.+)$",
+    re.IGNORECASE,
+)
+
+
+def _separate_choice_and_request(sentence: str) -> List[str]:
+    """A request and a 'we will use …' agreement in one breath are two lines."""
+    from services.nlp.task_detection import leading_clauses
+
+    parts = leading_clauses(sentence)
+    if len(parts) <= 1:
+        return [sentence] if sentence else []
+
+    def _kind(part: str) -> str:
+        if _CHOICE_RE.search(part) and not re.search(
+            r"\b(?:can you|could you|will you|would you|please)\b",
+            part,
+            re.IGNORECASE,
+        ):
+            return "choice"
+        if re.search(
+            r"\b(?:can you|could you|will you|would you|please|i want you to|i need you to)\b",
+            part,
+            re.IGNORECASE,
+        ) or re.match(r"^do\s+(?!you\b)", part, re.IGNORECASE):
+            return "request"
+        return "other"
+
+    kinds = [_kind(part) for part in parts]
+    if "choice" in kinds and "request" in kinds:
+        return [part for part, kind in zip(parts, kinds) if kind in {"choice", "request"}]
+    return [sentence] if sentence else []
+
+
+def _split_own_and_request(sentence: str) -> List[str]:
+    """A promise and a request in one breath are two separate lines."""
+    match = _OWN_AND_ASK_RE.match((sentence or "").strip())
+    if not match:
+        return [sentence] if sentence else []
+    own = match.group("own").strip(" ,")
+    ask = match.group("ask").strip()
+    if not own or not ask:
+        return [sentence]
+    return [own, ask]
+
+
+def _with_split_requests(turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    expanded: List[Dict[str, Any]] = []
+    for turn in turns:
+        pieces = _split_own_and_request(turn.get("text") or "")
+        clauses: List[str] = []
+        for piece in pieces:
+            separated = _separate_choice_and_request(piece)
+            if len(separated) > 1:
+                clauses.extend(separated)
+            else:
+                clauses.append(piece)
+        if len(clauses) <= 1:
+            expanded.append(turn)
+            continue
+        for piece in clauses:
+            item = dict(turn)
+            item["text"] = piece
+            item["original"] = turn.get("original") or turn.get("text") or piece
+            expanded.append(item)
+    return expanded
+
+
 def verify_meeting_tasks(
     transcript: str,
     tasks: Optional[List[Dict[str, Any]]] = None,
@@ -732,7 +886,12 @@ def verify_meeting_tasks(
     from services.nlp.task_detection import detect_tasks
     from services.nlp.utterances import classify_utterances, decision_utterances
 
-    turns = segments if segments is not None else segment_transcript(transcript)
+    turns = _with_roster_names(
+        _with_split_requests(
+            segments if segments is not None else segment_transcript(transcript)
+        ),
+        participants,
+    )
     confirmed: List[Dict[str, Any]] = []
     review: List[Dict[str, Any]] = []
     decision_snippets: List[Dict[str, Any]] = []
@@ -787,6 +946,9 @@ def verify_meeting_tasks(
                 "assignee": directed,
             }
 
+        if _only_points_at_that(sentence) and not last_request:
+            continue
+
         if _is_decision_statement(sentence):
             decision_snippets.append({
                 "text": sentence,
@@ -824,13 +986,20 @@ def verify_meeting_tasks(
             _apply_participant(task, participants)
             confirmed.append(_stamp_assigner(task, speaker, turn.get("speaker_email") or ""))
             continue
-        if found and (
-            _is_request(sentence)
-            or (sentence.rstrip().endswith("?") and _REQUEST_RE.search(sentence))
-        ):
+        instructs = bool(
+            re.match(r"^do\s+(?!you\b)", sentence, re.IGNORECASE)
+            or (
+                _WORK_REQUEST_RE.search(sentence)
+                and not _INFO_REQUEST_RE.search(sentence)
+            )
+        )
+        if found and (_is_request(sentence) or instructs):
             pending_name = (found[0].get("assigned_to") or "").strip()
             if _unusable_assignee(pending_name):
-                if _WORK_REQUEST_RE.search(sentence) and not _INFO_REQUEST_RE.search(sentence):
+                other = _only_other_participant(
+                    speaker, turn.get("speaker_email") or "", participants
+                )
+                if other and instructs:
                     open_requests.append({
                         "text": sentence,
                         "original": original,
@@ -839,7 +1008,9 @@ def verify_meeting_tasks(
                         "timestamp": timestamp,
                         "found": found[0],
                     })
-                continue
+                    continue
+                if _is_request(sentence) or sentence.rstrip().endswith("?"):
+                    continue
         vague = _vague_acceptance(sentence, original)
         if vague and last_request and last_request["text"] != sentence and speaker:
             action = _request_action(last_request["text"])
@@ -1105,12 +1276,50 @@ def _collapse_repeats(
     return kept, review
 
 
+def _isolate_decision(text: str) -> str:
+    """Keep the agreement when a request and a goodbye were said in the same breath."""
+    from services.nlp.task_detection import strip_spoken_asides
+
+    cleaned = strip_spoken_asides(text) or ""
+    cleaned = re.sub(
+        r"^(?:(?:okay|ok|and|so|well|right|um|uh)[, ]+)+",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    match = re.search(
+        r"\bwe will\s+((?:use|keep|adopt|switch to|go with|stick with)\b.+)",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if not match:
+        return cleaned
+    clause = re.split(
+        r"\s+and\s+(?=(?:can you|could you|will you|would you|please|i want you to|i need you to)\b)",
+        match.group(1),
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip(" .")
+    return clause
+
+
 def _unique_decisions(decisions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     unique: List[Dict[str, Any]] = []
     seen = set()
     for decision in decisions:
-        text = (decision.get("text") or decision.get("content") or "").strip()
-        key = re.sub(r"\s+", " ", text).casefold()
+        text = _isolate_decision(decision.get("text") or decision.get("content") or "")
+        text = re.sub(
+            r"^(?:(?:okay|ok|and|so|well|right|um|uh)[, ]+)+",
+            "",
+            text,
+            flags=re.IGNORECASE,
+        ).strip()
+        if text:
+            text = text[:1].upper() + text[1:]
+        decision["text"] = text
+        if "content" in decision:
+            decision["content"] = text
+        key = re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
         if not key or key in seen:
             continue
         seen.add(key)

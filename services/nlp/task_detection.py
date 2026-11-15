@@ -275,7 +275,7 @@ _ACTION_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 _CLOSING_RE = re.compile(
-    r"^(?:(?:okay|ok|alright|so|well|thanks|thank you)[, ]+)?"
+    r"^(?:(?:okay|ok|alright|so|well|thanks|thank you)[, ]+)*(?:now[, ]+)?"
     r"(?:i am|i'm|we are|we're)\s+"
     r"(?:just\s+)?(?:ending|leaving|stopping|signing off|wrapping up|done|finished)"
     r"(?:\s+(?:the\s+)?(?:meeting|call|session|recording|now|here))?[.!\s]*$",
@@ -310,19 +310,89 @@ def _is_schedule_announcement(sentence: str) -> bool:
     return True
 
 
+_MEETING_PHASE_RE = re.compile(
+    r"\b(?:the\s+)?(?:meeting|call|session|recording)\s+"
+    r"(?:has\s+|is\s+)?(?:started|ended|begun|finished|stopped|starting|over)\b",
+    re.IGNORECASE,
+)
+_VAGUE_TELL_RE = re.compile(
+    r"^(?:(?:can|could|will|would)\s+you\s+)?"
+    r"(?:please\s+)?(?:tell|give|ask)\s+(?:me|us)\s+"
+    r"(?:any|a|an|some|the)?\s*"
+    r"(?:tasks?|work|anything|something|more|whatever)"
+    r"[.!\s?]*$",
+    re.IGNORECASE,
+)
+_RECORDING_RE = re.compile(
+    r"\b(?:i am|i'm|we are|we're)\s+recording\b",
+    re.IGNORECASE,
+)
+_OFFER_WORK_Q_RE = re.compile(
+    r"\bdo you have any\s+(?:tasks?|questions?|updates?|action items?)\b",
+    re.IGNORECASE,
+)
+_DO_IMPERATIVE_RE = re.compile(r"^do\s+(?!you\b)", re.IGNORECASE)
+_SESSION_OPEN_RE = re.compile(
+    r"^(?:i (?:have |'ve )?(?:just )?(?:turned|switched) on the "
+    r"(?:meeting|call|session|recording)"
+    r"(?: and (?:you can|you may) speak now)?"
+    r"|(?:you can|you may) speak now)"
+    r"[.!\s]*$",
+    re.IGNORECASE,
+)
+
+
+def is_not_an_action(sentence: str) -> bool:
+    """A status line or an empty 'tell me' is not work for someone."""
+    text = (sentence or "").strip()
+    if not text:
+        return True
+    text = re.sub(
+        r"^(?:(?:okay|ok|um|uh|so|and|then|right|well|yes|yeah)[, ]+)+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip(" ,")
+    if _is_closing_remark(text) or _SESSION_OPEN_RE.match(text):
+        return True
+    if _OFFER_WORK_Q_RE.search(text) and not re.search(
+        r"\b(?:please|send|finish|complete|i want you to|i need you to)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return True
+    if _RECORDING_RE.search(text) and not re.search(
+        r"\b(?:please|send|finish|complete|i want you to|i need you to)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return True
+    if _MEETING_PHASE_RE.search(text) and not re.search(
+        r"\b(?:please|send|prepare|finish|complete|share|write|fix)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return True
+    return bool(_VAGUE_TELL_RE.match(text))
+
+
 def _is_closing_remark(sentence: str) -> bool:
     """Ending the conversation is not an assignment."""
     return bool(_CLOSING_RE.match((sentence or "").strip()))
 
 
 _LEADING_FILLER_RE = re.compile(
-    r"^(?:(?:okay|ok|um|uh|so|and|right|well|yes|yeah)[, ]+)+",
+    r"^(?:(?:okay|ok|um|uh|so|and|then|right|well|yes|yeah)[, ]+)+",
     re.IGNORECASE,
 )
 _TRAILING_CLOSE_RE = re.compile(
-    r"(?:[,.]|\s)\s*(?:okay[, ]+)?(?:so[, ]+)?(?:i am|i'm|we are|we're)\s+"
+    r"(?:[,.]|\s)\s*(?:(?:okay|ok|so|and|well|right)[, ]+)*"
+    r"(?:i am|i'm|we are|we're)\s+"
     r"(?:just\s+)?(?:ending|leaving|stopping|signing off|wrapping up)"
-    r"(?:\s+the)?(?:\s+(?:meeting|call|session|recording))?[.!\s]*$",
+    r"(?:\s+the)?(?:\s+(?:meeting|call|session|recording))?"
+    r"(?:\s+now)?"
+    r"(?:\s+(?:bye|goodbye|by))?"
+    r"[.!\s]*$",
     re.IGNORECASE,
 )
 
@@ -335,7 +405,32 @@ def strip_spoken_asides(sentence: str) -> str:
     """
     text = _TRAILING_CLOSE_RE.sub("", (sentence or "").strip()).strip(" ,")
     text = _LEADING_FILLER_RE.sub("", text).strip(" ,")
-    return text
+    parts = [
+        part.strip(" ,")
+        for part in re.split(r"\s+and\s+", text, flags=re.IGNORECASE)
+        if part.strip(" ,") and not _MEETING_PHASE_RE.search(part)
+    ]
+    if parts:
+        text = " and ".join(parts)
+    return text if text and not is_not_an_action(text) else ""
+
+
+def leading_clauses(sentence: str) -> List[str]:
+    """Clauses left after a goodbye, with a status remark removed.
+
+    The parts stay separate so a request and an agreement are not one item.
+    """
+    text = _TRAILING_CLOSE_RE.sub("", (sentence or "").strip()).strip(" ,")
+    text = _LEADING_FILLER_RE.sub("", text).strip(" ,")
+    parts = [
+        part.strip(" ,")
+        for part in re.split(r"\s+and\s+", text, flags=re.IGNORECASE)
+        if part.strip(" ,")
+        and not _MEETING_PHASE_RE.search(part)
+        and not _is_closing_remark(part)
+        and not is_not_an_action(part)
+    ]
+    return parts
 
 
 # "let's get started / move on / wrap up" are pleasantries, NOT tasks
@@ -389,6 +484,8 @@ _PERSON_SKIP = {
     "tomorrow", "tonight", "next", "will", "make", "sure",
     "yes", "so", "okay", "ok", "sorry", "hello", "thanks", "thank", "great",
     "can", "could", "will", "would", "should", "please", "also", "how",
+    "tell", "ask", "give", "say", "start", "stop", "let", "go", "do", "make",
+    "task", "tasks", "yes",
     "and", "but", "or", "our", "their", "your", "other", "others",
     "participant", "participants", "ending", "leaving", "meeting",
     "invoice", "deployment", "notification", "dashboard", "checklist",
@@ -669,6 +766,23 @@ def _dep_parse_is_task(sent_doc) -> bool:
     return False
 
 
+def _meeting_day(meeting_date: Any) -> Optional[datetime.date]:
+    """The calendar day a relative deadline is counted from."""
+    if meeting_date is None:
+        return None
+    if isinstance(meeting_date, datetime.datetime):
+        return meeting_date.date()
+    if isinstance(meeting_date, datetime.date):
+        return meeting_date
+    text = str(meeting_date).strip()
+    if not text:
+        return None
+    try:
+        return datetime.datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 def _resolve_date(phrase: str, meeting_date: Optional[datetime.date]) -> Optional[str]:
     """
     Resolve a relative date phrase to ISO YYYY-MM-DD using dateparser.
@@ -677,10 +791,11 @@ def _resolve_date(phrase: str, meeting_date: Optional[datetime.date]) -> Optiona
     try:
         import dateparser
         settings: Dict[str, Any] = {"PREFER_DATES_FROM": "future"}
-        if meeting_date is not None:
+        day = _meeting_day(meeting_date)
+        if day is not None:
             # Anchor relative resolution to the meeting date
             settings["RELATIVE_BASE"] = datetime.datetime.combine(
-                meeting_date, datetime.time()
+                day, datetime.time()
             )
         result = dateparser.parse(phrase, settings=settings)
         if result:
@@ -819,21 +934,30 @@ def detect_tasks(
             continue
 
         # --- Guard: plain question (no strong cue) ---
-        if _is_question(sentence) and not _has_strong_cue(sl):
+        if (
+            _is_question(sentence)
+            and not _has_strong_cue(sl)
+            and not _DO_IMPERATIVE_RE.match(sentence)
+        ):
             continue
 
         # --- Guard: "let's get started / move on" pleasantries ---
         if _PLEASANTRY_LETS_RE.search(sentence):
             continue
 
-        if _is_closing_remark(sentence) or _is_schedule_announcement(sentence):
+        if (
+            not sentence
+            or is_not_an_action(sentence)
+            or _is_closing_remark(sentence)
+            or _is_schedule_announcement(sentence)
+        ):
             continue
 
         # --- Keyword matching ---
         matched_keyword = ""
         is_task = False
 
-        if _has_strong_cue(sl):
+        if _DO_IMPERATIVE_RE.match(sentence) or _has_strong_cue(sl):
             is_task = True
             # find the specific cue that matched for the keyword field
             for p in STRONG_CUES:
@@ -953,7 +1077,8 @@ def detect_tasks(
             else:
                 days = ["monday", "tuesday", "wednesday", "thursday",
                         "friday", "saturday", "sunday"]
-                current_day_idx = datetime.datetime.now().weekday()
+                anchor = _meeting_day(meeting_date) or datetime.datetime.now().date()
+                current_day_idx = anchor.weekday()
                 for i, day_name in enumerate(days):
                     if day_name in due_lower:
                         diff = (i - current_day_idx) % 7

@@ -144,11 +144,11 @@ def test_mentioned_emails_are_participants():
     from services.preprocessing.participants import mentioned_participants
 
     found = mentioned_participants(
-        "Yamna Shabbir (yumnashabbir5@gmail.com) will send the summary. "
-        "Project Lead (sp23-bcs-127@cuilahore.edu.pk) will prepare the slides."
+        "Sara Khan (sara.khan@example.com) will send the summary. "
+        "Project Lead (lead@example.com) will prepare the slides."
     )
     emails = {person["email"] for person in found}
-    assert emails == {"yumnashabbir5@gmail.com", "sp23-bcs-127@cuilahore.edu.pk"}
+    assert emails == {"sara.khan@example.com", "lead@example.com"}
 
 
 def test_task_detection_without_spacy():

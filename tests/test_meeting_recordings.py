@@ -351,34 +351,34 @@ def test_email_labels_are_not_repeated_and_other_speech_keeps_its_speaker():
     from services.nlp.task_verification import verify_meeting_tasks
 
     text = format_speaker_transcript([
-        {"speaker_name": "yumnashabbir5@gmail.com", "speaker_email": "yumnashabbir5@gmail.com", "content": "Give me any task."},
-        {"speaker_name": "mona@gmail.com", "speaker_email": "mona@gmail.com", "content": "I will make the tea by Friday."},
+        {"speaker_name": "ada.user5@example.com", "speaker_email": "ada.user5@example.com", "content": "Give me any task."},
+        {"speaker_name": "noor.user1@example.com", "speaker_email": "noor.user1@example.com", "content": "I will make the tea by Friday."},
     ])
     assert text == (
-        "yumnashabbir5@gmail.com: Give me any task.\n"
-        "mona@gmail.com: I will make the tea by Friday."
+        "ada.user5@example.com: Give me any task.\n"
+        "noor.user1@example.com: I will make the tea by Friday."
     )
     turns = attribute_unheard_speech(
         "Give me any task. I will make the tea by Friday.",
         [{"content": "Give me any task."}],
-        [{"display_name": "mona@gmail.com", "email": "mona@gmail.com"}],
+        [{"display_name": "noor.user1@example.com", "email": "noor.user1@example.com"}],
     )
-    assert turns[0]["speaker_email"] == "mona@gmail.com"
+    assert turns[0]["speaker_email"] == "noor.user1@example.com"
     assert "make the tea" in turns[0]["content"]
     assert "Give me any task" not in turns[0]["content"]
     people = [
-        {"name": "yumnashabbir5@gmail.com", "email": "yumnashabbir5@gmail.com"},
-        {"name": "mona@gmail.com", "email": "mona@gmail.com"},
+        {"name": "ada.user5@example.com", "email": "ada.user5@example.com"},
+        {"name": "noor.user1@example.com", "email": "noor.user1@example.com"},
     ]
     checked = verify_meeting_tasks(
-        "yumnashabbir5@gmail.com: Mona, please make the tea by Friday.\n"
-        "mona@gmail.com: I will make the tea by Friday.",
+        "ada.user5@example.com: Noor, please make the tea by Friday.\n"
+        "noor.user1@example.com: I will make the tea by Friday.",
         participants=people,
     )
     tasks = checked["tasks"]
     assert tasks
-    given = next(task for task in tasks if task.get("assigned_by_email") == "yumnashabbir5@gmail.com")
-    assert given["assigned_email"] == "mona@gmail.com"
+    given = next(task for task in tasks if task.get("assigned_by_email") == "ada.user5@example.com")
+    assert given["assigned_email"] == "noor.user1@example.com"
 
 
 def test_tracks_skip_the_mix_when_every_microphone_arrived():

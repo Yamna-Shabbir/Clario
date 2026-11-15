@@ -302,3 +302,23 @@ class TestDeduplication:
         assert res.count("Alice must finalize the SOC 2 compliance document.") == 1
         assert "John reviewed the financial operating budget." in res
         assert "Mark verified the Stripe billing webhooks." in res
+
+
+def test_an_echo_of_the_transcript_becomes_the_decisions_and_tasks():
+    from services.nlp.summarization import replace_echo_summary
+
+    transcript = "Ada said we will use chat. Noor will send the notes."
+    summary = replace_echo_summary(
+        transcript,
+        transcript,
+        [{"description": "Send the notes", "assigned_to": "Noor"}],
+        [{"text": "we will use chat"}],
+    )
+    assert summary == "We will use chat. Noor will send the notes."
+    kept = replace_echo_summary(
+        "The team agreed on a shorter weekly check-in.",
+        transcript,
+        [{"description": "Send the notes", "assigned_to": "Noor"}],
+        [{"text": "we will use chat"}],
+    )
+    assert kept == "The team agreed on a shorter weekly check-in."
