@@ -141,6 +141,7 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     from routes.integrations import integrations_bp
     from routes.live         import live_bp
     from routes.tasks        import tasks_bp
+    from routes.assistant    import assistant_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -149,6 +150,7 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     app.register_blueprint(integrations_bp)
     app.register_blueprint(live_bp)
     app.register_blueprint(tasks_bp)
+    app.register_blueprint(assistant_bp)
 
     from services.jobs import register_post_completion_hook
     from services.live import link_task_assigners
@@ -167,8 +169,9 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
         import routes.integrations as _r_integ
         import routes.live         as _r_live
         import routes.tasks        as _r_tasks
+        import routes.assistant    as _r_assistant
 
-        for _mod in (_r_auth, _r_dash, _r_meet, _r_search, _r_integ, _r_live, _r_tasks):
+        for _mod in (_r_auth, _r_dash, _r_meet, _r_search, _r_integ, _r_live, _r_tasks, _r_assistant):
             if hasattr(_mod, "DB_PATH"):
                 setattr(_mod, "DB_PATH", _db_path)
 

@@ -79,6 +79,7 @@ class MeetingDeletionTests(unittest.TestCase):
         CSRFProtect(self.app)
         from routes.live import live_bp
         from routes.tasks import tasks_bp
+        from routes.assistant import assistant_bp
         self.app.register_blueprint(auth_bp)
         self.app.register_blueprint(dashboard_bp)
         self.app.register_blueprint(integrations_bp)
@@ -86,6 +87,7 @@ class MeetingDeletionTests(unittest.TestCase):
         self.app.register_blueprint(search_bp)
         self.app.register_blueprint(live_bp)
         self.app.register_blueprint(tasks_bp)
+        self.app.register_blueprint(assistant_bp)
         self.client = self.app.test_client()
 
     def tearDown(self):

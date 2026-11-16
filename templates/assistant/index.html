@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Assistant{% endblock %}
+
+{% block content %}
+<div class="page-body">
+  <div class="container container-wide">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Assistant</h1>
+        <p class="page-lead">Ask about Clario, or about meetings, tasks, and decisions you can already open. Answers stay on the record. Nothing is edited from here.</p>
+      </div>
+      <form method="post" action="{{ url_for('assistant.create') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+        <button type="submit" class="btn btn-primary">New conversation</button>
+      </form>
+    </div>
+
+    <div class="assistant-layout">
+      <aside class="card card-pad assistant-history" aria-label="Conversation history">
+        <h2 class="section-heading">History</h2>
+        {% if conversations %}
+        <ul class="assistant-history__list">
+          {% for item in conversations %}
+          <li>
+            <a href="{{ url_for('assistant.index', c=item.id) }}" class="{% if active_id == item.id %}is-active{% endif %}">{{ item.title }}</a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted">No conversations yet.</p>
+        {% endif %}
+      </aside>
+
+      <section class="card assistant-chat" aria-label="Assistant chat">
+        <div class="assistant-thread" id="assistant-thread">
+          {% if messages %}
+            {% for message in messages %}
+            <article class="assistant-bubble assistant-bubble--{{ message.role }}">
+              <p class="assistant-bubble__label">{{ 'You' if message.role == 'user' else 'Clario' }}</p>
+              <div class="assistant-bubble__text">{{ message.content }}</div>
+              {% if message.evidence %}
+              <ul class="assistant-evidence">
+                {% for item in message.evidence %}
+                <li>
+                  <span class="badge badge-lilac">{{ item.kind }}</span>
+                  {% if item.speaker %}<strong>{{ item.speaker }}</strong>{% endif %}
+                  {% if item.timestamp %}<span class="text-muted">{{ item.timestamp }}</span>{% endif %}
+                  <p>{{ item.excerpt }}</p>
+                  {% if item.meeting_url %}
+                  <a href="{{ item.meeting_url }}">Open {{ item.meeting_title or 'meeting' }}</a>
+                  {% endif %}
+                  {% if item.audio_url and item.seek is not none %}
+                  <audio id="evidence-audio-saved-{{ message.id }}-{{ loop.index }}" preload="none" src="{{ item.audio_url }}"></audio>
+                  <button type="button" class="btn btn-outline btn-sm" data-evidence-play data-audio="evidence-audio-saved-{{ message.id }}-{{ loop.index }}" data-start="{{ item.seek }}">Play evidence</button>
+                  {% endif %}
+                </li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if message.sources %}
+              <p class="text-muted assistant-sources">
+                {% for source in message.sources %}
+                {{ source.source }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </p>
+              {% endif %}
+            </article>
+            {% endfor %}
+          {% else %}
+          <p class="text-muted" id="assistant-empty">Ask a question, or start from one of these.</p>
+          {% endif %}
+        </div>
+
+        <div class="assistant-suggestions" id="assistant-suggestions">
+          {% for prompt in suggestions %}
+          <button type="button" class="btn btn-outline btn-sm" data-suggestion="{{ prompt }}">{{ prompt }}</button>
+          {% endfor %}
+        </div>
+
+        <form class="assistant-form" id="assistant-form" data-conversation="{{ active_id or '' }}" data-create-url="{{ url_for('assistant.create') }}">
+          <label class="sr-only" for="assistant-question">Question</label>
+          <textarea id="assistant-question" class="form-control" name="message" rows="3" maxlength="2000" placeholder="Ask about a feature or a meeting" required></textarea>
+          <button type="submit" class="btn btn-primary" id="assistant-send">Send</button>
+          <p class="text-muted" id="assistant-error" role="alert" hidden></p>
+        </form>
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script src="{{ url_for('static', filename='js/assistant.js', v='2') }}"></script>
+{% endblock %}

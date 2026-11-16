@@ -25,10 +25,16 @@ if ROOT not in sys.path:
 
 
 def main() -> int:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-    token = os.environ.get("CLARIO_LOCAL_TRANSCRIPTION_TOKEN", "").strip()
+    token = os.environ.get("CLARIO_LOCAL_TRANSCRIPTION_TOKEN", "").strip().strip('"').strip("'")
     host = os.environ.get("CLARIO_LOCAL_TRANSCRIPTION_HOST", "127.0.0.1").strip() or "127.0.0.1"
     if host == "localhost":
         host = "127.0.0.1"

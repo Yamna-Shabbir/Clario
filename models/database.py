@@ -301,6 +301,26 @@ def init_db(db_path: str = DB_PATH) -> None:
                 left_at     TEXT,
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS assistant_conversations (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER NOT NULL,
+                title      TEXT    NOT NULL DEFAULT 'New conversation',
+                created_at TEXT    DEFAULT (datetime('now')),
+                updated_at TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS assistant_messages (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                role            TEXT    NOT NULL,
+                content         TEXT    NOT NULL,
+                route           TEXT,
+                context_json    TEXT,
+                created_at      TEXT    DEFAULT (datetime('now')),
+                FOREIGN KEY (conversation_id) REFERENCES assistant_conversations(id) ON DELETE CASCADE
+            );
         """)
         conn.commit()
         

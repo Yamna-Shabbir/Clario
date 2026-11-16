@@ -135,6 +135,12 @@ EMAIL_DIR     = _env("CLARIO_EMAIL_DIR", "")
 BREVO_API_KEY = _env("CLARIO_BREVO_API_KEY", "")
 RESEND_API_KEY = _env("CLARIO_RESEND_API_KEY", "")
 
+# Optional OpenAI-compatible chat endpoint for the in-app assistant.
+# When the URL is blank, answers are taken only from retrieved notes.
+ASSISTANT_API_URL = _env("CLARIO_ASSISTANT_API_URL", "").strip()
+ASSISTANT_API_KEY = _env("CLARIO_ASSISTANT_API_KEY", "").strip()
+ASSISTANT_MODEL = _env("CLARIO_ASSISTANT_MODEL", "").strip()
+
 # ── Secret key — must come from the environment ────────────────────────────────
 # Production (DEBUG=False): CLARIO_SECRET_KEY must be set; a RuntimeError is
 #   raised if it is missing so the app never starts with an insecure key.

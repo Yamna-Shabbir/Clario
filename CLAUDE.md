@@ -90,6 +90,9 @@ Override any default via environment variable (or `.env` file):
 | `CLARIO_GOOGLE_CLIENT_SECRET` | `""` | Google Cloud OAuth 2.0 Web Client Secret |
 | `CLARIO_OAUTH_REDIRECT_BASE` | `http://127.0.0.1:5000` | Base URL for OAuth redirect callback |
 | `CLARIO_TOKEN_ENCRYPTION_KEY` | `""` | 32-byte URL-safe base64 Fernet key to encrypt OAuth tokens at rest |
+| `CLARIO_ASSISTANT_API_URL` | `""` | Optional OpenAI-compatible chat endpoint. Blank answers only from docs and meetings |
+| `CLARIO_ASSISTANT_API_KEY` | `""` | Bearer token for that endpoint. Never logged or sent to the browser |
+| `CLARIO_ASSISTANT_MODEL` | `""` | Model name sent when the assistant URL is set |
 
 ### Seed demo data
 
@@ -191,6 +194,7 @@ Clario/
 │   ├── meeting.py          # Blueprint: /upload, /result/<id>, /task/<id>/complete, /meeting/<id>/delete
 │   ├── live.py             # Blueprint: /live/start, /live/<token>, recording, invite, end
 │   ├── tasks.py            # Blueprint: /tasks status board and shared-name confirmation
+│   ├── assistant.py        # Blueprint: /assistant chat, history, read-only answers
 │   ├── search.py           # Blueprint: /search
 │   ├── utils.py            # @login_required decorator + current_user(); drops a session whose user row was wiped (Render free disk)
 │   └── integrations.py     # Blueprint: /integrations, /google/connect|callback|disconnect|meetings|participants|import
@@ -201,6 +205,7 @@ Clario/
 │   ├── pipeline.py         # run_clario_pipeline() — five report phases
 │   ├── evaluation.py       # Phase 5: ROUGE + F1 offline evaluation
 │   ├── notifications.py    # Post-meeting assignee email + summary PDF, join-link invites
+│   ├── assistant/          # Read-only help search and meeting answers
 │   ├── live.py             # Live room: per-account microphone tracks → named transcript
 │   ├── preprocessing/      # Phase 1: input and preprocessing
 │   │   ├── transcription.py    # Whisper load/transcribe
@@ -254,6 +259,8 @@ Clario/
     │   └── room.html       # Join, copy link, record microphone, end meeting
     ├── tasks/
     │   └── index.html      # Shared task board and name-collision confirmation
+    ├── assistant/
+    │   └── index.html      # Chat, conversation history, suggested questions
     └── integrations/
         ├── index.html      # Integration status page (Connect/Disconnect Google Meet)
         ├── meetings.html   # Recent Google Meet conferences list
@@ -521,6 +528,22 @@ meeting_participants                  (many-to-1 with meetings)
   external_id TEXT (nullable)
   joined_at   TEXT (nullable)
   left_at     TEXT (nullable)
+
+assistant_conversations               (many-to-1 with users)
+  id         INTEGER PK AUTOINCREMENT
+  user_id    INTEGER NOT NULL → users.id ON DELETE CASCADE
+  title      TEXT
+  created_at TEXT
+  updated_at TEXT
+
+assistant_messages                    (many-to-1 with assistant_conversations)
+  id              INTEGER PK AUTOINCREMENT
+  conversation_id INTEGER NOT NULL → assistant_conversations.id ON DELETE CASCADE
+  role            TEXT
+  content         TEXT
+  route           TEXT
+  context_json    TEXT
+  created_at      TEXT
 ```
 
 ---
@@ -540,10 +563,10 @@ meeting_participants                  (many-to-1 with meetings)
   the context-manager style.
 - **Ownership enforcement** — every query that fetches meeting-scoped data
   includes `AND m.user_id = ?` with the session user ID.
-- **Blueprint-per-concern** — `auth`, `dashboard`, `meeting`, `search`, `integrations` each
+- **Blueprint-per-concern** — `auth`, `dashboard`, `meeting`, `search`, `integrations`, `assistant` each
   live in their own file and register on the Flask app in `create_app()`.
   When adding a new blueprint with a manual test app (as in `test_meeting_deletion.py`),
-  register `integrations_bp` in that app too so `base.html`'s `url_for('integrations.index')` resolves.
+  register `integrations_bp` and `assistant_bp` in that app too so `base.html` can resolve its links.
 - **Config via `config.py`** — all paths, model names, and tunable constants
   live in one file; each can be overridden via an environment variable.
   `config.py` calls `load_dotenv()` at import time so `.env` is always loaded.
@@ -859,6 +882,21 @@ meeting_participants                  (many-to-1 with meetings)
     pair unset, free-tier audio uploads stay refused and pasted transcripts
     still run. In-process Whisper is unchanged when the pair is unset.
     Live recordings use the same choice.
+
+19. **Assistant.** `GET /assistant` is the chat page. Questions about how
+    Clario works are answered from `README.md`, `docs/assistant-help.md`,
+    `docs/integrations.md`, and `docs/deploy-render.md`. A passage is used
+    only when the question's distinctive words appear in it. Questions about
+    meetings read rows the signed-in user can already access: owners,
+    participants, assignees, and admitted live members. Transcripts,
+    decisions, and playback links are included only when
+    `user_can_access_meeting` is true. Follow-up questions reuse the meeting
+    ids stored on the previous reply. The assistant does not create, edit,
+    or delete tasks or meetings. With `CLARIO_ASSISTANT_API_URL` unset, the
+    answer text is the retrieved notes. A configured chat endpoint may
+    rephrase those notes, and any reply that adds a word from outside the
+    notes is discarded. Say when the documentation or the meetings do not
+    contain the answer.
 
 ---
 
