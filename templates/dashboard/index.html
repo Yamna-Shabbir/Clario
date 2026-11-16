@@ -7,10 +7,11 @@
 <div class="page-body">
 <div class="container">
 
-  <div class="page-header">
+  <div class="page-header workspace-header">
     <div>
+      <p class="workspace-kicker">Workspace</p>
       <h1 class="page-title">Good day, {{ user.username }}</h1>
-      <p class="page-lead">Here is what is happening with your meetings.</p>
+      <p class="page-lead">Meetings, open work, and follow-ups in one place.</p>
     </div>
     <div class="row-actions">
       <a href="{{ url_for('live.start') }}" class="btn btn-primary">Start meeting</a>
@@ -19,80 +20,74 @@
     </div>
   </div>
 
+  {% if review_count %}
+  <div class="alert alert-success" role="status">
+    {{ review_count }} task{{ 's' if review_count != 1 else '' }} still need confirmation before follow-up mail is sent. Open the meeting and confirm each one.
+  </div>
+  {% endif %}
+
   <div class="bento-stats">
     <div class="card stat-card card-interactive">
       <div class="stat-number">{{ total_meetings }}</div>
-      <div class="stat-label">Meetings processed</div>
+      <div class="stat-label">Meetings</div>
     </div>
     <div class="card stat-card card-interactive">
       <div class="stat-number">{{ total_tasks }}</div>
-      <div class="stat-label">Total tasks</div>
+      <div class="stat-label">Tasks</div>
     </div>
     <div class="card stat-card card-interactive">
       <div class="stat-number">{{ pending_count }}</div>
-      <div class="stat-label">Pending tasks</div>
+      <div class="stat-label">Open work</div>
     </div>
     <div class="card stat-card card-interactive">
-      <div class="stat-number">{{ people_stats|length }}</div>
-      <div class="stat-label">Assignees tracked</div>
+      <div class="stat-number">{{ review_count }}</div>
+      <div class="stat-label">Awaiting confirmation</div>
     </div>
   </div>
 
-  <div class="bento-main">
+  <div class="workspace-grid">
     <div>
-      <h2 class="section-heading">Recent meetings</h2>
-
+      <h2 class="section-heading">Meetings</h2>
       {% if meetings %}
-        <div class="card card-flush">
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Summary preview</th>
-                  <th>Created</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for m in meetings|reverse %}
-                <tr>
-                  <td><span class="badge badge-lilac">{{ m.id }}</span></td>
-                  <td>{{ m.meeting_date }}</td>
-                  <td>
-                    {% if m.status == 'queued' %}
-                      <span class="badge badge-queued">Queued</span>
-                    {% elif m.status == 'processing' %}
-                      <span class="badge badge-processing">Processing</span>
-                    {% elif m.status == 'failed' %}
-                      <span class="badge badge-failed">Failed</span>
-                    {% else %}
-                      <span class="badge badge-mint">Completed</span>
-                    {% endif %}
-                  </td>
-                  <td class="td-preview">
-                    {{ (m.summary or '')[:120] }}{% if (m.summary or '')|length > 120 %}…{% endif %}
-                  </td>
-                  <td class="td-nowrap text-muted">
-                    {{ m.created_at[:10] if m.created_at else '—' }}
-                  </td>
-                  <td class="td-actions">
-                    <a href="{{ url_for('meeting.result', meeting_id=m.id) }}" class="btn btn-outline btn-sm">View</a>
-                    <form method="POST" action="{{ url_for('meeting.delete_meeting', meeting_id=m.id) }}" class="inline-form">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                      <button type="submit" class="btn btn-ghost btn-sm"
-                              onclick="return confirm('Delete this meeting and its transcript, summary, and tasks? This cannot be undone.')">
-                        Delete
-                      </button>
-                    </form>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
+        <div class="meeting-board">
+          {% for m in meetings %}
+          <article class="card meeting-card">
+            <div>
+              <div class="meeting-card__top">
+                <h3 class="meeting-card__title">{{ m.title or "Untitled meeting" }}</h3>
+                {% if m.status == 'queued' %}
+                  <span class="badge badge-queued">Queued</span>
+                {% elif m.status == 'processing' %}
+                  <span class="badge badge-processing">Processing</span>
+                {% elif m.status == 'failed' %}
+                  <span class="badge badge-failed">Failed</span>
+                {% elif m.status == 'partial' %}
+                  <span class="badge badge-amber">Partial</span>
+                {% else %}
+                  <span class="badge badge-mint">Ready</span>
+                {% endif %}
+              </div>
+              <p class="meeting-card__meta">
+                <span>{{ m.meeting_date }}</span>
+                <span>{{ m.task_count or 0 }} task{{ 's' if (m.task_count or 0) != 1 else '' }}</span>
+                {% if m.sentiment %}<span>{{ m.sentiment }}</span>{% endif %}
+              </p>
+              <p class="meeting-card__summary">
+                {{ (m.summary or 'Summary appears after processing.')[:160] }}{% if (m.summary or '')|length > 160 %}…{% endif %}
+              </p>
+            </div>
+            <div class="meeting-card__actions">
+              <a href="{{ url_for('meeting.result', meeting_id=m.id) }}" class="btn btn-primary btn-sm">Open</a>
+              <form method="POST" action="{{ url_for('meeting.delete_meeting', meeting_id=m.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        onclick="return confirm('Delete this meeting and its transcript, summary, and tasks? This cannot be undone.')">
+                  Delete
+                </button>
+              </form>
+            </div>
+          </article>
+          {% endfor %}
         </div>
       {% else %}
         <div class="card empty-state">
@@ -104,8 +99,23 @@
       {% endif %}
     </div>
 
-    <div>
-      <h2 class="section-heading">Top assignees</h2>
+    <aside class="workspace-side">
+      <h2 class="section-heading">Open work</h2>
+      <div class="card card-pad-sm stack-md">
+        {% if open_work %}
+          {% for task in open_work %}
+          <a class="work-item" href="{{ url_for('meeting.result', meeting_id=task.meeting_id) }}">
+            <span class="work-item__title">{{ task.description }}</span>
+            <span class="work-item__meta">{{ task.assigned_to or 'Unassigned' }} · {{ task.due_date or 'No deadline' }}</span>
+            <span class="work-item__meta">{{ task.meeting_title }}</span>
+          </a>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted">No open tasks.</p>
+        {% endif %}
+      </div>
+
+      <h2 class="section-heading">People</h2>
       <div class="card card-pad-sm">
         {% if people_stats %}
           {% for name, count in people_stats[:8] %}
@@ -117,10 +127,10 @@
           </div>
           {% endfor %}
         {% else %}
-          <p class="text-muted text-center stack-md">No data yet.</p>
+          <p class="text-muted text-center stack-md">No assignees yet.</p>
         {% endif %}
       </div>
-    </div>
+    </aside>
   </div>
 
   <div id="attendee-modal" class="image-modal">

@@ -27,6 +27,7 @@
       {% elif meeting.status == 'failed' %}
         <span class="badge badge-failed">Failed</span>
       {% else %}
+        <button type="button" id="btn-fullscreen" class="btn btn-outline">Full screen</button>
         <button type="button" onclick="window.print()" class="btn btn-outline">
           {{ icon_clipboard(16, 'icon') }} Export to PDF
         </button>
@@ -202,6 +203,16 @@
     <div class="card card-pad">
       <h2 class="section-heading">{{ icon_clipboard(18, 'icon') }} Summary</h2>
       <p class="text-muted">{{ meeting.summary or "No summary generated." }}</p>
+      {% if is_owner %}
+      <details class="stack-sm">
+        <summary>Edit summary</summary>
+        <form method="POST" action="{{ url_for('meeting.edit_summary', meeting_id=meeting.id) }}" class="stack-sm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+          <textarea name="summary" class="form-control" rows="6">{{ meeting.summary or "" }}</textarea>
+          <button type="submit" class="btn btn-outline btn-sm">Save summary</button>
+        </form>
+      </details>
+      {% endif %}
     </div>
     <div class="card card-pad">
       <h2 class="section-heading">{{ icon_mic(18, 'icon') }} Transcript</h2>
@@ -216,6 +227,28 @@
     <p><strong>Status.</strong> {{ meeting.status }}</p>
     {% if meeting.platform %}<p><strong>Source.</strong> {{ meeting.platform }}</p>{% endif %}
   </div>
+
+  <section class="stack-lg" id="key-points">
+    <h2 class="section-heading">Key points</h2>
+    <div class="card card-pad">
+      <p class="text-muted stack-sm">A mix of the decisions and the tasks from this meeting.</p>
+      <ul class="key-points">
+        {% for d in decisions %}
+        <li><span class="badge badge-lilac">Decision</span> {{ d.content }}</li>
+        {% endfor %}
+        {% for t in tasks %}
+        <li>
+          <span class="badge badge-mint">Task</span>
+          {{ t.assigned_to }} — {{ t.description }}
+          <span class="text-muted">Due {{ t.due_date }}</span>
+        </li>
+        {% endfor %}
+        {% if not decisions and not tasks %}
+        <li class="text-muted">No key points were saved for this meeting.</li>
+        {% endif %}
+      </ul>
+    </div>
+  </section>
 
   {% if highlights.points or highlights.questions %}
   <div class="result-grid-2 stack-lg">
@@ -411,6 +444,50 @@
   <p class="text-muted stack-lg">No decisions were extracted from this meeting.</p>
   {% endif %}
 
+  {% if is_owner and tasks and not mail_sent %}
+  <h2 class="section-heading">Review before sending</h2>
+  <div class="card card-pad stack-lg">
+    <p class="text-muted stack-md">Confirm every task before follow-up mail goes out. Edit a task first if the wording, assignee, or deadline should change. Saving an edit clears that confirmation.</p>
+    {% for t in tasks %}
+    <div class="review-task">
+      <form method="POST" action="{{ url_for('meeting.edit_task', meeting_id=meeting.id, task_id=t.id) }}" class="stack-sm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <label class="form-label" for="task-desc-{{ t.id }}">Task</label>
+        <textarea id="task-desc-{{ t.id }}" name="description" class="form-control" rows="2">{{ t.description }}</textarea>
+        <div class="form-row">
+          <input name="assigned_to" class="form-control" value="{{ t.assigned_to }}" aria-label="Assignee">
+          <input name="due_date" class="form-control" value="{{ t.due_date }}" aria-label="Deadline">
+          <select name="priority" class="form-control" aria-label="Priority">
+            {% for level in ['High', 'Medium', 'Low'] %}
+            <option value="{{ level }}" {% if t.priority == level %}selected{% endif %}>{{ level }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-outline btn-sm">Save edit</button>
+        </div>
+      </form>
+      {% if t.approved %}
+      <p class="text-muted">Confirmed</p>
+      {% else %}
+      <form method="POST" action="{{ url_for('meeting.approve_task', meeting_id=meeting.id, task_id=t.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <button type="submit" class="btn btn-primary btn-sm">Confirm task</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% if confirmations %}
+    <p class="text-muted">Choose an address for every shared name before sending.</p>
+    {% elif tasks | selectattr('approved') | list | length == tasks | length %}
+    <form method="POST" action="{{ url_for('meeting.send_followups', meeting_id=meeting.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+      <button type="submit" class="btn btn-primary">Send follow-up mail</button>
+    </form>
+    {% else %}
+    <p class="text-muted">Mail stays here until every task is confirmed.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <h2 class="section-heading">{{ icon_check(18, 'icon') }} Action items ({{ tasks|length }})</h2>
 
   {% if tasks %}
@@ -602,6 +679,15 @@
     div.textContent = str || '';
     return div.innerHTML;
   }
+
+  document.getElementById("btn-fullscreen")?.addEventListener("click", () => {
+    const root = document.querySelector(".page-body") || document.documentElement;
+    if (!document.fullscreenElement) {
+      root.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+  });
 
   document.addEventListener("DOMContentLoaded", () => {
     const modal = document.getElementById("attendee-modal");

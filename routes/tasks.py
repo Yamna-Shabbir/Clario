@@ -115,23 +115,10 @@ def confirm(task_id: int):
         flash("Choose one of the addresses from this meeting.", "error")
         return redirect(url_for("tasks.index"))
     remaining = get_pending_confirmations(task["meeting_id"], DB_PATH)
-    if not remaining:
-        with get_connection(DB_PATH) as conn:
-            owner = conn.execute(
-                "SELECT user_id FROM meetings WHERE id = ?",
-                (task["meeting_id"],),
-            ).fetchone()
-        owner_id = owner["user_id"] if owner else None
-        if owner_id:
-            from services.notifications import send_meeting_followups
-            send_meeting_followups({
-                "stats": {"meeting_id": task["meeting_id"], "user_id": owner_id, "db_path": DB_PATH},
-            })
-            flash("Assignment saved. Follow-up mail has been sent.", "success")
-        else:
-            flash("Assignment saved.", "success")
+    if remaining:
+        flash("Assignment saved. Confirm the remaining names, then confirm each task before mail is sent.", "success")
     else:
-        flash("Assignment saved. Confirm the remaining tasks to send mail.", "success")
+        flash("Assignment saved. Confirm every task on the meeting page, then send the follow-up.", "success")
     if request.form.get("return_to") == "result":
         return redirect(url_for("meeting.result", meeting_id=task["meeting_id"]))
     return redirect(url_for("tasks.index"))

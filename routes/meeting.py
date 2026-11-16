@@ -316,6 +316,8 @@ def result(meeting_id: int):
         statuses      = TASK_STATUSES,
         status_labels = _status_labels,
         my_email      = (session.get("email") or "").strip().lower(),
+        is_owner      = int(meeting.get("user_id") or 0) == int(user_id),
+        mail_sent     = any(row.get("status") == "sent" for row in followups),
     )
 
 
@@ -377,6 +379,99 @@ def retry_transcription(meeting_id: int):
         flash(error, "error")
     else:
         flash("Transcription started again. The recording was kept.", "success")
+    return redirect(url_for("meeting.result", meeting_id=meeting_id))
+
+
+def _owner_meeting(meeting_id: int):
+    """Return the meeting when the signed-in user owns it."""
+    init_db(DB_PATH)
+    return get_meeting_detail(meeting_id, session["user_id"], DB_PATH)
+
+
+@meeting_bp.route("/meeting/<int:meeting_id>/summary", methods=["POST"])
+@login_required
+def edit_summary(meeting_id: int):
+    """The meeting owner can rewrite the summary before or after mail is sent."""
+    from models.database import update_summary_for_owner
+
+    if not _owner_meeting(meeting_id):
+        abort(404)
+    if not update_summary_for_owner(
+        meeting_id, session["user_id"], request.form.get("summary") or "", DB_PATH,
+    ):
+        flash("Write a summary before saving.", "error")
+    else:
+        flash("Summary saved.", "success")
+    return redirect(url_for("meeting.result", meeting_id=meeting_id))
+
+
+@meeting_bp.route("/meeting/<int:meeting_id>/task/<int:task_id>", methods=["POST"])
+@login_required
+def edit_task(meeting_id: int, task_id: int):
+    """Edit one task. Saving clears its confirmation so it is reviewed again."""
+    from models.database import get_meeting_emails, update_task_for_owner
+
+    if not _owner_meeting(meeting_id):
+        abort(404)
+    if any(row.get("status") == "sent" for row in get_meeting_emails(meeting_id, DB_PATH)):
+        flash("Follow-up mail already went out, so this task was left as sent.", "error")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+    saved = update_task_for_owner(
+        meeting_id, task_id, session["user_id"],
+        description=request.form.get("description") or "",
+        assigned_to=request.form.get("assigned_to") or "",
+        due_date=request.form.get("due_date") or "",
+        priority=request.form.get("priority") or "Low",
+        db_path=DB_PATH,
+    )
+    flash("Task saved. Confirm it again before sending." if saved else "That task could not be saved.",
+          "success" if saved else "error")
+    return redirect(url_for("meeting.result", meeting_id=meeting_id))
+
+
+@meeting_bp.route("/meeting/<int:meeting_id>/task/<int:task_id>/approve", methods=["POST"])
+@login_required
+def approve_task(meeting_id: int, task_id: int):
+    """Confirm one task so it can be included in follow-up mail."""
+    from models.database import get_meeting_emails, set_task_mail_approval
+
+    if not _owner_meeting(meeting_id):
+        abort(404)
+    if any(row.get("status") == "sent" for row in get_meeting_emails(meeting_id, DB_PATH)):
+        flash("Follow-up mail already went out.", "error")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+    if set_task_mail_approval(meeting_id, task_id, session["user_id"], True, DB_PATH):
+        flash("Task confirmed.", "success")
+    else:
+        flash("That task could not be confirmed.", "error")
+    return redirect(url_for("meeting.result", meeting_id=meeting_id))
+
+
+@meeting_bp.route("/meeting/<int:meeting_id>/send-followups", methods=["POST"])
+@login_required
+def send_followups(meeting_id: int):
+    """Send follow-up mail after every task has been confirmed."""
+    from models.database import get_meeting_emails, get_pending_confirmations
+    from services.notifications import send_meeting_followups
+
+    meeting = _owner_meeting(meeting_id)
+    if not meeting:
+        abort(404)
+    if any(row.get("status") == "sent" for row in get_meeting_emails(meeting_id, DB_PATH)):
+        flash("Follow-up mail was already sent.", "error")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+    if get_pending_confirmations(meeting_id, DB_PATH):
+        flash("Choose an address for every shared name before sending.", "error")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+    tasks = get_tasks_by_meeting(meeting_id, DB_PATH)
+    if any(not int(task.get("approved") or 0) for task in tasks):
+        flash("Confirm every task before sending follow-up mail.", "error")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+    send_meeting_followups({
+        "summary": meeting.get("summary") or "",
+        "stats": {"meeting_id": meeting_id, "user_id": session["user_id"], "db_path": DB_PATH},
+    })
+    flash("Follow-up mail has been sent.", "success")
     return redirect(url_for("meeting.result", meeting_id=meeting_id))
 
 

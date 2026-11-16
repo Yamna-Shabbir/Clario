@@ -156,6 +156,7 @@ def init_db(db_path: str = DB_PATH) -> None:
                 priority          TEXT    DEFAULT 'Low',
                 assigned_email    TEXT,
                 assigned_by_email TEXT,
+                approved          INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
             );
 
@@ -401,6 +402,10 @@ def init_db(db_path: str = DB_PATH) -> None:
             )
         if "assigned_by" not in task_cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN assigned_by TEXT")
+        if "approved" not in task_cols:
+            conn.execute(
+                "ALTER TABLE tasks ADD COLUMN approved INTEGER NOT NULL DEFAULT 0"
+            )
         turn_cols = _get_columns("meeting_speaker_turns")
         if turn_cols and "started_at" not in turn_cols:
             conn.execute("ALTER TABLE meeting_speaker_turns ADD COLUMN started_at REAL")
@@ -646,6 +651,67 @@ def insert_summary(meeting_id: int, content: str,
             (meeting_id, content),
         )
         conn.commit()
+
+
+def update_summary_for_owner(meeting_id: int, user_id: int, content: str,
+                             db_path: str = DB_PATH) -> bool:
+    """Replace the summary when the meeting belongs to ``user_id``."""
+    text = " ".join((content or "").split())
+    if not text:
+        return False
+    text = text[:8000]
+    with get_connection(db_path) as conn:
+        owned = conn.execute(
+            "SELECT 1 FROM meetings WHERE id = ? AND user_id = ?",
+            (meeting_id, user_id),
+        ).fetchone()
+        if not owned:
+            return False
+        conn.execute(
+            "INSERT INTO summaries (meeting_id, content) VALUES (?, ?) "
+            "ON CONFLICT(meeting_id) DO UPDATE SET content = excluded.content",
+            (meeting_id, text),
+        )
+        conn.commit()
+    return True
+
+
+def update_task_for_owner(meeting_id: int, task_id: int, user_id: int,
+                          *, description: str, assigned_to: str,
+                          due_date: str, priority: str,
+                          db_path: str = DB_PATH) -> bool:
+    """Edit one task before mail goes out. Editing clears its confirmation."""
+    text = " ".join((description or "").split())[:500]
+    who = " ".join((assigned_to or "").split())[:120]
+    due = " ".join((due_date or "").split())[:80] or "Not specified"
+    level = priority if priority in {"High", "Medium", "Low"} else "Low"
+    if not text or not who:
+        return False
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """UPDATE tasks
+               SET description = ?, assigned_to = ?, due_date = ?, priority = ?,
+                   approved = 0
+               WHERE id = ? AND meeting_id = ?
+                 AND meeting_id IN (SELECT id FROM meetings WHERE id = ? AND user_id = ?)""",
+            (text, who, due, level, task_id, meeting_id, meeting_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def set_task_mail_approval(meeting_id: int, task_id: int, user_id: int,
+                           approved: bool, db_path: str = DB_PATH) -> bool:
+    """Mark one task confirmed, or clear that confirmation. Owner only."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """UPDATE tasks SET approved = ?
+               WHERE id = ? AND meeting_id = ?
+                 AND meeting_id IN (SELECT id FROM meetings WHERE id = ? AND user_id = ?)""",
+            (1 if approved else 0, task_id, meeting_id, meeting_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
 
 
 # ── Tasks ──────────────────────────────────────────────────────────────────────

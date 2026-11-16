@@ -411,3 +411,60 @@ class TestAuthenticatedFlows:
             "sara.ali@example.com",
         }
 
+
+def test_owner_reviews_tasks_and_can_edit_the_summary(logged_in_client, app):
+    from models.database import (
+        get_tasks_by_meeting, get_user_by_email, insert_decisions,
+        insert_meeting, insert_summary, insert_tasks,
+    )
+
+    client, creds = logged_in_client
+    db = app.config["CLARIO_DB_PATH"]
+    owner = get_user_by_email(creds["email"], db)
+    meeting_id = insert_meeting(owner["id"], title="Planning review", db_path=db)
+    insert_summary(meeting_id, "Draft summary.", db_path=db)
+    insert_tasks(meeting_id, [{
+        "description": "Send the notes.",
+        "assigned_to": "Ada",
+        "due_date": "Friday",
+        "status": "pending",
+        "keyword": "will",
+        "priority": "Low",
+    }], db_path=db)
+    insert_decisions(meeting_id, [{"content": "Use chat for updates.", "confidence": 0.9}], db_path=db)
+
+    page = client.get(f"/result/{meeting_id}")
+    assert page.status_code == 200
+    assert b"Key points" in page.data
+    assert b"Full screen" in page.data
+    assert b"Edit summary" in page.data
+    assert b"Use chat for updates." in page.data
+    assert b"Send the notes." in page.data
+
+    saved = client.post(
+        f"/meeting/{meeting_id}/summary",
+        data={"summary": "Revised summary for the team."},
+        follow_redirects=True,
+    )
+    assert b"Revised summary for the team." in saved.data
+
+    task_id = get_tasks_by_meeting(meeting_id, db)[0]["id"]
+    edited = client.post(
+        f"/meeting/{meeting_id}/task/{task_id}",
+        data={
+            "description": "Send the revised notes.",
+            "assigned_to": "Ada",
+            "due_date": "Monday",
+            "priority": "High",
+        },
+        follow_redirects=True,
+    )
+    assert b"Send the revised notes." in edited.data
+    blocked = client.post(f"/meeting/{meeting_id}/send-followups", follow_redirects=True)
+    assert b"Confirm every task" in blocked.data
+    confirmed = client.post(
+        f"/meeting/{meeting_id}/task/{task_id}/approve",
+        follow_redirects=True,
+    )
+    assert b"Send follow-up mail" in confirmed.data
+

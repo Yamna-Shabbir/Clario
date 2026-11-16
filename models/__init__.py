@@ -28,6 +28,9 @@ from models.database import (
 
     # Summaries
     insert_summary,
+    update_summary_for_owner,
+    update_task_for_owner,
+    set_task_mail_approval,
 
     # Tasks
     insert_tasks,
@@ -63,7 +66,8 @@ __all__ = [
     "update_meeting_status", "update_meeting_progress",
     "get_meeting_status", "fail_interrupted_meetings",
     "insert_transcript",
-    "insert_summary",
+    "insert_summary", "update_summary_for_owner",
+    "update_task_for_owner", "set_task_mail_approval",
     "insert_tasks", "insert_decisions", "get_decisions_by_meeting",
     "replace_meeting_emails", "get_meeting_emails",
     "get_tasks_by_meeting", "replace_task_reviews", "get_task_reviews",

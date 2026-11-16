@@ -358,9 +358,14 @@ services/jobs.py  _run_pipeline_job()
                generate_status_pie_chart() → static/graphs/status_m{id}.png
                set_meeting_graphs(meeting_id, paths...)
   3. update_meeting_status(meeting_id, status='completed', progress_stage='completed')
-  4. Run post-completion hooks. send_meeting_followups emails each
-     assignee their tasks and attaches a PDF of the summary, decisions,
-     and the full task list. The meeting owner receives the PDF too.
+  4. Run post-completion hooks. The hook asks send_meeting_followups to
+     wait until the host confirms every task (`require_approval`). The
+     host can edit the summary and each task on the result page first.
+     Saving a task edit clears that confirmation. Follow-up mail then
+     emails each assignee their tasks and attaches a PDF of the summary,
+     key points (decisions and tasks together), decisions, and the full
+     task list in a table with deadlines. The meeting owner receives the
+     PDF too. The message also includes an HTML table of those tasks.
      A task email goes only to an assignee whose address is on the meeting
      roster or in the users table. The body names the task, assignee,
      assigner, meeting title and date, due date, priority, status, and a
@@ -487,6 +492,8 @@ tasks                                 (many-to-1 with meetings)
   evidence_start    REAL (seconds; empty when the line had no timestamp)
   evidence_end      REAL
   speaker_turn_id   INTEGER (meeting_speaker_turns.id when that row matched)
+  approved          INTEGER NOT NULL DEFAULT 0
+                    (1 after the host confirms the task for follow-up mail)
 
 task_reviews                          (many-to-1 with meetings)
   Commitments that are not saved as tasks because the assignee, deadline,
@@ -863,7 +870,16 @@ assistant_messages                    (many-to-1 with assistant_conversations)
       on that roster is held too. `send_meeting_followups` writes
       `task_confirmations` and status `waiting` instead of sending. The
       uploader (meeting host) or the assigner confirms on the result page or
-      `/tasks`, and mail is sent only after no choices remain.
+      `/tasks`. Choosing a name does not send mail by itself.
+    - Every task starts unconfirmed (`tasks.approved = 0`). The pipeline
+      hook passes `require_approval`, so mail stays `waiting` until the
+      owner confirms each task and posts `/meeting/<id>/send-followups`.
+      The owner can edit the summary at any time, and can edit a task
+      until mail is `sent`. The result page lists key points as the
+      decisions and the tasks together. The live room toolbar has a
+      full-screen control, and the result page does too.
+    - The dashboard is a workspace: meeting cards, open work, and a count
+      of tasks still waiting for confirmation.
     - `/tasks` lists every task in meetings the user owns, joined, or was assigned
       in. Only the assignee email can set status to `pending`, `started`,
       `doing`, or `completed`. Other people see that status and cannot change it.

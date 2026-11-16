@@ -21,6 +21,7 @@ CLARIO_EMAIL_DIR, or data/outbox in debug.
 from __future__ import annotations
 
 import base64
+import html
 import json
 import os
 import re
@@ -110,6 +111,15 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
         }], db_path)
         return
 
+    if results.get("require_approval") and tasks and any(not int(task.get("approved") or 0) for task in tasks):
+        replace_meeting_emails(int(meeting_id), [{
+            "recipient": owner.get("email") or "",
+            "subject": f"Confirm tasks for {meeting.get('title') or 'Meeting'}",
+            "status": "waiting",
+            "detail": "Confirm every task on the meeting page before follow-up mail is sent. You can edit a task or the summary first.",
+        }], db_path)
+        return
+
     title = meeting.get("title") or "Meeting"
     summary = results.get("summary") or meeting.get("summary") or ""
     pdf = build_summary_pdf(title, summary, decisions, tasks)
@@ -129,8 +139,9 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
     host_name = (owner.get("username") or "the host").strip() or "the host"
     reply_to = _reply_header(host_name, host_email)
     for person in recipients:
-        subject, body = _message_copy(
+        subject, body, rich = _message_copy(
             title, person, meeting=meeting, meeting_id=int(meeting_id),
+            all_tasks=tasks, decisions=decisions, summary=summary,
         )
         if host_email:
             body = (
@@ -140,7 +151,7 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
         status, detail = _deliver(
             person["email"], subject, body, pdf, int(meeting_id),
             reply_to=reply_to, sender_name=host_name, sender_email=host_email,
-            host_user_id=int(user_id), db_path=db_path,
+            host_user_id=int(user_id), db_path=db_path, html=rich,
         )
         log.append({
             "recipient": person["email"],
@@ -162,6 +173,9 @@ def build_summary_pdf(
     lines.extend(_wrap("Summary"))
     lines.extend(_wrap(summary or "No summary was generated."))
     lines.append("")
+    lines.append("Key points")
+    lines.extend(_key_point_lines(decisions, tasks))
+    lines.append("")
     lines.append("Decisions")
     if decisions:
         for decision in decisions:
@@ -171,14 +185,34 @@ def build_summary_pdf(
         lines.append("- None recorded")
     lines.append("")
     lines.append("Tasks")
+    lines.append("Assignee | Deadline | Priority | Task")
     if tasks:
         for task in tasks:
             who = task.get("assigned_to") or "Team"
             due = task.get("due_date") or "Not specified"
-            lines.extend(_wrap(f"- {who}: {task.get('description', '')} (due {due})"))
+            level = task.get("priority") or "Low"
+            lines.extend(_wrap(
+                f"{who} | {due} | {level} | {task.get('description', '')}"
+            ))
     else:
         lines.append("- None recorded")
     return _lines_to_pdf(lines)
+
+
+def _key_point_lines(decisions: List[Dict[str, Any]], tasks: List[Dict[str, Any]]) -> List[str]:
+    """Decisions and tasks, listed together as the meeting's key points."""
+    points: List[str] = []
+    for decision in decisions:
+        text = decision.get("content") or decision.get("text") or ""
+        if text:
+            points.extend(_wrap(f"- Decision: {text}"))
+    for task in tasks:
+        who = task.get("assigned_to") or "Team"
+        due = task.get("due_date") or "Not specified"
+        points.extend(_wrap(
+            f"- Task: {who} — {task.get('description', '')} (due {due})"
+        ))
+    return points or ["- None recorded"]
 
 
 def _recipients(owner: Dict[str, Any], participants: List[Dict[str, Any]],
@@ -251,11 +285,15 @@ def _meeting_link(meeting_id: int) -> str:
 
 def _message_copy(title: str, person: Dict[str, Any], *,
                   meeting: Optional[Dict[str, Any]] = None,
-                  meeting_id: int = 0) -> Tuple[str, str]:
+                  meeting_id: int = 0,
+                  all_tasks: Optional[List[Dict[str, Any]]] = None,
+                  decisions: Optional[List[Dict[str, Any]]] = None,
+                  summary: str = "") -> Tuple[str, str, str]:
     name = person.get("name") or "there"
     own = person.get("tasks") or []
     meeting = meeting or {}
     when = meeting.get("meeting_date") or (meeting.get("created_at") or "")[:10]
+    shown = own if own else (all_tasks or [])
     if own:
         subject = f"Your tasks from {title}"
         lines = [f"Hello {name},", "", f"Meeting: {title}", f"Date: {when or 'Not specified'}", ""]
@@ -273,6 +311,7 @@ def _message_copy(title: str, person: Dict[str, Any], *,
                 f"Status: {task.get('status') or 'pending'}",
                 "",
             ])
+        lines.extend(_plain_task_table(shown))
         if meeting_id:
             lines.append(f"Open the meeting in Clario: {_meeting_link(meeting_id)}")
         lines.append("The attached PDF includes the meeting summary and the other tasks.")
@@ -282,8 +321,97 @@ def _message_copy(title: str, person: Dict[str, Any], *,
             f"Hello {name},",
             "",
             "The meeting summary, decisions, and full task list are in the attached PDF.",
+            "",
         ]
-    return subject, "\n".join(lines)
+        lines.extend(_plain_task_table(shown))
+    rich = _html_message(
+        title, name, when or "Not specified", shown, decisions or [], summary,
+        meeting_id=meeting_id, personal=bool(own),
+    )
+    return subject, "\n".join(lines), rich
+
+
+def _plain_task_table(tasks: List[Dict[str, Any]]) -> List[str]:
+    lines = ["Task | Assignee | Deadline | Priority"]
+    if not tasks:
+        lines.append("None recorded")
+        return lines
+    for task in tasks:
+        lines.append(" | ".join([
+            (task.get("description") or "").replace("|", "/"),
+            task.get("assigned_to") or "Team",
+            task.get("due_date") or "Not specified",
+            task.get("priority") or "Low",
+        ]))
+    lines.append("")
+    return lines
+
+
+def _html_message(title: str, name: str, when: str, tasks: List[Dict[str, Any]],
+                  decisions: List[Dict[str, Any]], summary: str, *,
+                  meeting_id: int = 0, personal: bool = False) -> str:
+    """Organised HTML brief: key points, then a task table with deadlines."""
+    def cell(value: object) -> str:
+        return html.escape(str(value or ""))
+
+    point_items = []
+    for decision in decisions:
+        text = decision.get("content") or decision.get("text") or ""
+        if text:
+            point_items.append(f"<li><strong>Decision.</strong> {cell(text)}</li>")
+    for task in tasks:
+        point_items.append(
+            "<li><strong>Task.</strong> "
+            f"{cell(task.get('assigned_to') or 'Team')} — {cell(task.get('description'))} "
+            f"(due {cell(task.get('due_date') or 'Not specified')})</li>"
+        )
+    points = "".join(point_items) or "<li>None recorded.</li>"
+    rows = []
+    for task in tasks:
+        rows.append(
+            "<tr>"
+            f"<td style=\"padding:8px 10px;border-bottom:1px solid #E4D4D7;\">{cell(task.get('description'))}</td>"
+            f"<td style=\"padding:8px 10px;border-bottom:1px solid #E4D4D7;\">{cell(task.get('assigned_to') or 'Team')}</td>"
+            f"<td style=\"padding:8px 10px;border-bottom:1px solid #E4D4D7;\">{cell(task.get('due_date') or 'Not specified')}</td>"
+            f"<td style=\"padding:8px 10px;border-bottom:1px solid #E4D4D7;\">{cell(task.get('priority') or 'Low')}</td>"
+            "</tr>"
+        )
+    body_rows = "".join(rows) or (
+        "<tr><td colspan=\"4\" style=\"padding:8px 10px;\">None recorded.</td></tr>"
+    )
+    intro = (
+        "These are your tasks from the meeting."
+        if personal else
+        "The full task list for this meeting is below."
+    )
+    link = ""
+    if meeting_id:
+        url = html.escape(_meeting_link(meeting_id))
+        link = f"<p><a href=\"{url}\">Open this meeting in Clario</a></p>"
+    summary_block = ""
+    if summary:
+        summary_block = f"<p>{cell(summary)}</p>"
+    return (
+        "<div style=\"font-family:Arial,sans-serif;color:#2E1A1F;line-height:1.45;\">"
+        f"<p>Hello {cell(name)},</p>"
+        f"<p><strong>{cell(title)}</strong><br>Date: {cell(when)}</p>"
+        f"<p>{intro}</p>"
+        f"{summary_block}"
+        "<h2 style=\"font-size:16px;color:#7A2E40;\">Key points</h2>"
+        f"<ul>{points}</ul>"
+        "<h2 style=\"font-size:16px;color:#7A2E40;\">Tasks</h2>"
+        "<table style=\"border-collapse:collapse;width:100%;font-size:14px;\">"
+        "<thead><tr>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Task</th>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Assignee</th>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Deadline</th>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Priority</th>"
+        "</tr></thead>"
+        f"<tbody>{body_rows}</tbody></table>"
+        f"{link}"
+        "<p>The attached PDF has the summary, key points, decisions, and every task.</p>"
+        "</div>"
+    )
 
 
 def sends_as_self(user_id: Optional[int] = None, db_path: Optional[str] = None) -> bool:
@@ -352,10 +480,12 @@ def _host_gmail_can_send(user_id: int, db_path: str) -> bool:
 
 def _deliver(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: int,
             *, reply_to: str = "", sender_name: str = "", sender_email: str = "",
-            host_user_id: Optional[int] = None, db_path: Optional[str] = None) -> Tuple[str, str]:
+            host_user_id: Optional[int] = None, db_path: Optional[str] = None,
+            html: str = "") -> Tuple[str, str]:
     saved = _save_copy(
         recipient, subject, body, pdf, meeting_id,
         reply_to=reply_to, sender_name=sender_name, sender_email=sender_email,
+        html=html,
     )
     if not mail_is_configured(host_user_id, db_path):
         if saved:
@@ -364,7 +494,7 @@ def _deliver(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: in
     try:
         message = _build_message(
             recipient, subject, body, pdf, reply_to=reply_to,
-            sender_name=sender_name, sender_email=sender_email,
+            sender_name=sender_name, sender_email=sender_email, html=html,
         )
         _dispatch(message, host_user_id=host_user_id, db_path=db_path)
     except Exception as exc:
@@ -378,7 +508,8 @@ def _deliver(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: in
 
 
 def _save_copy(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: int,
-               *, reply_to: str = "", sender_name: str = "", sender_email: str = "") -> str:
+               *, reply_to: str = "", sender_name: str = "", sender_email: str = "",
+               html: str = "") -> str:
     folder = EMAIL_DIR or (os.path.join(DATA_DIR, "outbox") if DEBUG else "")
     if not folder:
         return ""
@@ -389,7 +520,7 @@ def _save_copy(recipient: str, subject: str, body: str, pdf: bytes, meeting_id: 
     eml_path = os.path.join(meeting_dir, f"{stem}.eml")
     message = _build_message(
         recipient, subject, body, pdf, reply_to=reply_to,
-        sender_name=sender_name, sender_email=sender_email,
+        sender_name=sender_name, sender_email=sender_email, html=html,
     )
     with open(pdf_path, "wb") as handle:
         handle.write(pdf)
@@ -635,6 +766,8 @@ def _send_https(message: EmailMessage) -> None:
     subject = str(message["Subject"] or "")
     plain = message.get_body(preferencelist=("plain",))
     text = plain.get_content() if plain is not None else ""
+    html_part = message.get_body(preferencelist=("html",))
+    rich = html_part.get_content() if html_part is not None else ""
     attachment = None
     filename = "meeting-summary.pdf"
     for part in message.iter_attachments():
@@ -650,12 +783,14 @@ def _send_https(message: EmailMessage) -> None:
             recipient, subject, text, attachment, filename,
             sender_email=sender_email, sender_name=sender_name or sender_email,
             reply_to=reply_email, reply_name=reply_name or sender_name,
+            html=rich,
         )
         return
     _post_resend(
         recipient, subject, text, attachment, filename,
         sender_email=sender_email, sender_name=sender_name or sender_email,
         reply_to=reply_email, reply_name=reply_name or sender_name,
+        html=rich,
     )
 
 
@@ -677,13 +812,16 @@ def _post_json(url: str, payload: dict, headers: Dict[str, str]) -> None:
 def _post_brevo(recipient: str, subject: str, text: str,
                 attachment: Optional[bytes], filename: str, *,
                 sender_email: str, sender_name: str,
-                reply_to: str = "", reply_name: str = "") -> None:
+                reply_to: str = "", reply_name: str = "",
+                html: str = "") -> None:
     payload: Dict[str, Any] = {
         "sender": {"name": sender_name, "email": sender_email},
         "to": [{"email": recipient}],
         "subject": subject,
         "textContent": text,
     }
+    if html:
+        payload["htmlContent"] = html
     if reply_to:
         payload["replyTo"] = {"email": reply_to, "name": reply_name or reply_to}
     if attachment:
@@ -705,13 +843,16 @@ def _post_brevo(recipient: str, subject: str, text: str,
 def _post_resend(recipient: str, subject: str, text: str,
                  attachment: Optional[bytes], filename: str, *,
                  sender_email: str, sender_name: str,
-                 reply_to: str = "", reply_name: str = "") -> None:
+                 reply_to: str = "", reply_name: str = "",
+                 html: str = "") -> None:
     payload: Dict[str, Any] = {
         "from": formataddr((sender_name, sender_email)),
         "to": [recipient],
         "subject": subject,
         "text": text,
     }
+    if html:
+        payload["html"] = html
     if reply_to:
         payload["reply_to"] = formataddr((reply_name, reply_to)) if reply_name else reply_to
     if attachment:
@@ -849,7 +990,7 @@ def _send_smtp(recipient: str, subject: str, body: str, pdf: bytes) -> None:
 
 def _build_message(recipient: str, subject: str, body: str, pdf: bytes,
                    *, reply_to: str = "", sender_name: str = "",
-                   sender_email: str = "") -> EmailMessage:
+                   sender_email: str = "", html: str = "") -> EmailMessage:
     message = EmailMessage()
     message["Subject"] = subject
     message["To"] = recipient
@@ -861,6 +1002,8 @@ def _build_message(recipient: str, subject: str, body: str, pdf: bytes,
     elif reply_to:
         message["Reply-To"] = reply_to
     message.set_content(body)
+    if html:
+        message.add_alternative(html, subtype="html")
     message.add_attachment(
         pdf,
         maintype="application",

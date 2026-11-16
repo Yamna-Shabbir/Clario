@@ -1749,6 +1749,83 @@ li { margin: 4px 0; }
   .assistant-bubble--user { margin-left: 0; }
 }
 
+.workspace-kicker {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--maroon);
+  margin-bottom: 6px;
+}
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 1.7fr 0.9fr;
+  gap: 22px;
+  align-items: start;
+}
+.meeting-board { display: flex; flex-direction: column; gap: 12px; }
+.meeting-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  padding: 18px 20px;
+  align-items: center;
+}
+.meeting-card__top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.meeting-card__title {
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 600;
+  margin: 0;
+}
+.meeting-card__meta,
+.work-item__meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  margin-top: 6px;
+}
+.meeting-card__summary {
+  margin: 10px 0 0;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.meeting-card__actions { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.workspace-side { display: flex; flex-direction: column; gap: 8px; }
+.work-item {
+  display: block;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+}
+.work-item:last-child { border-bottom: none; }
+.work-item__title { display: block; font-weight: 600; }
+.key-points { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.key-points li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.review-task {
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.review-task:first-of-type { border-top: none; }
+.live-meet:fullscreen,
+.page-body:fullscreen {
+  background: var(--bg);
+  overflow: auto;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+}
+
+@media (max-width: 900px) {
+  .workspace-grid,
+  .meeting-card { grid-template-columns: 1fr; }
+  .meeting-card__actions { flex-direction: row; }
+}
+
 @media print {
   .navbar-shell, .hide-on-print, .btn, .image-modal, .nav-toggle, .app-backdrop, .listening-orb, .flash-container {
     display: none !important;

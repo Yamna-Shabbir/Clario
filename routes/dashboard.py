@@ -36,10 +36,21 @@ def index():
         JOIN meetings m ON m.id = tk.meeting_id
         WHERE m.user_id = ?
     """, (user_id,)).fetchone()
-    conn.close()
     total_tasks_count = total_row["cnt"] if total_row else 0
+    review_row = conn.execute("""
+        SELECT COUNT(*) AS cnt FROM tasks tk
+        JOIN meetings m ON m.id = tk.meeting_id
+        WHERE m.user_id = ? AND COALESCE(tk.approved, 0) = 0
+    """, (user_id,)).fetchone()
+    conn.close()
 
     all_tasks = get_all_user_tasks(user_id, DB_PATH)
+    titles = {m["id"]: m.get("title") or "Untitled meeting" for m in meetings}
+    open_work = []
+    for task in pending_tasks[:8]:
+        item = dict(task)
+        item["meeting_title"] = titles.get(task.get("meeting_id"), "Meeting")
+        open_work.append(item)
 
     return render_template(
         "dashboard/index.html",
@@ -48,8 +59,10 @@ def index():
         total_meetings = len(meetings),
         total_tasks    = total_tasks_count,
         pending_count  = len(pending_tasks),
+        review_count   = review_row["cnt"] if review_row else 0,
         people_stats   = people_stats,
         all_tasks      = all_tasks,
+        open_work      = open_work,
     )
 
 @dashboard_bp.route("/recordings")

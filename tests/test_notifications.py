@@ -773,3 +773,74 @@ def test_a_spoken_sentence_is_not_used_as_an_email_address(tmp_path):
         assert sent == ["ada@example.com"]
     finally:
         os.remove(db)
+
+
+def test_followups_wait_until_every_task_is_confirmed(tmp_path):
+    db = _db()
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self):
+            return None
+
+        def login(self, *args):
+            return None
+
+        def send_message(self, message):
+            sent.append(message)
+
+    try:
+        owner_id = insert_user("Ada", "ada@example.com", "hash", db_path=db)
+        meeting_id = insert_meeting(owner_id, title="Planning", db_path=db)
+        insert_tasks(meeting_id, [{
+            "description": "Send the notes.",
+            "assigned_to": "Ada",
+            "due_date": "Friday",
+            "status": "pending",
+            "keyword": "will",
+            "priority": "High",
+        }], db_path=db)
+        payload = {
+            "summary": "Notes were assigned.",
+            "stats": {"meeting_id": meeting_id, "user_id": owner_id, "db_path": db},
+            "require_approval": True,
+        }
+        with patch("services.notifications.BREVO_API_KEY", ""), \
+             patch("services.notifications.RESEND_API_KEY", ""), \
+             patch("services.notifications.SMTP_HOST", "smtp.example.com"), \
+             patch("services.notifications.SMTP_FROM", "ada@example.com"), \
+             patch("services.notifications.SMTP_USER", "ada@example.com"), \
+             patch("services.notifications.SMTP_PASSWORD", "secret"), \
+             patch("services.notifications.EMAIL_DIR", str(tmp_path)), \
+             patch("services.notifications.smtplib.SMTP", FakeSMTP):
+            send_meeting_followups(payload)
+            assert sent == []
+            rows = get_meeting_emails(meeting_id, db)
+            assert rows[0]["status"] == "waiting"
+            from models.database import set_task_mail_approval, get_tasks_by_meeting
+            task_id = get_tasks_by_meeting(meeting_id, db)[0]["id"]
+            assert set_task_mail_approval(meeting_id, task_id, owner_id, True, db)
+            payload["require_approval"] = False
+            send_meeting_followups(payload)
+        message = sent[0]
+        plain = message.get_body(preferencelist=("plain",)).get_content()
+        rich = message.get_body(preferencelist=("html",)).get_content()
+        assert "Task | Assignee | Deadline | Priority" in plain
+        assert "Friday" in plain
+        assert "<table" in rich and "Deadline" in rich
+        assert b"Key points" in build_summary_pdf(
+            "Planning", "Notes were assigned.",
+            [{"content": "Use chat for updates."}],
+            [{"assigned_to": "Ada", "description": "Send the notes.", "due_date": "Friday"}],
+        )
+    finally:
+        os.remove(db)

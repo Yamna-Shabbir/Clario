@@ -31,6 +31,15 @@ from config import (
 )
 
 
+def _send_followups_after_review(results: Dict) -> None:
+    """Hold follow-up mail until the host confirms every task."""
+    from services.notifications import send_meeting_followups
+
+    payload = dict(results or {})
+    payload["require_approval"] = True
+    send_meeting_followups(payload)
+
+
 def create_app(*, test_config: Optional[Dict] = None) -> Flask:
     """
     Application factory — create, configure, and return the Flask app.
@@ -154,9 +163,8 @@ def create_app(*, test_config: Optional[Dict] = None) -> Flask:
 
     from services.jobs import register_post_completion_hook
     from services.live import link_task_assigners
-    from services.notifications import send_meeting_followups
     register_post_completion_hook(link_task_assigners)
-    register_post_completion_hook(send_meeting_followups)
+    register_post_completion_hook(_send_followups_after_review)
 
     # ── Patch blueprint-local bindings AFTER blueprints are imported ───────────
     # Routes use `from config import DB_PATH` which binds the name in each
