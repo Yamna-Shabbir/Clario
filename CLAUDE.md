@@ -895,8 +895,11 @@ assistant_messages                    (many-to-1 with assistant_conversations)
     or delete tasks or meetings. With `CLARIO_ASSISTANT_API_URL` unset, the
     answer text is the retrieved notes. A configured chat endpoint may
     rephrase those notes, and any reply that adds a word from outside the
-    notes is discarded. Say when the documentation or the meetings do not
-    contain the answer.
+    notes is discarded.     Say when the documentation or the meetings do not
+    contain the answer. A count uses the status in that question, so
+    "how many are completed" does not repeat pending tasks. A decision
+    question lists saved decisions, or says none were saved. The same
+    spoken line is shown once.
 
 ---
 

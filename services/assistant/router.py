@@ -20,7 +20,7 @@ _MEETING = {
     "summary", "summaries", "transcript", "participant", "participants",
     "meeting", "meetings", "assigned", "assignee", "priority", "pending",
     "said", "history", "action", "speaker", "evidence", "decide", "decided",
-    "agreed",
+    "agreed", "completed", "done", "finished", "started", "doing",
 }
 _FOLLOW = {"that", "those", "this", "same", "earlier", "again", "above"}
 _MUTATION = re.compile(

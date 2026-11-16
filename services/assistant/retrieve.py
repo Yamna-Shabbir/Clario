@@ -93,6 +93,7 @@ def _bundle(meeting_id: int, user_id: int, db_path: str, query: Sequence[str]) -
                 "kind": kind,
                 "meeting_id": meeting_id,
                 "meeting_title": row["title"] or "Untitled Meeting",
+                "description": item.get("description") or item.get("content") or "",
                 "speaker": item.get("evidence_speaker") or "",
                 "excerpt": (item.get("source_text") or item.get("content") or item.get("description") or "")[:500],
                 "timestamp": _clock(start),
@@ -172,20 +173,6 @@ def retrieve_meetings(
     if not bundles:
         return []
     latest = bool(re.search(r"\b(latest|last|recent|newest)\b", lowered))
-    if re.search(r"\bpending\b", lowered):
-        narrowed = []
-        for bundle in bundles:
-            tasks = [
-                task for task in bundle.get("tasks") or []
-                if (task.get("status") or "").lower() == "pending"
-            ]
-            if not tasks:
-                continue
-            bundle["tasks"] = tasks
-            narrowed.append(bundle)
-        bundles = narrowed
-    if not bundles:
-        return []
     if meeting_ids is None and latest and not any(_score(bundle, query) for bundle in bundles):
         bundles.sort(key=lambda bundle: bundle["id"], reverse=True)
         return bundles[:1]

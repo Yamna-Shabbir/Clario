@@ -163,6 +163,79 @@ def test_other_user_cannot_see_meetings_or_history(logged_in_client, app):
     assert MEETING_EMPTY in reply.get_json()["message"]["content"]
 
 
+def test_status_count_and_decisions_answer_only_that_question(app):
+    owner = insert_user(
+        "host", "host@example.com", generate_password_hash("HostPass123!"), _db(app),
+    )
+    meeting_id = insert_meeting(
+        owner,
+        title="biscuit",
+        meeting_date="2026-11-16",
+        status="completed",
+        db_path=_db(app),
+    )
+    spoken = (
+        "Mamuna Shahid, can you please send me the summary of this meeting "
+        "and Yamuna, can you please check if this meeting is recorded."
+    )
+    insert_transcript(meeting_id, spoken, _db(app))
+    insert_summary(meeting_id, "Mamuna will send the summary. Yamuna will check the recording.", _db(app))
+    insert_tasks(meeting_id, [
+        {
+            "description": "Send the meeting summary",
+            "assigned_to": "Mamuna Shahid",
+            "due_date": "this meeting",
+            "status": "pending",
+            "priority": "Low",
+            "source_text": spoken,
+            "evidence_speaker": "Host",
+        },
+        {
+            "description": "Check whether the meeting is recorded",
+            "assigned_to": "Yamuna",
+            "due_date": "this meeting",
+            "status": "pending",
+            "priority": "Low",
+            "source_text": spoken,
+            "evidence_speaker": "Host",
+        },
+    ], _db(app))
+    pending = answer_question(
+        "how many tasks are pending",
+        user_id=owner,
+        email="host@example.com",
+        db_path=_db(app),
+    )
+    assert pending["content"].startswith("2 tasks are pending.")
+    assert "Send the meeting summary" in pending["content"]
+    assert "this meeting" not in pending["content"].lower()
+    assert len(pending["evidence"]) == 1
+    assert pending["evidence"][0]["label"] == "Evidence"
+
+    completed = answer_question(
+        "how many tasks are completed",
+        user_id=owner,
+        email="host@example.com",
+        db_path=_db(app),
+        previous=pending["context"],
+    )
+    assert completed["content"] == "No tasks are completed."
+    assert "Send the meeting summary" not in completed["content"]
+    assert completed["evidence"] == []
+
+    decided = answer_question(
+        "What did we decide in my latest meeting?",
+        user_id=owner,
+        email="host@example.com",
+        db_path=_db(app),
+    )
+    assert "No decisions were saved" in decided["content"]
+    assert "biscuit" in decided["content"]
+    assert "Send the meeting summary" not in decided["content"]
+    assert "Transcript" not in decided["content"]
+    assert decided["evidence"] == []
+
+
 def test_assignee_sees_task_without_the_transcript(app):
     owner = insert_user("owner", "owner@example.com", generate_password_hash("OwnerPass123!"), _db(app))
     meeting_id = _seed_hiring(app, owner)

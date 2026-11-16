@@ -35,7 +35,7 @@
     list.className = "assistant-evidence";
     items.forEach(function (item, index) {
       const li = document.createElement("li");
-      const bits = ['<span class="badge badge-lilac">' + escapeHtml(item.kind) + "</span>"];
+      const bits = ['<span class="badge badge-lilac">' + escapeHtml(item.label || "Evidence") + "</span>"];
       if (item.speaker) bits.push("<strong>" + escapeHtml(item.speaker) + "</strong>");
       if (item.timestamp) bits.push('<span class="text-muted">' + escapeHtml(item.timestamp) + "</span>");
       bits.push("<p>" + escapeHtml(item.excerpt) + "</p>");

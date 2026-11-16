@@ -43,7 +43,7 @@
               <ul class="assistant-evidence">
                 {% for item in message.evidence %}
                 <li>
-                  <span class="badge badge-lilac">{{ item.kind }}</span>
+                  <span class="badge badge-lilac">{{ item.label or 'Evidence' }}</span>
                   {% if item.speaker %}<strong>{{ item.speaker }}</strong>{% endif %}
                   {% if item.timestamp %}<span class="text-muted">{{ item.timestamp }}</span>{% endif %}
                   <p>{{ item.excerpt }}</p>
@@ -91,5 +91,5 @@
 {% endblock %}
 
 {% block scripts_extra %}
-<script src="{{ url_for('static', filename='js/assistant.js', v='2') }}"></script>
+<script src="{{ url_for('static', filename='js/assistant.js', v='3') }}"></script>
 {% endblock %}
