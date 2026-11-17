@@ -4,10 +4,10 @@ services/notifications.py
 Post-meeting follow-up mail.
 
 After the pipeline finishes, each person with an email address receives a
-message. The message lists attendees, the meeting date and time, decisions,
-and the tasks as they stand after the host's edits. It does not include the
-key-points list or the transcript. Everyone receives a branded PDF with a
-short written summary, the same details, and the current task list.
+plain message with the meeting date and the current task table. It does not
+include attendees or the key-points list. Everyone receives a branded PDF
+with the attendees, the date and time, and a short written summary. The PDF
+does not repeat the decision list or the task table.
 
 The From address is always the meeting host's own account. Clario does not
 send every user's mail from one shared address.
@@ -346,61 +346,6 @@ def build_summary_pdf(
 
     heading("Summary")
     paragraph(summary or "No summary was generated.", size=11, leading=15)
-
-    heading("Decisions")
-    decision_lines = [
-        (item.get("content") or item.get("text") or "").strip()
-        for item in decisions
-    ]
-    decision_lines = [line for line in decision_lines if line]
-    if decision_lines:
-        for line in decision_lines:
-            paragraph(f"- {line}", size=11, leading=15)
-    else:
-        paragraph("None recorded.", size=11, color=_MUTED)
-
-    heading("Tasks")
-    columns = (246, 110, 100, 60)
-    headers = ("Task", "Assignee", "Deadline", "Priority")
-    table_width = sum(columns)
-
-    def task_row(cells: Tuple[str, ...], *, header: bool = False, shade: bool = False) -> None:
-        wrapped = [
-            _wrap_width(cell, columns[index] - 8, 9) or [""]
-            for index, cell in enumerate(cells)
-        ]
-        line_count = max(len(lines) for lines in wrapped)
-        row_height = line_count * 12 + 8
-        need(row_height + 4)
-        top = page.y + 10
-        if header:
-            page.ops.append(_fill_rect(48, top - row_height, table_width, row_height, _MAROON))
-        elif shade:
-            page.ops.append(_fill_rect(48, top - row_height, table_width, row_height, _SURFACE))
-        color = _WHITE if header else _INK
-        for index in range(line_count):
-            x = 52
-            baseline = page.y
-            for col, lines in enumerate(wrapped):
-                if index < len(lines):
-                    page.ops.append(_pdf_text_op(
-                        lines[index], x, baseline, 9, color, header,
-                    ))
-                x += columns[col]
-            page.y -= 12
-        page.y -= 6
-
-    if tasks:
-        task_row(headers, header=True)
-        for index, task in enumerate(tasks):
-            task_row((
-                task.get("description") or "",
-                task.get("assigned_to") or "Team",
-                task.get("due_date") or "Not specified",
-                task.get("priority") or "Low",
-            ), shade=index % 2 == 0)
-    else:
-        paragraph("None recorded.", size=11, color=_MUTED)
     return _streams_to_pdf([item.stream() for item in pages])
 
 
@@ -486,8 +431,6 @@ def _message_copy(title: str, person: Dict[str, Any], *,
     if meeting_time:
         clock = meeting_time
     shown = own if own else (all_tasks or [])
-    roster = attendees or []
-    decision_rows = decisions or []
     lines = [
         f"Hello {name},",
         "",
@@ -495,29 +438,9 @@ def _message_copy(title: str, person: Dict[str, Any], *,
         f"Date: {when or 'Not specified'}",
         f"Time: {clock or 'Not recorded'}",
         "",
-        "Attendees",
     ]
-    if roster:
-        for attendee in roster:
-            label = attendee.get("name") or "Attendee"
-            email = attendee.get("email") or ""
-            lines.append(f"- {label} - {email}" if email else f"- {label}")
-    else:
-        lines.append("- None recorded")
-    lines.extend(["", "Decisions"])
-    written = [
-        (item.get("content") or item.get("text") or "").strip()
-        for item in decision_rows
-    ]
-    written = [item for item in written if item]
-    if written:
-        lines.extend(f"- {item}" for item in written)
-    else:
-        lines.append("- None recorded")
-    lines.append("")
     if own:
         subject = f"Your tasks from {title}"
-        lines.append("Your tasks")
         for task in own:
             due = task.get("due_date") or "Not specified"
             spoken = (task.get("evidence_time") or "").strip()
@@ -534,15 +457,13 @@ def _message_copy(title: str, person: Dict[str, Any], *,
             ])
     else:
         subject = f"Summary of {title}"
-        lines.append("Tasks")
     lines.extend(_plain_task_table(shown))
     if meeting_id:
         lines.append(f"Open the meeting in Clario: {_meeting_link(meeting_id)}")
     lines.append("The attached PDF is the meeting report.")
     rich = _html_message(
-        title, name, when or "Not specified", clock or "Not recorded",
-        shown, decision_rows, roster,
-        meeting_id=meeting_id, personal=bool(own),
+        title, name, when or "Not specified", clock or "Not recorded", shown,
+        meeting_id=meeting_id,
     )
     return subject, "\n".join(lines), rich
 
@@ -564,25 +485,12 @@ def _plain_task_table(tasks: List[Dict[str, Any]]) -> List[str]:
 
 
 def _html_message(title: str, name: str, when: str, clock: str,
-                  tasks: List[Dict[str, Any]], decisions: List[Dict[str, Any]],
-                  attendees: List[Dict[str, Any]], *,
-                  meeting_id: int = 0, personal: bool = False) -> str:
-    """HTML brief: attendees, date and time, decisions, and the current tasks."""
+                  tasks: List[Dict[str, Any]], *,
+                  meeting_id: int = 0) -> str:
+    """Plain HTML note: meeting, date, and the task table."""
     def cell(value: object) -> str:
         return html.escape(str(value or ""))
 
-    people = []
-    for person in attendees:
-        label = cell(person.get("name") or "Attendee")
-        email = cell(person.get("email") or "")
-        people.append(f"<li>{label}" + (f" - {email}" if email else "") + "</li>")
-    roster = "".join(people) or "<li>None recorded.</li>"
-    decision_items = []
-    for decision in decisions:
-        text = decision.get("content") or decision.get("text") or ""
-        if text:
-            decision_items.append(f"<li>{cell(text)}</li>")
-    decision_html = "".join(decision_items) or "<li>None recorded.</li>"
     rows = []
     for task in tasks:
         rows.append(
@@ -596,44 +504,26 @@ def _html_message(title: str, name: str, when: str, clock: str,
     body_rows = "".join(rows) or (
         "<tr><td colspan=\"4\" style=\"padding:8px 10px;\">None recorded.</td></tr>"
     )
-    intro = (
-        "Your tasks from this meeting are listed below."
-        if personal else
-        "The task list for this meeting is below."
-    )
     link = ""
     if meeting_id:
         url = html.escape(_meeting_link(meeting_id))
-        link = f"<p><a href=\"{url}\" style=\"color:#7A2E40;\">Open this meeting in Clario</a></p>"
+        link = f"<p><a href=\"{url}\">Open this meeting in Clario</a></p>"
     return (
-        "<div style=\"font-family:Georgia,serif;color:#2E1A1F;line-height:1.5;"
-        "background:#F8F2F2;padding:24px;\">"
-        "<div style=\"background:#7A2E40;color:#FFFFFF;padding:18px 20px;border-radius:12px 12px 0 0;\">"
-        "<div style=\"font-family:Arial,sans-serif;font-size:20px;letter-spacing:0.04em;\">Clario</div>"
-        "<div style=\"font-family:Arial,sans-serif;font-size:12px;color:#F8D5DB;\">Meeting report</div>"
-        "</div>"
-        "<div style=\"background:#FFFFFF;padding:20px;border:1px solid #E4D4D7;border-top:4px solid #E5566B;"
-        "border-radius:0 0 12px 12px;\">"
+        "<div style=\"font-family:Arial,sans-serif;color:#2E1A1F;line-height:1.45;\">"
         f"<p>Hello {cell(name)},</p>"
-        f"<p style=\"font-size:18px;color:#7A2E40;margin-bottom:4px;\">{cell(title)}</p>"
-        f"<p style=\"color:#6E5359;\">Date: {cell(when)}<br>Time: {cell(clock)}</p>"
-        f"<p>{intro}</p>"
-        "<h2 style=\"font-size:16px;color:#7A2E40;font-family:Arial,sans-serif;\">Attendees</h2>"
-        f"<ul>{roster}</ul>"
-        "<h2 style=\"font-size:16px;color:#7A2E40;font-family:Arial,sans-serif;\">Decisions</h2>"
-        f"<ul>{decision_html}</ul>"
-        "<h2 style=\"font-size:16px;color:#7A2E40;font-family:Arial,sans-serif;\">Tasks</h2>"
-        "<table style=\"border-collapse:collapse;width:100%;font-size:14px;font-family:Arial,sans-serif;\">"
-        "<thead><tr style=\"background:#7A2E40;color:#FFFFFF;\">"
-        "<th style=\"text-align:left;padding:8px 10px;\">Task</th>"
-        "<th style=\"text-align:left;padding:8px 10px;\">Assignee</th>"
-        "<th style=\"text-align:left;padding:8px 10px;\">Deadline</th>"
-        "<th style=\"text-align:left;padding:8px 10px;\">Priority</th>"
+        f"<p><strong>{cell(title)}</strong><br>Date: {cell(when)}<br>Time: {cell(clock)}</p>"
+        "<h2 style=\"font-size:16px;color:#7A2E40;\">Tasks</h2>"
+        "<table style=\"border-collapse:collapse;width:100%;font-size:14px;\">"
+        "<thead><tr>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Task</th>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Assignee</th>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Deadline</th>"
+        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Priority</th>"
         "</tr></thead>"
         f"<tbody>{body_rows}</tbody></table>"
         f"{link}"
-        "<p style=\"color:#6E5359;\">The attached PDF is the meeting report, with a written summary of these decisions and tasks.</p>"
-        "</div></div>"
+        "<p>The attached PDF is the meeting report.</p>"
+        "</div>"
     )
 
 

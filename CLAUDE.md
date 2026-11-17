@@ -364,13 +364,15 @@ services/jobs.py  _run_pipeline_job()
      Saving a task edit clears that confirmation. The host can also
      remove a task before mail goes out; a removed task is not emailed.
      Follow-up mail then emails each assignee their current tasks and
-     attaches a branded PDF. The message lists attendees (name and email),
-     the meeting date and time, the decisions, and the task list as edited.
-     It does not include the result-page key-points list or the transcript.
-     The PDF adds a short written summary composed from those decisions and
-     the current task wording, plus the Clario mark and the rose and maroon
-     palette. The meeting owner receives the PDF too. The message also
-     includes an HTML table of those tasks.
+     attaches a branded PDF. The message is plain text with bold headings:
+     the meeting date and time, and the task table as edited. It does not
+     list attendees, decisions, or the result-page key points, and it does
+     not include the transcript. The PDF has the attendees, the date and
+     time, and a short written summary composed from the decisions and the
+     current task wording, plus the Clario mark and the rose and maroon
+     palette. It does not repeat the decision list or the task table. The
+     meeting owner receives the PDF too. The message also includes an HTML
+     table of those tasks.
      A task email goes only to an assignee whose address is on the meeting
      roster or in the users table. The body names the task, assignee,
      assigner, meeting title and date, due date, priority, status, and a
@@ -881,10 +883,11 @@ assistant_messages                    (many-to-1 with assistant_conversations)
       owner confirms each task and posts `/meeting/<id>/send-followups`.
       The owner can edit the summary at any time, and can edit or remove
       a task until mail is `sent`. Removing a task keeps it out of the
-      email and the PDF. The result page lists key points as the
+      email. The result page lists key points as the
       decisions and the tasks together. That list stays on the page and
-      is left out of the mail. The mailed report uses the edited task
-      text and a written summary of the decisions and tasks. The live room toolbar has a
+      is left out of the mail. The PDF summary is written from the
+      decisions and the edited tasks, without listing either section
+      again. The live room toolbar has a
       full-screen control, and the result page does too.
     - The dashboard is a workspace: meeting cards, open work, and a count
       of tasks still waiting for confirmation.

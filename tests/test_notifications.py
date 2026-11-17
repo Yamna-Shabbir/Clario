@@ -106,9 +106,10 @@ def test_followups_use_the_edited_task(tmp_path):
         assert "Send the revised notes." in plain
         assert "Send the original notes." not in plain
         assert "turned on the meeting" not in plain
-        assert b"Send the revised notes." in pdf
+        assert b"revised notes" in pdf
         assert b"turned on the meeting" not in pdf
         assert b"Key points" not in pdf
+        assert b"Deadline" not in pdf
     finally:
         os.remove(db)
 
@@ -121,8 +122,9 @@ def test_summary_pdf_contains_the_brief():
         [{"assigned_to": "Sara", "description": "Design the logo", "due_date": "Friday"}],
     )
     assert pdf.startswith(b"%PDF")
-    assert b"Design the logo" in pdf
-    assert b"Use React Native." in pdf
+    assert b"The team chose React Native." in pdf
+    assert b"Design the logo" not in pdf
+    assert b"Use React Native." not in pdf
 
 
 def test_followups_email_assignee_and_owner(tmp_path):
@@ -924,10 +926,12 @@ def test_followups_wait_until_every_task_is_confirmed(tmp_path):
         rich = message.get_body(preferencelist=("html",)).get_content()
         assert "Task | Assignee | Deadline | Priority" in plain
         assert "Friday" in plain
-        assert "Attendees" in plain and "Decisions" in plain
+        assert "Attendees" not in plain and "Attendees" not in rich
+        assert "listed below" not in plain and "listed below" not in rich
         assert "Key points" not in plain and "Key points" not in rich
         assert "Notes were assigned." not in plain and "Notes were assigned." not in rich
-        assert "<table" in rich and "Deadline" in rich and "Attendees" in rich
+        assert "<table" in rich and "Deadline" in rich
+        assert "<h2" in rich and "font-family:Arial" in rich
         pdf = build_summary_pdf(
             "Planning", "The group agreed that chat will be used for updates. Ada will send the notes.",
             [{"content": "Use chat for updates."}],
@@ -938,7 +942,8 @@ def test_followups_wait_until_every_task_is_confirmed(tmp_path):
         )
         assert b"Key points" not in pdf
         assert b"Clario" in pdf
-        assert b"Send the notes." in pdf
+        assert b"Ada will send the notes." in pdf
+        assert b"Use chat for updates." not in pdf
         assert b"ada@example.com" in pdf
         assert b"15 November 2026" in pdf
     finally:

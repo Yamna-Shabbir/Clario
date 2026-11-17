@@ -447,7 +447,7 @@
   {% if is_owner and not mail_sent and (tasks or decisions) %}
   <h2 class="section-heading">Review before sending</h2>
   <div class="card card-pad stack-lg">
-    <p class="text-muted stack-md">Confirm every task you want to email. Remove a task if it should stay out of the message. Edit the wording, assignee, or deadline first. Saving an edit clears that confirmation. The email lists attendees, the date and time, the decisions, and these tasks. The attached report adds a short written summary. The key-points list on this page is not included.</p>
+    <p class="text-muted stack-md">Confirm every task you want to email. Remove a task if it should stay out of the message. Edit the wording, assignee, or deadline first. Saving an edit clears that confirmation. The email has the date, the time, and this task table. The attached report has the attendees and a short written summary.</p>
     {% for t in tasks %}
     <div class="review-task">
       <form method="POST" action="{{ url_for('meeting.edit_task', meeting_id=meeting.id, task_id=t.id) }}" class="stack-sm">
