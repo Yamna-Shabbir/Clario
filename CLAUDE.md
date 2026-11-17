@@ -871,8 +871,16 @@ assistant_messages                    (many-to-1 with assistant_conversations)
       Render free disk is ephemeral, so recordings survive only until that
       instance restarts unless a persistent disk is attached.
     - The upload form collects `attendee_name` / `attendee_email` rows.
-      `roster_from_pairs()` stores them as meeting participants before the
-      pipeline runs, and those addresses are what task matching uses.
+      At least one complete pair is required unless Google Meet already
+      filled the roster. `roster_from_pairs()` stores them as meeting
+      participants before the pipeline runs, and those addresses are what
+      task matching and follow-up mail use. An uploaded audio file is also
+      saved as a `meeting` recording so the result page can play it.
+    - Search (`/search`) matches a meeting the user owns only when the
+      query is the title (the full title, or every word of the query is a
+      whole word in the title) or an attendee's name or email. Transcript,
+      summary, and task text are not searched. A fragment such as `no`
+      does not match `Noona`.
     - `ambiguous_matches()` reports a tie. A spoken name that matches nobody
       on that roster is held too. `send_meeting_followups` writes
       `task_confirmations` and status `waiting` instead of sending. The
@@ -920,7 +928,8 @@ assistant_messages                    (many-to-1 with assistant_conversations)
     `user_can_access_meeting` is true. Follow-up questions reuse the meeting
     ids stored on the previous reply. The assistant does not create, edit,
     or delete tasks or meetings. With `CLARIO_ASSISTANT_API_URL` unset, the
-    answer text is the retrieved notes. A configured chat endpoint may
+    answer text is the retrieved notes, without documentation file names.
+    A configured chat endpoint may
     rephrase those notes, and any reply that adds a word from outside the
     notes is discarded.     Say when the documentation or the meetings do not
     contain the answer. A count uses the status in that question, so

@@ -39,11 +39,11 @@
 
     <div class="card card-pad stack-md">
       <h2 class="section-heading">People in this meeting</h2>
-      <p class="text-muted stack-sm">Name and email for everyone who should receive a task. If a spoken name matches two people, or none of them, you confirm the address before any mail is sent.</p>
+      <p class="text-muted stack-sm">At least one name and email is required. Tasks are emailed only to these people when the spoken name or the address matches. If a name matches two people, or none of them, you confirm the address before any mail is sent.</p>
       <div id="attendee-list" class="stack-sm">
         <div class="form-row attendee-row">
-          <input type="text" name="attendee_name" class="form-control" placeholder="Name" autocomplete="name">
-          <input type="email" name="attendee_email" class="form-control" placeholder="name@gmail.com" autocomplete="email">
+          <input type="text" name="attendee_name" class="form-control" placeholder="Name" autocomplete="name" aria-label="Attendee name">
+          <input type="email" name="attendee_email" class="form-control" placeholder="name@gmail.com" autocomplete="email" aria-label="Attendee email">
         </div>
       </div>
       <button type="button" id="add-attendee" class="btn btn-ghost btn-sm">Add person</button>

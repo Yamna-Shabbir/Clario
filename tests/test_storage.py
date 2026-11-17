@@ -182,7 +182,12 @@ def test_pasted_transcript_still_runs_on_the_free_plan(logged_in_client, monkeyp
     client, _creds = logged_in_client
     response = client.post(
         "/upload",
-        data={"text_input": "Alice will finish the report by Friday.", "meeting_title": "Paste"},
+        data={
+            "text_input": "Alice will finish the report by Friday.",
+            "meeting_title": "Paste",
+            "attendee_name": "Roster Person",
+            "attendee_email": "roster.person@example.com",
+        },
         follow_redirects=True,
     )
     assert response.status_code == 200
@@ -195,7 +200,12 @@ def test_free_tier_audio_is_refused_and_creates_no_meeting(logged_in_client, app
     client, _creds = logged_in_client
     response = client.post(
         "/upload",
-        data={"audio_file": (BytesIO(b"not-audio"), "standup.mp3"), "meeting_title": "Audio"},
+        data={
+            "audio_file": (BytesIO(b"not-audio"), "standup.mp3"),
+            "meeting_title": "Audio",
+            "attendee_name": "Roster Person",
+            "attendee_email": "roster.person@example.com",
+        },
         content_type="multipart/form-data",
         follow_redirects=True,
     )
@@ -215,7 +225,12 @@ def test_upload_rejected_when_the_reserve_would_be_breached(logged_in_client, ap
     before = _meeting_count(app)
     response = client.post(
         "/upload",
-        data={"text_input": "Alice will finish the report by Friday.", "meeting_title": "Full disk"},
+        data={
+            "text_input": "Alice will finish the report by Friday.",
+            "meeting_title": "Full disk",
+            "attendee_name": "Roster Person",
+            "attendee_email": "roster.person@example.com",
+        },
         follow_redirects=True,
     )
     assert response.status_code == 200

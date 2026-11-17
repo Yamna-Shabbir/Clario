@@ -44,13 +44,29 @@ def _focus(question: str) -> str:
     return "overview"
 
 
+_FILE_NAME = re.compile(
+    r"(?i)(?:^|\s)[\w./\\-]+\.(?:md|py|html|txt|json|yml|yaml|css|js)\b"
+)
+
+
+def _without_file_names(text: str) -> str:
+    """Drop documentation paths so an answer does not cite source files."""
+    cleaned = _FILE_NAME.sub(" ", text or "")
+    cleaned = re.sub(r"(?im)^source:.*$", "", cleaned)
+    return "\n".join(line.rstrip() for line in cleaned.splitlines() if line.strip())
+
+
 def _render_help(passages: Sequence[Dict[str, str]]) -> str:
     blocks = []
     for passage in passages:
-        title = passage.get("title") or "Clario"
-        text = (passage.get("text") or "").strip()
-        source = passage.get("source") or ""
-        blocks.append(f"{title}\n\n{text}\n\nSource: {source}")
+        title = (passage.get("title") or "Clario").strip()
+        text = _without_file_names(passage.get("text") or "")
+        if not text:
+            continue
+        if title and title.lower() not in text[:80].lower():
+            blocks.append(f"{title}\n\n{text}")
+        else:
+            blocks.append(text)
     return "\n\n".join(blocks)
 
 
@@ -306,7 +322,7 @@ def answer_question(
         else:
             parts.append(MEETING_EMPTY)
             unavailable = unavailable or route == "meetings"
-    notes = "\n\n".join(parts).strip() or HELP_EMPTY
+    notes = _without_file_names("\n\n".join(parts).strip()) or HELP_EMPTY
     if unavailable and route == "both":
         content = notes
     elif unavailable:

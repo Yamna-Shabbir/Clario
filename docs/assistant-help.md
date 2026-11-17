@@ -14,7 +14,7 @@ Start meeting opens a page where the host creates a join link and can email that
 
 ## Upload a transcript
 
-Upload can take an audio file or text pasted into the transcript box. On the free hosting plan, audio is accepted only when a laptop transcription service is configured. Pasted text still runs. After upload, the meeting page stays on a progress view until the status is completed or failed.
+Upload asks for each attendee's name and email before it accepts an audio file or text pasted into the transcript box. At least one person is required, unless the people were already imported from Google Meet. Tasks are sent to those addresses when the spoken name or the email matches. On the free hosting plan, audio is accepted only when a laptop transcription service is configured. Pasted text still runs. After upload, the meeting page stays on a progress view until the status is completed or failed.
 
 ## Transcription
 
@@ -30,7 +30,7 @@ Decisions are saved from the transcript and shown on the meeting result page wit
 
 ## Reports
 
-The meeting result page shows the transcript, the summary, tasks, decisions, and the charts generated for that meeting. Trends shows how recent meetings you own compare. Search finds meetings you own by title, transcript, summary, or task text.
+The meeting result page shows the transcript, the summary, tasks, decisions, the uploaded meeting audio, and the charts generated for that meeting. Trends shows how recent meetings you own compare. Search finds a meeting you own when the query is the meeting title, or an attendee's name or email. A word from the transcript is not enough.
 
 ## Google Meet
 

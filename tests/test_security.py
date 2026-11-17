@@ -59,7 +59,12 @@ def _logout(client):
 def _upload_text(client, text: str = "Alice will finish the report by Friday."):
     return client.post(
         "/upload",
-        data={"text_input": text, "meeting_title": "Security Test Meeting"},
+        data={
+            "text_input": text,
+            "meeting_title": "Security Test Meeting",
+            "attendee_name": "Roster Person",
+            "attendee_email": "roster.person@example.com",
+        },
         follow_redirects=False,
     )
 
@@ -206,6 +211,8 @@ class TestOversizeUpload:
             data={
                 "audio_file": (io.BytesIO(payload), "recording.mp3"),
                 "meeting_title": "Big File",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
             },
             content_type="multipart/form-data",
             follow_redirects=False,
@@ -223,6 +230,8 @@ class TestOversizeUpload:
             data={
                 "audio_file": (io.BytesIO(payload), "recording.mp3"),
                 "meeting_title": "Big File",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
             },
             content_type="multipart/form-data",
             follow_redirects=True,
@@ -251,6 +260,8 @@ class TestDuplicateFilenames:
                 data={
                     "audio_file": (io.BytesIO(fake_audio), name),
                     "meeting_title": "Duplicate Test",
+                    "attendee_name": "Roster Person",
+                    "attendee_email": "roster.person@example.com",
                 },
                 content_type="multipart/form-data",
                 follow_redirects=False,
@@ -286,6 +297,8 @@ class TestDuplicateFilenames:
             data={
                 "audio_file": (io.BytesIO(fake_audio), "my_meeting.mp3"),
                 "meeting_title": "Name Preservation Test",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
             },
             content_type="multipart/form-data",
             follow_redirects=False,
@@ -399,7 +412,12 @@ class TestXSSEscaping:
         transcript = f"{self.XSS_PAYLOAD} Alice will finish the report by Friday."
         resp = c.post(
             "/upload",
-            data={"text_input": transcript, "meeting_title": "XSS Test"},
+            data={
+                "text_input": transcript,
+                "meeting_title": "XSS Test",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
+            },
             follow_redirects=False,
         )
         assert resp.status_code == 302
@@ -419,6 +437,8 @@ class TestXSSEscaping:
             data={
                 "text_input": "Alice will finish the report by Friday.",
                 "meeting_title": f"Meeting {self.XSS_PAYLOAD}",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
             },
             follow_redirects=False,
         )
@@ -438,7 +458,12 @@ class TestXSSEscaping:
         transcript = f"Alice must do {self.XSS_PAYLOAD} by Friday."
         resp = c.post(
             "/upload",
-            data={"text_input": transcript, "meeting_title": "JSON Safety Test"},
+            data={
+                "text_input": transcript,
+                "meeting_title": "JSON Safety Test",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
+            },
             follow_redirects=False,
         )
         assert resp.status_code == 302

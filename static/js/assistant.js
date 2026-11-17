@@ -108,12 +108,6 @@
     const article = bubble("assistant", payload.message.content || "");
     const list = evidenceList(payload.message.evidence, payload.message.id || "new");
     if (list) article.appendChild(list);
-    if (payload.message.sources && payload.message.sources.length) {
-      const note = document.createElement("p");
-      note.className = "text-muted assistant-sources";
-      note.textContent = payload.message.sources.map(function (source) { return source.source; }).join(", ");
-      article.appendChild(note);
-    }
     thread.appendChild(article);
     thread.scrollTop = thread.scrollHeight;
   }

@@ -162,7 +162,12 @@ class TestAuthenticatedFlows:
         """Helper: POST a text transcript to /upload and return the response."""
         return client.post(
             "/upload",
-            data={"text_input": text, "meeting_title": title},
+            data={
+                "text_input": text,
+                "meeting_title": title,
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
+            },
             follow_redirects=False,
         )
 
@@ -182,7 +187,11 @@ class TestAuthenticatedFlows:
         from io import BytesIO
         resp = c.post(
             "/upload",
-            data={"audio_file": (BytesIO(b"fake"), "recording.exe")},
+            data={
+                "audio_file": (BytesIO(b"fake"), "recording.exe"),
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
+            },
             content_type="multipart/form-data",
             follow_redirects=True,
         )
@@ -223,7 +232,12 @@ class TestAuthenticatedFlows:
         )
         resp = c_a.post(
             "/upload",
-            data={"text_input": "Alice will finish the report.", "meeting_title": "A meeting"},
+            data={
+                "text_input": "Alice will finish the report.",
+                "meeting_title": "A meeting",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
+            },
             follow_redirects=False,
         )
         assert resp.status_code == 302
@@ -287,7 +301,12 @@ class TestAuthenticatedFlows:
         )
         resp = c_a.post(
             "/upload",
-            data={"text_input": "Dave must fix the bug today.", "meeting_title": "u1 meeting"},
+            data={
+                "text_input": "Dave must fix the bug today.",
+                "meeting_title": "u1 meeting",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
+            },
             follow_redirects=False,
         )
         location = resp.headers["Location"]
@@ -334,6 +353,57 @@ class TestAuthenticatedFlows:
         resp = c.get("/search?q=Alpha")
         assert resp.status_code == 200
         assert b"Alpha" in resp.data
+
+    def test_search_matches_title_or_attendee_not_transcript_fragments(self, logged_in_client):
+        c, _ = logged_in_client
+        uploaded = c.post(
+            "/upload",
+            data={
+                "text_input": "Noona has started the meeting. Now I will end the meeting.",
+                "meeting_title": "meeting1",
+                "attendee_name": "Noona",
+                "attendee_email": "noona@example.com",
+            },
+            follow_redirects=True,
+        )
+        assert uploaded.status_code == 200
+        fragment = c.get("/search?q=no")
+        assert b"No results found" in fragment.data
+        assert b">meeting1<" not in fragment.data
+        titled = c.get("/search?q=meeting1")
+        assert b"meeting1" in titled.data
+        named = c.get("/search?q=Noona")
+        assert b"meeting1" in named.data
+        mailed = c.get("/search?q=noona@example.com")
+        assert b"meeting1" in mailed.data
+
+    def test_upload_requires_an_attendee(self, logged_in_client):
+        c, _ = logged_in_client
+        resp = c.post(
+            "/upload",
+            data={"text_input": "Alice will finish the report.", "meeting_title": "Bare"},
+            follow_redirects=True,
+        )
+        assert b"at least one attendee" in resp.data.lower()
+
+    def test_uploaded_audio_is_playable(self, logged_in_client):
+        from io import BytesIO
+        c, _ = logged_in_client
+        resp = c.post(
+            "/upload",
+            data={
+                "audio_file": (BytesIO(b"ID3not-really-audio"), "notes.mp3"),
+                "text_input": "Alice will finish the report by Friday.",
+                "meeting_title": "With audio",
+                "attendee_name": "Roster Person",
+                "attendee_email": "roster.person@example.com",
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"audio uploaded for the meeting" in resp.data
+        assert b"<audio" in resp.data
 
     def test_search_empty_query(self, logged_in_client):
         c, _ = logged_in_client

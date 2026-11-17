@@ -321,6 +321,8 @@ def test_free_tier_upload_uses_remote_transcription(logged_in_client, monkeypatc
         data={
             "audio_file": (BytesIO(b"not-real-audio"), "standup.mp3"),
             "meeting_title": "Hybrid",
+            "attendee_name": "Roster Person",
+            "attendee_email": "roster.person@example.com",
         },
         content_type="multipart/form-data",
     )
@@ -350,6 +352,8 @@ def test_pasted_transcript_still_works_when_remote_transcription_is_configured(
         data={
             "text_input": "Alice will finish the report by Friday.",
             "meeting_title": "Paste",
+            "attendee_name": "Roster Person",
+            "attendee_email": "roster.person@example.com",
         },
         follow_redirects=True,
     )
@@ -364,7 +368,12 @@ def test_free_tier_still_refuses_audio_without_a_remote_service(logged_in_client
     client, _creds = logged_in_client
     response = client.post(
         "/upload",
-        data={"audio_file": (BytesIO(b"not-audio"), "standup.mp3"), "meeting_title": "Blocked"},
+        data={
+            "audio_file": (BytesIO(b"not-audio"), "standup.mp3"),
+            "meeting_title": "Blocked",
+            "attendee_name": "Roster Person",
+            "attendee_email": "roster.person@example.com",
+        },
         content_type="multipart/form-data",
         follow_redirects=True,
     )

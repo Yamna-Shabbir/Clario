@@ -58,13 +58,6 @@
                 {% endfor %}
               </ul>
               {% endif %}
-              {% if message.sources %}
-              <p class="text-muted assistant-sources">
-                {% for source in message.sources %}
-                {{ source.source }}{% if not loop.last %}, {% endif %}
-                {% endfor %}
-              </p>
-              {% endif %}
             </article>
             {% endfor %}
           {% else %}
@@ -91,5 +84,5 @@
 {% endblock %}
 
 {% block scripts_extra %}
-<script src="{{ url_for('static', filename='js/assistant.js', v='3') }}"></script>
+<script src="{{ url_for('static', filename='js/assistant.js', v='4') }}"></script>
 {% endblock %}

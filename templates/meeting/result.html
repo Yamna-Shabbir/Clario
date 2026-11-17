@@ -103,7 +103,11 @@
       {% set full = recordings | selectattr('kind', 'equalto', 'meeting') | list %}
       {% if full %}
       {% set rec = full[0] %}
+      {% if recordings|length == full|length %}
+      <p class="text-muted stack-md">This is the audio uploaded for the meeting.</p>
+      {% else %}
       <p class="text-muted stack-md">This is the full meeting, with each saved microphone on one timeline. Source tracks stay available underneath.</p>
+      {% endif %}
       <div class="stack-sm">
         <strong>Full meeting</strong>
         {% if rec.duration_seconds %}<span class="text-muted">{{ rec.duration_seconds }} seconds</span>{% endif %}

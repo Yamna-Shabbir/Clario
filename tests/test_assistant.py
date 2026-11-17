@@ -79,7 +79,8 @@ def test_help_uses_documentation_and_does_not_invent(app):
     )
     assert found["route"] == "help"
     assert "Start meeting" in found["content"]
-    assert "docs/assistant-help.md" in found["content"]
+    assert "docs/" not in found["content"]
+    assert ".md" not in found["content"]
     assert "Slack" not in found["content"]
 
     missing = answer_question(

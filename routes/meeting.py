@@ -131,6 +131,11 @@ def upload():
         if roster_error:
             flash(roster_error, "error")
             return render_template("meeting/upload.html", user=current_user())
+        prefill_ready = bool(session.get("prefill_participants"))
+        has_audio = bool(audio_file and audio_file.filename)
+        if (has_audio or text_input) and not roster and not prefill_ready:
+            flash("Add at least one attendee with a name and an email.", "error")
+            return render_template("meeting/upload.html", user=current_user())
 
         from services.preprocessing.remote_transcription import audio_upload_allowed
         from utils.storage import (
@@ -223,6 +228,18 @@ def upload():
                 replace_meeting_participants(meeting_id, participants, DB_PATH)
             if prefill_platform and prefill_external_id:
                 update_meeting_platform(meeting_id, prefill_platform, prefill_external_id, DB_PATH)
+
+        if audio_path and os.path.isfile(audio_path):
+            from models.database import insert_meeting_recordings
+            insert_meeting_recordings(meeting_id, [{
+                "user_id": user_id,
+                "speaker_name": "Meeting audio",
+                "speaker_email": "",
+                "audio_path": audio_path,
+                "byte_size": os.path.getsize(audio_path),
+                "status": "saved",
+                "kind": "meeting",
+            }], DB_PATH)
 
         # ── Submit background AI pipeline job ──────────────────────────────────
         from services.jobs import submit_pipeline_job
@@ -356,6 +373,7 @@ def recording_file(meeting_id: int, recording_id: int):
         ".wav": "audio/wav",
         ".m4a": "audio/mp4",
         ".mp4": "audio/mp4",
+        ".flac": "audio/flac",
     }.get(os.path.splitext(target)[1].lower(), "application/octet-stream")
     return send_file(
         target,
@@ -552,6 +570,18 @@ def delete_meeting(meeting_id: int):
         flash("Meeting not found or access denied.", "error")
         return redirect(url_for("dashboard.index"))
 
+    from models.database import get_meeting_recordings
+    recording_paths = []
+    root = os.path.abspath(UPLOAD_DIR)
+    for recording in get_meeting_recordings(meeting_id, DB_PATH):
+        target = os.path.abspath(recording.get("audio_path") or "")
+        try:
+            inside = os.path.commonpath([root, target]) == root
+        except ValueError:
+            inside = False
+        if inside and os.path.isfile(target):
+            recording_paths.append(target)
+
     conn = get_connection(DB_PATH)
     try:
         cur = conn.execute(
@@ -568,5 +598,11 @@ def delete_meeting(meeting_id: int):
         return redirect(url_for("dashboard.index"))
 
     _remove_owned_files(meeting)
+    for path in recording_paths:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError as exc:
+            print(f"  Could not remove meeting file: {exc}")
     flash("Meeting deleted.", "success")
     return redirect(url_for("dashboard.index"))

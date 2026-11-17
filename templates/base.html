@@ -37,7 +37,7 @@
       <form action="{{ url_for('search.search') }}" method="GET" class="nav-search" role="search">
         <span aria-hidden="true">{{ icon_search(16, 'icon icon-muted') }}</span>
         <label class="sr-only" for="nav-search-q">Search meetings</label>
-        <input type="search" id="nav-search-q" name="q" placeholder="Search meetings..." autocomplete="off" />
+        <input type="search" id="nav-search-q" name="q" placeholder="Title, name, or email" autocomplete="off" />
       </form>
       {% endif %}
 
