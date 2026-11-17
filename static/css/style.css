@@ -1811,6 +1811,12 @@ li { margin: 4px 0; }
   border-top: 1px solid var(--border);
 }
 .review-task:first-of-type { border-top: none; }
+.review-task__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
 .live-meet:fullscreen,
 .page-body:fullscreen {
   background: var(--bg);

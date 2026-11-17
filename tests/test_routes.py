@@ -467,4 +467,30 @@ def test_owner_reviews_tasks_and_can_edit_the_summary(logged_in_client, app):
         follow_redirects=True,
     )
     assert b"Send follow-up mail" in confirmed.data
+    assert b"Remove task" in confirmed.data
+
+
+def test_owner_can_remove_a_task_before_sending(logged_in_client, app):
+    from models.database import get_tasks_by_meeting, get_user_by_email, insert_meeting, insert_tasks
+
+    client, creds = logged_in_client
+    db = app.config["CLARIO_DB_PATH"]
+    owner = get_user_by_email(creds["email"], db)
+    meeting_id = insert_meeting(owner["id"], title="Planning review", db_path=db)
+    insert_tasks(meeting_id, [{
+        "description": "Send the notes.",
+        "assigned_to": "Ada",
+        "due_date": "Friday",
+        "status": "pending",
+        "keyword": "will",
+        "priority": "Low",
+    }], db_path=db)
+    task_id = get_tasks_by_meeting(meeting_id, db)[0]["id"]
+    removed = client.post(
+        f"/meeting/{meeting_id}/task/{task_id}/delete",
+        follow_redirects=True,
+    )
+    assert removed.status_code == 200
+    assert b"Send the notes." not in removed.data
+    assert get_tasks_by_meeting(meeting_id, db) == []
 

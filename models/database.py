@@ -700,6 +700,20 @@ def update_task_for_owner(meeting_id: int, task_id: int, user_id: int,
         return cur.rowcount == 1
 
 
+def delete_task_for_owner(meeting_id: int, task_id: int, user_id: int,
+                          db_path: str = DB_PATH) -> bool:
+    """Remove one task so it is left out of follow-up mail. Owner only."""
+    with get_connection(db_path) as conn:
+        cur = conn.execute(
+            """DELETE FROM tasks
+               WHERE id = ? AND meeting_id = ?
+                 AND meeting_id IN (SELECT id FROM meetings WHERE id = ? AND user_id = ?)""",
+            (task_id, meeting_id, meeting_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
 def set_task_mail_approval(meeting_id: int, task_id: int, user_id: int,
                            approved: bool, db_path: str = DB_PATH) -> bool:
     """Mark one task confirmed, or clear that confirmation. Owner only."""

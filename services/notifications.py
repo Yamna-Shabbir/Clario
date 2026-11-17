@@ -4,8 +4,10 @@ services/notifications.py
 Post-meeting follow-up mail.
 
 After the pipeline finishes, each person with an email address receives a
-message. Assignees see their own tasks in the body. Everyone receives a PDF
-of the summary, decisions, and the full task list.
+message. The message lists attendees, the meeting date and time, decisions,
+and the tasks as they stand after the host's edits. It does not include the
+key-points list or the transcript. Everyone receives a branded PDF with a
+short written summary, the same details, and the current task list.
 
 The From address is always the meeting host's own account. Clario does not
 send every user's mail from one shared address.
@@ -55,8 +57,13 @@ _HTTPS_SETUP = (
     "active Brevo sender. Until then, copy the link from the meeting page."
 )
 
-_PAGE_LINES = 46
-_LINE_WIDTH = 90
+_MAROON = (122 / 255, 46 / 255, 64 / 255)
+_GLOW = (229 / 255, 86 / 255, 107 / 255)
+_PAGE = (237 / 255, 227 / 255, 228 / 255)
+_SURFACE = (248 / 255, 242 / 255, 242 / 255)
+_INK = (46 / 255, 26 / 255, 31 / 255)
+_MUTED = (110 / 255, 83 / 255, 89 / 255)
+_WHITE = (1, 1, 1)
 
 
 def send_meeting_followups(results: Dict[str, Any]) -> None:
@@ -121,8 +128,13 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
         return
 
     title = meeting.get("title") or "Meeting"
-    summary = results.get("summary") or meeting.get("summary") or ""
-    pdf = build_summary_pdf(title, summary, decisions, tasks)
+    when_date, when_time = _meeting_clock(meeting)
+    summary = compose_report_summary(decisions, tasks)
+    attendees = _roster(owner, participants)
+    pdf = build_summary_pdf(
+        title, summary, decisions, tasks,
+        participants=attendees, when=when_date, meeting_time=when_time,
+    )
     recipients = _recipients(
         owner, participants, tasks, match, db_path=db_path,
     )
@@ -141,7 +153,8 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
     for person in recipients:
         subject, body, rich = _message_copy(
             title, person, meeting=meeting, meeting_id=int(meeting_id),
-            all_tasks=tasks, decisions=decisions, summary=summary,
+            all_tasks=tasks, decisions=decisions, attendees=attendees,
+            meeting_time=when_time,
         )
         if host_email:
             body = (
@@ -162,57 +175,233 @@ def send_meeting_followups(results: Dict[str, Any]) -> None:
     replace_meeting_emails(int(meeting_id), log, db_path)
 
 
+def compose_report_summary(decisions: List[Dict[str, Any]],
+                           tasks: List[Dict[str, Any]]) -> str:
+    """Write a short brief from the saved decisions and the current tasks.
+
+    The wording is a meeting note, not a replay of the transcript. Task
+    sentences use the descriptions stored now, including host edits.
+    """
+    sentences: List[str] = []
+    for decision in decisions:
+        sentence = _decision_sentence(decision.get("content") or decision.get("text") or "")
+        if sentence:
+            sentences.append(sentence)
+    for task in tasks:
+        sentence = _task_sentence(
+            task.get("assigned_to") or "Someone",
+            task.get("description") or "",
+            task.get("due_date") or "",
+        )
+        if sentence:
+            sentences.append(sentence)
+    if not sentences:
+        return "No decisions or tasks were recorded for this meeting."
+    return " ".join(sentences)
+
+
+def _decision_sentence(text: str) -> str:
+    raw = " ".join((text or "").split()).strip().rstrip(".")
+    if not raw:
+        return ""
+    lowered = raw.lower()
+    if lowered.startswith("we will "):
+        rest = raw[8:].strip()
+        if re.match(r"do\s+(the\s+)?", rest, flags=re.IGNORECASE) and "meeting" in rest.lower():
+            rest = re.sub(r"^do\s+(the\s+)?", "hold the ", rest, count=1, flags=re.IGNORECASE)
+        return f"The group agreed to {rest[0].lower() + rest[1:]}."
+    if lowered.startswith("we "):
+        return f"The group agreed that {raw[0].lower() + raw[1:]}."
+    if re.match(r"use\b", raw, flags=re.IGNORECASE):
+        return f"The group agreed to {raw[0].lower() + raw[1:]}."
+    return f"The group agreed that {raw[0].lower() + raw[1:]}."
+
+
+def _task_sentence(who: str, description: str, due: str) -> str:
+    name = " ".join((who or "").split()) or "Someone"
+    text = " ".join((description or "").split()).strip().rstrip(".")
+    if not text:
+        return ""
+    lowered = text.lower()
+    for prefix in (
+        "i will ", "i'll ", "i shall ", "please ",
+        "can you please ", "can you ", "could you ",
+    ):
+        if lowered.startswith(prefix):
+            text = text[len(prefix):].strip()
+            lowered = text.lower()
+            break
+    if not text:
+        return ""
+    if lowered.startswith("will "):
+        action = text[0].lower() + text[1:]
+    else:
+        action = "will " + text[0].lower() + text[1:]
+    sentence = f"{name} {action}."
+    due_clean = " ".join((due or "").split())
+    if due_clean and due_clean.lower() not in {"not specified", "none", "n/a"}:
+        if due_clean.lower() not in sentence.lower():
+            shown = _pretty_date(due_clean) or due_clean
+            sentence = sentence[:-1] + f", due {shown}."
+    return sentence
+
+
+def _pretty_date(value: str) -> str:
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})", (value or "").strip())
+    if not match:
+        return (value or "").strip()
+    from datetime import datetime
+    try:
+        return datetime.strptime(match.group(0), "%Y-%m-%d").strftime("%d %B %Y").lstrip("0")
+    except ValueError:
+        return (value or "").strip()
+
+
+def _meeting_clock(meeting: Dict[str, Any]) -> Tuple[str, str]:
+    """Return a display date and a clock time from the meeting row."""
+    created = (meeting.get("created_at") or "").strip()
+    date_value = (meeting.get("meeting_date") or "").strip()
+    if not date_value and len(created) >= 10:
+        date_value = created[:10]
+    clock = ""
+    if len(created) >= 16 and created[10] in {" ", "T"}:
+        clock = created[11:16]
+    return _pretty_date(date_value) or "Not specified", clock or "Not recorded"
+
+
+def _roster(owner: Dict[str, Any], participants: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Host first, then the other attendees, one row per address."""
+    rows: List[Dict[str, str]] = []
+    seen = set()
+
+    def add(name: str, email: str) -> None:
+        cleaned = _clean_email(email)
+        key = cleaned.lower() if cleaned else " ".join((name or "").split()).lower()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        rows.append({
+            "name": " ".join((name or "").split()) or cleaned,
+            "email": cleaned,
+        })
+
+    add(owner.get("username") or "", owner.get("email") or "")
+    for person in participants:
+        add(person.get("name") or "", person.get("email") or "")
+    return rows
+
+
 def build_summary_pdf(
     title: str,
     summary: str,
     decisions: List[Dict[str, Any]],
     tasks: List[Dict[str, Any]],
+    *,
+    participants: Optional[List[Dict[str, Any]]] = None,
+    when: str = "",
+    meeting_time: str = "",
 ) -> bytes:
-    """Build a one-or-more page PDF brief of the meeting."""
-    lines = [title or "Meeting", ""]
-    lines.extend(_wrap("Summary"))
-    lines.extend(_wrap(summary or "No summary was generated."))
-    lines.append("")
-    lines.append("Key points")
-    lines.extend(_key_point_lines(decisions, tasks))
-    lines.append("")
-    lines.append("Decisions")
-    if decisions:
-        for decision in decisions:
-            text = decision.get("content") or decision.get("text") or ""
-            lines.extend(_wrap(f"- {text}"))
+    """Build a branded PDF report. ``summary`` is the written brief, not the transcript."""
+    pages: List["_ReportPage"] = [_ReportPage()]
+    page = pages[0]
+
+    def need(height: float) -> None:
+        nonlocal page
+        if page.y - height < 52 and page.y < 690:
+            page = _ReportPage()
+            pages.append(page)
+
+    def paragraph(text: str, size: float = 11, color: Tuple[float, float, float] = _INK,
+                  bold: bool = False, indent: float = 48, width: float = 516,
+                  leading: Optional[float] = None) -> None:
+        step = leading if leading is not None else size + 4
+        for line in _wrap_width(text, width, size):
+            need(step)
+            page.ops.append(_pdf_text_op(line, indent, page.y, size, color, bold))
+            page.y -= step
+
+    def heading(label: str) -> None:
+        page.y -= 8
+        need(22)
+        page.ops.append(_fill_rect(48, page.y - 3, 3, 14, _MAROON))
+        page.ops.append(_pdf_text_op(label, 58, page.y, 13, _MAROON, True))
+        page.y -= 20
+
+    paragraph(title or "Meeting", size=16, bold=True, leading=20)
+    if when:
+        paragraph(f"Date  {when}", size=11, color=_MUTED, leading=15)
+    if meeting_time:
+        paragraph(f"Time  {meeting_time}", size=11, color=_MUTED, leading=15)
+
+    heading("Attendees")
+    roster = participants or []
+    if roster:
+        for person in roster:
+            name = person.get("name") or "Attendee"
+            email = person.get("email") or ""
+            line = f"{name}  -  {email}" if email else name
+            paragraph(line, size=11, leading=15)
     else:
-        lines.append("- None recorded")
-    lines.append("")
-    lines.append("Tasks")
-    lines.append("Assignee | Deadline | Priority | Task")
+        paragraph("No attendees were recorded.", size=11, color=_MUTED)
+
+    heading("Summary")
+    paragraph(summary or "No summary was generated.", size=11, leading=15)
+
+    heading("Decisions")
+    decision_lines = [
+        (item.get("content") or item.get("text") or "").strip()
+        for item in decisions
+    ]
+    decision_lines = [line for line in decision_lines if line]
+    if decision_lines:
+        for line in decision_lines:
+            paragraph(f"- {line}", size=11, leading=15)
+    else:
+        paragraph("None recorded.", size=11, color=_MUTED)
+
+    heading("Tasks")
+    columns = (246, 110, 100, 60)
+    headers = ("Task", "Assignee", "Deadline", "Priority")
+    table_width = sum(columns)
+
+    def task_row(cells: Tuple[str, ...], *, header: bool = False, shade: bool = False) -> None:
+        wrapped = [
+            _wrap_width(cell, columns[index] - 8, 9) or [""]
+            for index, cell in enumerate(cells)
+        ]
+        line_count = max(len(lines) for lines in wrapped)
+        row_height = line_count * 12 + 8
+        need(row_height + 4)
+        top = page.y + 10
+        if header:
+            page.ops.append(_fill_rect(48, top - row_height, table_width, row_height, _MAROON))
+        elif shade:
+            page.ops.append(_fill_rect(48, top - row_height, table_width, row_height, _SURFACE))
+        color = _WHITE if header else _INK
+        for index in range(line_count):
+            x = 52
+            baseline = page.y
+            for col, lines in enumerate(wrapped):
+                if index < len(lines):
+                    page.ops.append(_pdf_text_op(
+                        lines[index], x, baseline, 9, color, header,
+                    ))
+                x += columns[col]
+            page.y -= 12
+        page.y -= 6
+
     if tasks:
-        for task in tasks:
-            who = task.get("assigned_to") or "Team"
-            due = task.get("due_date") or "Not specified"
-            level = task.get("priority") or "Low"
-            lines.extend(_wrap(
-                f"{who} | {due} | {level} | {task.get('description', '')}"
-            ))
+        task_row(headers, header=True)
+        for index, task in enumerate(tasks):
+            task_row((
+                task.get("description") or "",
+                task.get("assigned_to") or "Team",
+                task.get("due_date") or "Not specified",
+                task.get("priority") or "Low",
+            ), shade=index % 2 == 0)
     else:
-        lines.append("- None recorded")
-    return _lines_to_pdf(lines)
-
-
-def _key_point_lines(decisions: List[Dict[str, Any]], tasks: List[Dict[str, Any]]) -> List[str]:
-    """Decisions and tasks, listed together as the meeting's key points."""
-    points: List[str] = []
-    for decision in decisions:
-        text = decision.get("content") or decision.get("text") or ""
-        if text:
-            points.extend(_wrap(f"- Decision: {text}"))
-    for task in tasks:
-        who = task.get("assigned_to") or "Team"
-        due = task.get("due_date") or "Not specified"
-        points.extend(_wrap(
-            f"- Task: {who} — {task.get('description', '')} (due {due})"
-        ))
-    return points or ["- None recorded"]
+        paragraph("None recorded.", size=11, color=_MUTED)
+    return _streams_to_pdf([item.stream() for item in pages])
 
 
 def _recipients(owner: Dict[str, Any], participants: List[Dict[str, Any]],
@@ -288,15 +477,47 @@ def _message_copy(title: str, person: Dict[str, Any], *,
                   meeting_id: int = 0,
                   all_tasks: Optional[List[Dict[str, Any]]] = None,
                   decisions: Optional[List[Dict[str, Any]]] = None,
-                  summary: str = "") -> Tuple[str, str, str]:
+                  attendees: Optional[List[Dict[str, Any]]] = None,
+                  meeting_time: str = "") -> Tuple[str, str, str]:
     name = person.get("name") or "there"
     own = person.get("tasks") or []
     meeting = meeting or {}
-    when = meeting.get("meeting_date") or (meeting.get("created_at") or "")[:10]
+    when, clock = _meeting_clock(meeting)
+    if meeting_time:
+        clock = meeting_time
     shown = own if own else (all_tasks or [])
+    roster = attendees or []
+    decision_rows = decisions or []
+    lines = [
+        f"Hello {name},",
+        "",
+        f"Meeting: {title}",
+        f"Date: {when or 'Not specified'}",
+        f"Time: {clock or 'Not recorded'}",
+        "",
+        "Attendees",
+    ]
+    if roster:
+        for attendee in roster:
+            label = attendee.get("name") or "Attendee"
+            email = attendee.get("email") or ""
+            lines.append(f"- {label} - {email}" if email else f"- {label}")
+    else:
+        lines.append("- None recorded")
+    lines.extend(["", "Decisions"])
+    written = [
+        (item.get("content") or item.get("text") or "").strip()
+        for item in decision_rows
+    ]
+    written = [item for item in written if item]
+    if written:
+        lines.extend(f"- {item}" for item in written)
+    else:
+        lines.append("- None recorded")
+    lines.append("")
     if own:
         subject = f"Your tasks from {title}"
-        lines = [f"Hello {name},", "", f"Meeting: {title}", f"Date: {when or 'Not specified'}", ""]
+        lines.append("Your tasks")
         for task in own:
             due = task.get("due_date") or "Not specified"
             spoken = (task.get("evidence_time") or "").strip()
@@ -311,21 +532,16 @@ def _message_copy(title: str, person: Dict[str, Any], *,
                 f"Status: {task.get('status') or 'pending'}",
                 "",
             ])
-        lines.extend(_plain_task_table(shown))
-        if meeting_id:
-            lines.append(f"Open the meeting in Clario: {_meeting_link(meeting_id)}")
-        lines.append("The attached PDF includes the meeting summary and the other tasks.")
     else:
         subject = f"Summary of {title}"
-        lines = [
-            f"Hello {name},",
-            "",
-            "The meeting summary, decisions, and full task list are in the attached PDF.",
-            "",
-        ]
-        lines.extend(_plain_task_table(shown))
+        lines.append("Tasks")
+    lines.extend(_plain_task_table(shown))
+    if meeting_id:
+        lines.append(f"Open the meeting in Clario: {_meeting_link(meeting_id)}")
+    lines.append("The attached PDF is the meeting report.")
     rich = _html_message(
-        title, name, when or "Not specified", shown, decisions or [], summary,
+        title, name, when or "Not specified", clock or "Not recorded",
+        shown, decision_rows, roster,
         meeting_id=meeting_id, personal=bool(own),
     )
     return subject, "\n".join(lines), rich
@@ -347,25 +563,26 @@ def _plain_task_table(tasks: List[Dict[str, Any]]) -> List[str]:
     return lines
 
 
-def _html_message(title: str, name: str, when: str, tasks: List[Dict[str, Any]],
-                  decisions: List[Dict[str, Any]], summary: str, *,
+def _html_message(title: str, name: str, when: str, clock: str,
+                  tasks: List[Dict[str, Any]], decisions: List[Dict[str, Any]],
+                  attendees: List[Dict[str, Any]], *,
                   meeting_id: int = 0, personal: bool = False) -> str:
-    """Organised HTML brief: key points, then a task table with deadlines."""
+    """HTML brief: attendees, date and time, decisions, and the current tasks."""
     def cell(value: object) -> str:
         return html.escape(str(value or ""))
 
-    point_items = []
+    people = []
+    for person in attendees:
+        label = cell(person.get("name") or "Attendee")
+        email = cell(person.get("email") or "")
+        people.append(f"<li>{label}" + (f" - {email}" if email else "") + "</li>")
+    roster = "".join(people) or "<li>None recorded.</li>"
+    decision_items = []
     for decision in decisions:
         text = decision.get("content") or decision.get("text") or ""
         if text:
-            point_items.append(f"<li><strong>Decision.</strong> {cell(text)}</li>")
-    for task in tasks:
-        point_items.append(
-            "<li><strong>Task.</strong> "
-            f"{cell(task.get('assigned_to') or 'Team')} — {cell(task.get('description'))} "
-            f"(due {cell(task.get('due_date') or 'Not specified')})</li>"
-        )
-    points = "".join(point_items) or "<li>None recorded.</li>"
+            decision_items.append(f"<li>{cell(text)}</li>")
+    decision_html = "".join(decision_items) or "<li>None recorded.</li>"
     rows = []
     for task in tasks:
         rows.append(
@@ -380,37 +597,43 @@ def _html_message(title: str, name: str, when: str, tasks: List[Dict[str, Any]],
         "<tr><td colspan=\"4\" style=\"padding:8px 10px;\">None recorded.</td></tr>"
     )
     intro = (
-        "These are your tasks from the meeting."
+        "Your tasks from this meeting are listed below."
         if personal else
-        "The full task list for this meeting is below."
+        "The task list for this meeting is below."
     )
     link = ""
     if meeting_id:
         url = html.escape(_meeting_link(meeting_id))
-        link = f"<p><a href=\"{url}\">Open this meeting in Clario</a></p>"
-    summary_block = ""
-    if summary:
-        summary_block = f"<p>{cell(summary)}</p>"
+        link = f"<p><a href=\"{url}\" style=\"color:#7A2E40;\">Open this meeting in Clario</a></p>"
     return (
-        "<div style=\"font-family:Arial,sans-serif;color:#2E1A1F;line-height:1.45;\">"
+        "<div style=\"font-family:Georgia,serif;color:#2E1A1F;line-height:1.5;"
+        "background:#F8F2F2;padding:24px;\">"
+        "<div style=\"background:#7A2E40;color:#FFFFFF;padding:18px 20px;border-radius:12px 12px 0 0;\">"
+        "<div style=\"font-family:Arial,sans-serif;font-size:20px;letter-spacing:0.04em;\">Clario</div>"
+        "<div style=\"font-family:Arial,sans-serif;font-size:12px;color:#F8D5DB;\">Meeting report</div>"
+        "</div>"
+        "<div style=\"background:#FFFFFF;padding:20px;border:1px solid #E4D4D7;border-top:4px solid #E5566B;"
+        "border-radius:0 0 12px 12px;\">"
         f"<p>Hello {cell(name)},</p>"
-        f"<p><strong>{cell(title)}</strong><br>Date: {cell(when)}</p>"
+        f"<p style=\"font-size:18px;color:#7A2E40;margin-bottom:4px;\">{cell(title)}</p>"
+        f"<p style=\"color:#6E5359;\">Date: {cell(when)}<br>Time: {cell(clock)}</p>"
         f"<p>{intro}</p>"
-        f"{summary_block}"
-        "<h2 style=\"font-size:16px;color:#7A2E40;\">Key points</h2>"
-        f"<ul>{points}</ul>"
-        "<h2 style=\"font-size:16px;color:#7A2E40;\">Tasks</h2>"
-        "<table style=\"border-collapse:collapse;width:100%;font-size:14px;\">"
-        "<thead><tr>"
-        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Task</th>"
-        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Assignee</th>"
-        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Deadline</th>"
-        "<th style=\"text-align:left;padding:8px 10px;border-bottom:2px solid #7A2E40;\">Priority</th>"
+        "<h2 style=\"font-size:16px;color:#7A2E40;font-family:Arial,sans-serif;\">Attendees</h2>"
+        f"<ul>{roster}</ul>"
+        "<h2 style=\"font-size:16px;color:#7A2E40;font-family:Arial,sans-serif;\">Decisions</h2>"
+        f"<ul>{decision_html}</ul>"
+        "<h2 style=\"font-size:16px;color:#7A2E40;font-family:Arial,sans-serif;\">Tasks</h2>"
+        "<table style=\"border-collapse:collapse;width:100%;font-size:14px;font-family:Arial,sans-serif;\">"
+        "<thead><tr style=\"background:#7A2E40;color:#FFFFFF;\">"
+        "<th style=\"text-align:left;padding:8px 10px;\">Task</th>"
+        "<th style=\"text-align:left;padding:8px 10px;\">Assignee</th>"
+        "<th style=\"text-align:left;padding:8px 10px;\">Deadline</th>"
+        "<th style=\"text-align:left;padding:8px 10px;\">Priority</th>"
         "</tr></thead>"
         f"<tbody>{body_rows}</tbody></table>"
         f"{link}"
-        "<p>The attached PDF has the summary, key points, decisions, and every task.</p>"
-        "</div>"
+        "<p style=\"color:#6E5359;\">The attached PDF is the meeting report, with a written summary of these decisions and tasks.</p>"
+        "</div></div>"
     )
 
 
@@ -1013,14 +1236,82 @@ def _build_message(recipient: str, subject: str, body: str, pdf: bytes,
     return message
 
 
-def _wrap(text: str) -> List[str]:
-    words = (text or "").replace("\r", "").split()
+class _ReportPage:
+    """One PDF page: rose ground, maroon header, and the Clario mark."""
+
+    def __init__(self) -> None:
+        self.ops: List[str] = []
+        self.y = 694.0
+        self.ops.append(_fill_rect(0, 0, 612, 792, _PAGE))
+        self.ops.append(_fill_rect(0, 724, 612, 68, _MAROON))
+        self.ops.append(_fill_rect(0, 720, 612, 4, _GLOW))
+        self.ops.extend(_logo_mark(36, 758))
+        self.ops.append(_pdf_text_op("Clario", 60, 756, 18, _WHITE, True))
+        self.ops.append(_pdf_text_op("Meeting report", 60, 738, 10, (0.973, 0.835, 0.859), False))
+        self.ops.append(_pdf_text_op("Clario", 48, 28, 8, _MUTED, False))
+
+    def stream(self) -> bytes:
+        return "\n".join(self.ops).encode("latin-1", "replace")
+
+
+def _logo_mark(cx: float, cy: float) -> List[str]:
+    """Concentric circles matching the Clario favicon."""
+    return [
+        _fill_circle(cx, cy, 16, _SURFACE),
+        _fill_circle(cx, cy, 11, _GLOW),
+        _fill_circle(cx, cy, 6, _MAROON),
+        _fill_circle(cx, cy, 2.4, _WHITE),
+    ]
+
+
+def _fill_rect(x: float, y: float, width: float, height: float,
+               color: Tuple[float, float, float]) -> str:
+    red, green, blue = color
+    return (
+        f"{red:.3f} {green:.3f} {blue:.3f} rg "
+        f"{x:.2f} {y:.2f} {width:.2f} {height:.2f} re f"
+    )
+
+
+def _fill_circle(cx: float, cy: float, radius: float,
+                 color: Tuple[float, float, float]) -> str:
+    red, green, blue = color
+    curve = 0.5522847498 * radius
+    return (
+        f"{red:.3f} {green:.3f} {blue:.3f} rg "
+        f"{cx + radius:.2f} {cy:.2f} m "
+        f"{cx + radius:.2f} {cy + curve:.2f} {cx + curve:.2f} {cy + radius:.2f} {cx:.2f} {cy + radius:.2f} c "
+        f"{cx - curve:.2f} {cy + radius:.2f} {cx - radius:.2f} {cy + curve:.2f} {cx - radius:.2f} {cy:.2f} c "
+        f"{cx - radius:.2f} {cy - curve:.2f} {cx - curve:.2f} {cy - radius:.2f} {cx:.2f} {cy - radius:.2f} c "
+        f"{cx + curve:.2f} {cy - radius:.2f} {cx + radius:.2f} {cy - curve:.2f} {cx + radius:.2f} {cy:.2f} c f"
+    )
+
+
+def _pdf_literal(value: str) -> str:
+    raw = " ".join((value or "").replace("\r", " ").replace("\n", " ").split())
+    encoded = raw.encode("latin-1", "replace").decode("latin-1")
+    return encoded.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _pdf_text_op(value: str, x: float, y: float, size: float,
+                 color: Tuple[float, float, float], bold: bool) -> str:
+    red, green, blue = color
+    font = "/F2" if bold else "/F1"
+    return (
+        f"BT {red:.3f} {green:.3f} {blue:.3f} rg {font} {size:.1f} Tf "
+        f"1 0 0 1 {x:.2f} {y:.2f} Tm ({_pdf_literal(value)}) Tj ET"
+    )
+
+
+def _wrap_width(text: str, width: float, size: float) -> List[str]:
+    words = " ".join((text or "").split()).split()
     if not words:
         return [""]
+    limit = max(8, int(width / max(size * 0.5, 1)))
     lines: List[str] = []
     current = words[0]
     for word in words[1:]:
-        if len(current) + 1 + len(word) > _LINE_WIDTH:
+        if len(current) + 1 + len(word) > limit:
             lines.append(current)
             current = word
         else:
@@ -1029,38 +1320,36 @@ def _wrap(text: str) -> List[str]:
     return lines
 
 
-def _lines_to_pdf(lines: List[str]) -> bytes:
-    pages = [lines[index:index + _PAGE_LINES] for index in range(0, len(lines), _PAGE_LINES)] or [[]]
+def _streams_to_pdf(streams: List[bytes]) -> bytes:
     objects: List[bytes] = []
 
     def add(data: bytes) -> int:
         objects.append(data)
         return len(objects)
 
-    page_ids: List[int] = []
-    font_id = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-    for page_lines in pages:
-        content = _page_stream(page_lines)
-        content_id = add(
+    regular = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    bold = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>")
+    content_ids = []
+    for content in streams:
+        content_ids.append(add(
             b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream"
-        )
-        page_ids.append(content_id)
-
-    page_object_ids: List[int] = []
-    for content_id in page_ids:
+        ))
+    page_object_ids = []
+    for content_id in content_ids:
         page_object_ids.append(add(
-            b"<< /Type /Page /Parent 0 0 R /MediaBox [0 0 612 792] "
-            + f"/Contents {content_id} 0 R /Resources << /Font << /F1 {font_id} 0 R >> >> >>".encode("ascii")
+            (
+                "<< /Type /Page /Parent 0 0 R /MediaBox [0 0 612 792] "
+                f"/Contents {content_id} 0 R /Resources << /Font << "
+                f"/F1 {regular} 0 R /F2 {bold} 0 R >> >> >>"
+            ).encode("ascii")
         ))
     kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
     pages_id = add(f"<< /Type /Pages /Count {len(page_object_ids)} /Kids [{kids}] >>".encode("ascii"))
     catalog_id = add(b"<< /Type /Catalog /Pages " + f"{pages_id} 0 R >>".encode("ascii"))
-
-    # Parent references were written as "0 0 R" before the pages object existed.
-    fixed: List[bytes] = []
-    for obj in objects:
-        fixed.append(obj.replace(b"/Parent 0 0 R", f"/Parent {pages_id} 0 R".encode("ascii")))
-
+    fixed = [
+        obj.replace(b"/Parent 0 0 R", f"/Parent {pages_id} 0 R".encode("ascii"))
+        for obj in objects
+    ]
     output = bytearray(b"%PDF-1.4\n")
     offsets = [0]
     for number, obj in enumerate(fixed, start=1):
@@ -1077,19 +1366,3 @@ def _lines_to_pdf(lines: List[str]) -> bytes:
         f"trailer\n<< /Size {len(fixed) + 1} /Root {catalog_id} 0 R >>\nstartxref\n{xref}\n%%EOF".encode("ascii")
     )
     return bytes(output)
-
-
-def _page_stream(lines: List[str]) -> bytes:
-    commands = ["BT", "/F1 11 Tf", "50 750 Td", "14 TL"]
-    for line in lines:
-        safe = (
-            line.replace("\\", "\\\\")
-            .replace("(", "\\(")
-            .replace(")", "\\)")
-            .encode("latin-1", "replace")
-            .decode("latin-1")
-        )
-        commands.append(f"({safe}) Tj")
-        commands.append("T*")
-    commands.append("ET")
-    return "\n".join(commands).encode("latin-1", "replace")

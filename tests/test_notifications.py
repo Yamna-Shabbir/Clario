@@ -25,6 +25,94 @@ def _db():
     return path
 
 
+def test_report_summary_is_a_brief_not_the_transcript():
+    from services.notifications import compose_report_summary
+
+    text = compose_report_summary(
+        [{"content": "We will do project meeting on Thursday."}],
+        [{
+            "assigned_to": "Yamna",
+            "description": "Do task number 1 and 2 by Thursday",
+            "due_date": "2026-11-19",
+        }],
+    )
+    assert "turned on the meeting" not in text.lower()
+    assert "agreed" in text.lower()
+    assert "project meeting" in text.lower()
+    assert "Yamna will do task number 1 and 2 by Thursday" in text
+    assert "19 November 2026" in text
+
+
+def test_followups_use_the_edited_task(tmp_path):
+    from models.database import set_task_mail_approval, update_task_for_owner, get_tasks_by_meeting
+
+    db = _db()
+    try:
+        owner_id = insert_user("ada", "ada@example.com", "hash", db_path=db)
+        meeting_id = insert_meeting(owner_id, title="Planning", db_path=db)
+        insert_tasks(meeting_id, [{
+            "description": "Send the original notes.",
+            "assigned_to": "Ada",
+            "due_date": "Friday",
+            "status": "pending",
+            "keyword": "will",
+            "priority": "Low",
+        }], db_path=db)
+        task_id = get_tasks_by_meeting(meeting_id, db)[0]["id"]
+        assert update_task_for_owner(
+            meeting_id, task_id, owner_id,
+            description="Send the revised notes.",
+            assigned_to="Ada",
+            due_date="Monday",
+            priority="High",
+            db_path=db,
+        )
+        assert set_task_mail_approval(meeting_id, task_id, owner_id, True, db)
+        sent = []
+
+        class FakeSMTP:
+            def __init__(self, *args, **kwargs):
+                return None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def starttls(self):
+                return None
+
+            def login(self, *args):
+                return None
+
+            def send_message(self, message):
+                sent.append(message)
+
+        with patch("services.notifications.BREVO_API_KEY", ""), \
+             patch("services.notifications.RESEND_API_KEY", ""), \
+             patch("services.notifications.SMTP_HOST", "smtp.example.com"), \
+             patch("services.notifications.SMTP_FROM", "ada@example.com"), \
+             patch("services.notifications.SMTP_USER", "ada@example.com"), \
+             patch("services.notifications.SMTP_PASSWORD", "secret"), \
+             patch("services.notifications.EMAIL_DIR", str(tmp_path)), \
+             patch("services.notifications.smtplib.SMTP", FakeSMTP):
+            send_meeting_followups({
+                "summary": "Yumnashabbir5 Okay Mamuna, I have turned on the meeting.",
+                "stats": {"meeting_id": meeting_id, "user_id": owner_id, "db_path": db},
+            })
+        plain = sent[0].get_body(preferencelist=("plain",)).get_content()
+        pdf = next(tmp_path.rglob("*.pdf")).read_bytes()
+        assert "Send the revised notes." in plain
+        assert "Send the original notes." not in plain
+        assert "turned on the meeting" not in plain
+        assert b"Send the revised notes." in pdf
+        assert b"turned on the meeting" not in pdf
+        assert b"Key points" not in pdf
+    finally:
+        os.remove(db)
+
+
 def test_summary_pdf_contains_the_brief():
     pdf = build_summary_pdf(
         "Planning",
@@ -836,11 +924,22 @@ def test_followups_wait_until_every_task_is_confirmed(tmp_path):
         rich = message.get_body(preferencelist=("html",)).get_content()
         assert "Task | Assignee | Deadline | Priority" in plain
         assert "Friday" in plain
-        assert "<table" in rich and "Deadline" in rich
-        assert b"Key points" in build_summary_pdf(
-            "Planning", "Notes were assigned.",
+        assert "Attendees" in plain and "Decisions" in plain
+        assert "Key points" not in plain and "Key points" not in rich
+        assert "Notes were assigned." not in plain and "Notes were assigned." not in rich
+        assert "<table" in rich and "Deadline" in rich and "Attendees" in rich
+        pdf = build_summary_pdf(
+            "Planning", "The group agreed that chat will be used for updates. Ada will send the notes.",
             [{"content": "Use chat for updates."}],
             [{"assigned_to": "Ada", "description": "Send the notes.", "due_date": "Friday"}],
+            participants=[{"name": "Ada", "email": "ada@example.com"}],
+            when="15 November 2026",
+            meeting_time="17:04",
         )
+        assert b"Key points" not in pdf
+        assert b"Clario" in pdf
+        assert b"Send the notes." in pdf
+        assert b"ada@example.com" in pdf
+        assert b"15 November 2026" in pdf
     finally:
         os.remove(db)

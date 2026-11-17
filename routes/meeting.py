@@ -429,6 +429,33 @@ def edit_task(meeting_id: int, task_id: int):
     return redirect(url_for("meeting.result", meeting_id=meeting_id))
 
 
+@meeting_bp.route("/meeting/<int:meeting_id>/task/<int:task_id>/delete", methods=["POST"])
+@login_required
+def delete_task(meeting_id: int, task_id: int):
+    """Drop one task before follow-up mail, so it is not sent."""
+    from models.database import delete_task_for_owner, get_meeting_emails
+
+    if not _owner_meeting(meeting_id):
+        abort(404)
+    if any(row.get("status") == "sent" for row in get_meeting_emails(meeting_id, DB_PATH)):
+        flash("Follow-up mail already went out, so this task was left as sent.", "error")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+    if not delete_task_for_owner(meeting_id, task_id, session["user_id"], DB_PATH):
+        flash("That task could not be removed.", "error")
+        return redirect(url_for("meeting.result", meeting_id=meeting_id))
+    try:
+        from utils.visualization import generate_status_pie_chart
+
+        updated_tasks = get_tasks_by_meeting(meeting_id, DB_PATH)
+        status_path_abs = pathlib.Path(STATIC_GRAPHS_DIR) / f"status_m{meeting_id}.png"
+        status_path_abs.parent.mkdir(parents=True, exist_ok=True)
+        generate_status_pie_chart(updated_tasks, output_path=str(status_path_abs))
+    except Exception as exc:
+        print(f"  Status chart regeneration failed: {exc}")
+    flash("Task removed. It will not be included in the email.", "success")
+    return redirect(url_for("meeting.result", meeting_id=meeting_id))
+
+
 @meeting_bp.route("/meeting/<int:meeting_id>/task/<int:task_id>/approve", methods=["POST"])
 @login_required
 def approve_task(meeting_id: int, task_id: int):
