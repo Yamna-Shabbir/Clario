@@ -63,6 +63,7 @@ class FakeModel:
             "min_length": min_length,
             "num_beams": num_beams,
             "early_stopping": early_stopping,
+            "encoder_no_repeat_ngram_size": kwargs.get("encoder_no_repeat_ngram_size"),
         })
         if self._preset_idx < len(self.preset_outputs):
             out = self.preset_outputs[self._preset_idx]
@@ -97,8 +98,15 @@ class TestSummarizeEdgeCases:
         short_text = "Alice discussed the project plan with Bob today."
         res = summarize_text(short_text, summariser=(model, tok))
         assert res == short_text
-        # Model should not be called for <= 30 tokens
+        # One short sentence is already the summary.
         assert len(model.generate_calls) == 0
+
+    def test_short_meeting_is_still_paraphrased(self, fake_summariser):
+        model, tok = fake_summariser
+        text = "John will deploy the schema tomorrow. Sara will send the notes by Friday."
+        summarize_text(text, summariser=(model, tok))
+        assert len(model.generate_calls) == 1
+        assert model.generate_calls[0]["encoder_no_repeat_ngram_size"] == 3
 
 
 class TestChunking:

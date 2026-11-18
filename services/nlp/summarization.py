@@ -285,6 +285,14 @@ def smart_merge(summary: str, tasks: Optional[List[Dict[str, Any]]] = None) -> s
             continue
         if d.lower() in summary_lower:
             continue
+        # A paraphrase already covers the task when it restates the same sentence.
+        spoken = re.sub(r"[^a-z0-9]+", " ", d.lower()).strip()
+        if spoken and any(
+            difflib.SequenceMatcher(None, spoken, sentence).ratio() > 0.8
+            for sentence in re.split(r"[.!?]", summary_lower)
+            if sentence.strip()
+        ):
+            continue
         to_add.append(d)
 
     if to_add:
@@ -390,6 +398,12 @@ def extractive_summarize(
     return smart_merge(result, tasks)
 
 
+def _sentence_count(text: str) -> int:
+    """How many sentences a transcript contains. A lone sentence can stay as-is."""
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if part.strip()]
+    return len(parts)
+
+
 def _summarize_chunk(
     chunk_text: str,
     model,
@@ -399,15 +413,18 @@ def _summarize_chunk(
     device: int = -1,
     num_beams: int = 4,
 ) -> str:
-    """Summarize a single text chunk with scaled dynamic min/max lengths."""
+    """Summarize one chunk. The decoder may not copy a three-word phrase from the source.
+
+    DistilBART is trained to pick out news sentences, so on a meeting it otherwise
+    repeats the transcript. ``encoder_no_repeat_ngram_size`` blocks that copy
+    and forces a paraphrase. A failed generation still returns the chunk.
+    """
     approx_input_tokens = len(
         tokenizer.encode(chunk_text, add_special_tokens=False)
     )
-    if approx_input_tokens <= 30:
-        return chunk_text.strip()
-
-    safe_max = min(max_length, max(30, approx_input_tokens // 2))
-    safe_min = min(min_length, max(10, safe_max // 3))
+    # Keep the summary shorter than the transcript, including for a short meeting.
+    safe_max = min(max_length, max(24, approx_input_tokens // 2))
+    safe_min = min(min_length, max(8, safe_max // 3))
     if safe_min > safe_max:
         safe_min = max(5, safe_max // 2)
 
@@ -423,14 +440,23 @@ def _summarize_chunk(
         if device == 0 and torch.cuda.is_available():
             inputs = {k: v.cuda() for k, v in inputs.items()}
 
-        summary_ids = model.generate(
-            inputs["input_ids"],
-            max_length=safe_max,
-            min_length=safe_min,
-            num_beams=num_beams,
-            early_stopping=True,
-        )
-        return tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+        generate_kwargs = {
+            "max_length": safe_max,
+            "min_length": safe_min,
+            "num_beams": num_beams,
+            "early_stopping": True,
+            # DistilBART starts decoding at token 0. Without it the model
+            # warns and is more likely to echo the transcript.
+            "forced_bos_token_id": 0,
+            "encoder_no_repeat_ngram_size": 3,
+        }
+        attention = inputs.get("attention_mask") if hasattr(inputs, "get") else None
+        if attention is not None:
+            generate_kwargs["attention_mask"] = attention
+
+        summary_ids = model.generate(inputs["input_ids"], **generate_kwargs)
+        summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True).strip()
+        return summary or chunk_text.strip()
     except Exception as exc:
         print(f"  Chunk summarization warning: {exc}")
         return chunk_text
@@ -497,9 +523,11 @@ def summarize_text(
         print("⚠️  BART model not available — using extractive summarization fallback.")
         return extractive_summarize(text, tasks=tasks)
 
-    # Check for very short inputs (<= 30 tokens) -> return as-is
+    # A single short sentence is already the summary. Several sentences are
+    # still sent to BART, even when they total 30 tokens or fewer, so a short
+    # meeting is paraphrased instead of copied back.
     initial_tokens = tokenizer.encode(text, add_special_tokens=False)
-    if len(initial_tokens) <= 30:
+    if len(initial_tokens) <= 30 and _sentence_count(text) < 2:
         print(f"Input too short ({len(initial_tokens)} tokens) — returning as-is.")
         return smart_merge(text.strip(), tasks)
 

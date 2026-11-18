@@ -337,7 +337,9 @@ services/jobs.py  _run_pipeline_job()
         │        [lazy, cached globally, thread-safe]
         │      → Token-aware chunking: sentence-boundary chunks <= CLARIO_SUMMARY_CHUNK_TOKENS
         │        (default 700 tokens) with 2-sentence overlap
-        │      → Map: summarize each chunk (num_beams=4, early_stopping=True)
+        │      → Map: summarize each chunk (num_beams=4, early_stopping=True,
+        │        encoder_no_repeat_ngram_size=3 so the summary cannot copy a
+        │        three-word phrase from the transcript)
         │      → Reduce: join partials; re-summarize if > chunk limit (max 3 levels)
         │      → Extractive summarization fallback when model is unavailable or OOM
         │      → smart_merge(): append tasks not in summary (post map-reduce)
@@ -673,7 +675,11 @@ assistant_messages                    (many-to-1 with assistant_conversations)
     deprecated -- it remains in the function signature for backward compatibility
     but is never applied as `text[:max_input_chars]`. Do not reintroduce that cap.
     `smart_merge()` in `services/nlp/summarization.py` appends action items not already
-    in the summary and is called after map-reduce completes. Tests use
+    in the summary and is called after map-reduce completes. Generation passes
+    `encoder_no_repeat_ngram_size=3`, so the summary cannot reuse a three-word
+    phrase from the transcript. One sentence of 30 tokens or fewer is returned
+    unchanged. Two or more sentences are summarized even when they are shorter
+    than that. Tests use
     `FakeModel`/`FakeTokenizer` (1 word = 1 token) -- never load real BART weights
     in automated tests.
 
